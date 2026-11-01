@@ -66,7 +66,7 @@ describe("buscar_pedidos", () => {
     expect((await call("buscar_pedidos", { creado_desde: "30/10/2026" })).parsed.success).toBe(false);
     expect((await call("buscar_pedidos", { creado_desde: "2026-02-31" })).parsed.success).toBe(false);
     expect((await call("buscar_pedidos", { pagina: 0 })).parsed.success).toBe(false);
-    expect((await call("buscar_pedidos", { entrega: "enviada" })).parsed.success).toBe(false);
+    expect((await call("buscar_pedidos", { entrega: "despachada" })).parsed.success).toBe(false);
     expect((await call("buscar_pedidos", { telefono: "987654789" })).parsed.success).toBe(false);
   });
 
@@ -75,7 +75,7 @@ describe("buscar_pedidos", () => {
     const messages = async (name: string, input: unknown) => { const { parsed } = await call(name, input); return parsed.success ? [] : parsed.error.issues.map((issue) => issue.message); };
     expect(await messages("buscar_pedidos", { texto: "x".repeat(121) })).toEqual(["texto admite como máximo 120 caracteres."]);
     expect(await messages("buscar_pedidos", { pago: "debe" })).toEqual(['pago admite "por cobrar" o "pagado".']);
-    expect(await messages("buscar_pedidos", { entrega: "enviada" })).toEqual(['entrega admite "pendiente", "despachada" o "entregada".']);
+    expect(await messages("buscar_pedidos", { entrega: "despachada" })).toEqual(['entrega admite "pendiente", "enviada" o "entregada".']);
     expect(await messages("buscar_pedidos", { courier: "" })).toEqual(["courier no puede estar vacío."]);
     expect(await messages("buscar_pedidos", { courier: 5 })).toEqual(["courier debe ser un texto."]);
     expect(await messages("buscar_pedidos", { telefono: "987654789" })).toEqual(["No existe el campo telefono. Usa solo los campos de la herramienta."]);
@@ -175,7 +175,7 @@ describe("pedidos_por_despachar_hoy", () => {
     expect(deps.listDispatchQueue).toHaveBeenCalledWith("2026-10-30", 1, access);
     expect(answer.run).toMatchObject({ data: { output: {
       resumen: "Atrasados: 1, 1 listo. Para hoy: 0, 0 listos.", sin_fecha_de_despacho: "Además hay 1 pedido pendiente sin fecha de despacho.",
-      pedidos: [{ grupo: "Atrasados", numero: "#1048", despacho_programado: "28/10/2026", preparacion: { listo: true, texto: "Listo para despachar" } }],
+      pedidos: [{ grupo: "Atrasados", numero: "#1048", despacho_programado: "28/10/2026", preparacion: { listo: true, texto: "Listo para enviar" } }],
     } } });
   });
 

@@ -41,7 +41,7 @@ export type OrderEditParts = Readonly<{
 }>;
 export type ItemsPlan = Readonly<{ lookup: readonly VariantId[] }>;
 export type VariantNotFound = Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: VariantId }>;
-export type ItemsLocked = Readonly<{ code: "ITEMS_LOCKED"; message: string }>;
+export type CustomerRequired = Readonly<{ code: "CUSTOMER_REQUIRED"; message: string }>;
 
 const failure = (code: OrderDomainError["code"], message: string) => err({ code, message });
 
@@ -86,13 +86,19 @@ function isApplied(order: OrderAggregate, input: OrderEditParts, part: OrderPart
   return input.delivery !== undefined && isDeliveryApplied(order, input.delivery.change);
 }
 
-/** A cancelled order refuses every edit, a delivery that left pending refuses items and delivery, and deducted stock refuses items. */
-function checkLocks(order: OrderAggregate, parts: ReadonlySet<OrderPart>): Result<null, OrderDomainError | ItemsLocked> {
+/** A cancelled order refuses every edit and a delivery that left pending refuses items and delivery. Deducted stock does not lock items: the stock listener settles the difference. */
+function checkLocks(order: OrderAggregate, parts: ReadonlySet<OrderPart>): Result<null, OrderDomainError> {
   if (parts.size === 0) return ok(null);
   if (order.cancelled) return failure("ORDER_CANCELLED", "Order is cancelled");
   const touchesFulfillment = parts.has("items") || parts.has("delivery");
   if (touchesFulfillment && order.deliveryStatus !== "pending") return failure("DELIVERY_LOCKED", "Delivery has progressed");
-  if (parts.has("items") && order.stockDeducted) return err({ code: "ITEMS_LOCKED", message: "Stock was already deducted for the items" });
+  return ok(null);
+}
+
+/** The customer of an order the buyer confirmed can be changed but not cleared: the buyer's own name and phone are part of what they confirmed. */
+function checkCustomerRequired(order: OrderAggregate, input: OrderEditParts): Result<null, CustomerRequired> {
+  if (input.customer?.value === null && order.checkoutConfirmedAt !== null)
+    return err({ code: "CUSTOMER_REQUIRED", message: "The customer of an order confirmed by the buyer cannot be cleared" });
   return ok(null);
 }
 
@@ -129,10 +135,8 @@ function applyItems(order: OrderAggregate, lines: readonly OrderLineRequest[], v
     if (!variant) return err({ code: "VARIANT_NOT_FOUND", message: "The variant is no longer available", variantId: line.variantId });
     next.push(kept ? { ...kept, quantity: line.quantity as number as PositiveInteger }
       : { id: newItemId(), variantId: variant.variantId, productName: variant.productName, variantAttributes: variant.variantAttributes, sku: variant.sku,
-        quantity: line.quantity as number as PositiveInteger, unitPrice: variant.unitPrice, subtotal: variant.unitPrice, mentionedPrice: null });
+        quantity: line.quantity as number as PositiveInteger, unitPrice: variant.unitPrice, subtotal: variant.unitPrice, mentionedPrice: null, stockDeductedQuantity: 0 });
   }
-  // Items are read back in id order, so the next items are sorted the same way.
-  next.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   // `appendItems` with no variants rebuilds the items and totals of the order it receives, keeping the delivery charge.
   const rebuilt = orderStateMachine.appendItems({ ...order, items: next as unknown as OrderAggregate["items"] }, [], newItemId);
   if (!rebuilt.success) return rebuilt;
@@ -163,4 +167,4 @@ function amendDelivery(order: OrderAggregate, amendment: DeliveryAmendment, auth
   return parsed.success ? ok({ ...order, delivery: parsed.data }) : parsed;
 }
 
-export const orderEdit = { isApplied, checkLocks, planItems, applyItems, applyCustomer, amendDelivery } as const;
+export const orderEdit = { isApplied, checkLocks, checkCustomerRequired, planItems, applyItems, applyCustomer, amendDelivery } as const;

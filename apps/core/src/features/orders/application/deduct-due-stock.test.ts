@@ -13,7 +13,7 @@ const v = (n: number) => id(100 + n) as VariantId;
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const ending: TransactionEndingError = { code: "PERSISTENCE_UNAVAILABLE", message: "closed", transactionEnding: true };
 function order(n: number, items: [number, number][], overrides: Partial<StockOrder> = {}): StockOrder {
-  const [first, ...rest] = items.map(([variant, quantity]) => ({ variantId: v(variant), quantity: quantity as never }));
+  const [first, ...rest] = items.map(([variant, quantity]) => ({ variantId: v(variant), quantity: quantity as never, deducted: 0 as never }));
   return { id: id(n) as OrderId, createdAt: new Date(2026, 9, n), cancelled: false, stockDeducted: false, deliveryStatus: "pending", total: money(100),
     items: [first!, ...rest], confirmedPayments: [{ amount: money(100), deductStockIfPartial: false }], ...overrides };
 }
@@ -47,6 +47,8 @@ function fixture(orders: StockOrder[], stock: Record<number, unknown>, options: 
       for (const line of lines) quantities.set(line.variantId, Number(quantities.get(line.variantId)) - line.quantity);
       return ok(lines.length);
     },
+    restoreStock: async (units) => { statements.push("restore"); for (const unit of units) quantities.set(unit.variantId, Number(quantities.get(unit.variantId) ?? 0) + unit.quantity); return ok(units.length); },
+    saveLineDeductions: async (_orderId, _company, byVariant) => { statements.push("save_lines"); return ok(byVariant.size); },
     saveStockDeductions: async (ids) => { statements.push("save"); for (const orderId of ids) deducted.add(orderId); return ok(ids.length); },
     listWaitingOrderIds: async (_company, _variants, limit) => { statements.push("list"); return ok(orders.filter((candidate) => !deducted.has(candidate.id)).map((candidate) => candidate.id).slice(0, limit)); },
     limitStatementsToMs: async (ms) => { limits.push(ms); },
@@ -168,4 +170,40 @@ test("deducts every served order with one bulk statement", async () => {
   expect(f.statements.filter((statement) => statement === "deduct")).toHaveLength(1);
   expect(f.statements).toEqual(["list", "lock_orders", "load", "lock_stock:skip_locked", "deduct", "save"]);
   expect([...f.quantities]).toEqual([[v(1), 3], [v(2), 3]]);
+});
+
+const deductedOrder = (n: number, items: [number, number, number][]): StockOrder => {
+  const [first, ...rest] = items.map(([variant, quantity, deducted]) => ({ variantId: v(variant), quantity: quantity as never, deducted: deducted as never }));
+  return { ...order(n, [[1, 1]]), stockDeducted: true, items: [first!, ...rest] };
+};
+
+test("an edited deducted order takes the added units, returns the removed ones and locks the variants waiting in one pass", async () => {
+  const f = fixture([deductedOrder(1, [[1, 5, 3], [2, 1, 3]])], { 1: 10, 2: 0 });
+  const result = await deductDueOrderStock("order_edited", f.deps)({ companyId: company, orderId: id(1) as OrderId, returns: [{ variantId: v(3), quantity: 2 as never }] });
+  expect(result).toMatchObject({ success: true, data: { kind: "adjusted", returnedUnits: 4, deductedUnits: 2, pending: [], returnedVariantIds: [v(2), v(3)] } });
+  expect(f.statements).toEqual(["load", "lock_stock:wait", "deduct", "restore", "save_lines"]);
+  expect([...f.quantities]).toEqual([[v(1), 8], [v(2), 2], [v(3), 2]]);
+  expect(f.events).toContainEqual(expect.objectContaining({ kind: "adjusted", returnedUnits: 4, deductedUnits: 2, pendingLines: 0 }));
+});
+
+test("a short increase is saved: it takes what fits, leaves the rest pending and reports it as waiting", async () => {
+  const f = fixture([deductedOrder(1, [[1, 6, 2]])], { 1: 3 });
+  const result = await deductDueOrderStock("order_edited", f.deps)({ companyId: company, orderId: id(1) as OrderId });
+  expect(result).toMatchObject({ success: true, data: { kind: "adjusted", deductedUnits: 3, pending: [{ variantId: v(1), available: 0 }] } });
+  expect(result.success && result.data.kind === "adjusted" ? result.data.deductedByVariant.get(v(1)) : null).toBe(5);
+  expect(f.events.map((event) => event.kind)).toEqual(["waiting", "adjusted"]);
+});
+
+test("an edited deducted order that is already settled changes nothing", async () => {
+  const f = fixture([deductedOrder(1, [[1, 2, 2]])], { 1: 3 });
+  const result = await deductDueOrderStock("order_edited", f.deps)({ companyId: company, orderId: id(1) as OrderId });
+  expect(result).toMatchObject({ success: true, data: { kind: "adjusted", returnedUnits: 0, deductedUnits: 0, pending: [] } });
+  expect(f.statements).toEqual(["load", "lock_stock:wait"]);
+});
+
+test("serving waiting orders also completes the pending part of a deducted order", async () => {
+  const f = fixture([deductedOrder(1, [[1, 6, 2]])], { 1: 4 });
+  await serve(f, [1]);
+  expect(f.statements).toEqual(["list", "lock_orders", "load", "lock_stock:skip_locked", "deduct", "save"]);
+  expect([...f.quantities]).toEqual([[v(1), 0]]);
 });

@@ -15,7 +15,7 @@ const order = (): OrderAggregate => ({
   number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
   buyer: null, fromCatalog: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false, cancelledAt: null, stockDeductedAt: null,
   items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null,
-    quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
+    quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10), stockDeductedQuantity: 0 }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
   itemsTotal: money(10), deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
 });
@@ -204,6 +204,37 @@ describe("delivery and stock transitions", () => {
       delivery: null, deliveryStatus: "delivered", completedAt: paymentAt, payments: paid.data.payments } });
   });
 
+  test("delivers with a partial confirmed payment, keeping the balance and no completion date until covered", () => {
+    expect(orderStateMachine.registerDelivery(order(), paymentAt)).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
+    const partial = orderStateMachine.registerPayment(order(), payment(4, 4));
+    if (!partial.success) throw new Error("Expected payment");
+    const deducted = orderStateMachine.planStockDeduction(partial.data, true, stockAt);
+    if (!deducted.success) throw new Error("Expected deduction plan");
+    const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder, new Date("2026-10-14T15:00:00Z"));
+    if (!shipped.success) throw new Error("Expected shipment");
+    for (const source of [deducted.data.nextOrder, shipped.data]) {
+      const delivered = orderStateMachine.registerDelivery(source, paymentAt);
+      expect(delivered).toMatchObject({ success: true, data: { deliveryStatus: "delivered", deliveredAt: paymentAt, completedAt: null } });
+      if (!delivered.success) continue;
+      expect(orderStateMachine.getLifecycle(delivered.data)).toEqual({ success: true, data: { status: "active", completedAt: null } });
+    }
+  });
+
+  test("a payment that covers a delivered order completes it and voiding it reopens the balance", () => {
+    const partial = orderStateMachine.registerPayment(order(), payment(4, 4));
+    if (!partial.success) throw new Error("Expected payment");
+    const deducted = orderStateMachine.planStockDeduction(partial.data, true, stockAt);
+    if (!deducted.success) throw new Error("Expected deduction plan");
+    const delivered = orderStateMachine.registerDelivery(deducted.data.nextOrder, paymentAt);
+    if (!delivered.success) throw new Error("Expected delivery");
+    const covered = orderStateMachine.registerPayment(delivered.data, payment(6, 6));
+    expect(covered).toMatchObject({ success: true, data: { deliveredAt: paymentAt, completedAt: payment(6, 6).data.confirmedAt } });
+    if (!covered.success) return;
+    expect(orderStateMachine.getLifecycle(covered.data)).toMatchObject({ success: true, data: { status: "completed" } });
+    const voided = orderStateMachine.voidConfirmedPayment(covered.data, payment(6, 6).id, "seller" as UserId, paymentAt);
+    expect(voided).toMatchObject({ success: true, data: { deliveredAt: paymentAt, completedAt: null } });
+  });
+
   test("cancels before dispatch, requests one restoration and preserves payments", () => {
     const paid = orderStateMachine.registerPayment(order(), payment(5, 10));
     if (!paid.success) throw new Error("Expected payment");
@@ -243,7 +274,7 @@ describe("delivery and stock transitions", () => {
 
 describe("chat order item operations", () => {
   const item = (n: number, variant: number, quantity: number, unit: number) => ({ id: id(n) as OrderItemId, variantId: id(variant) as VariantId, productName: `Item ${variant}`,
-    variantAttributes: {}, sku: null, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity) });
+    variantAttributes: {}, sku: null, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), stockDeductedQuantity: 0 });
   const two = (): OrderAggregate => ({ ...order(), items: [item(3, 4, 2, 10), item(5, 6, 1, 5)], itemsTotal: money(25), total: money(25) });
   const newItemId = () => id(90) as OrderItemId;
 
@@ -291,7 +322,7 @@ describe("appendItems", () => {
     expect(result).toMatchObject({ success: true, data: { itemsTotal: money(17), total: money(17) } });
     if (!result.success) return;
     expect(result.data.items).toEqual([{ ...order().items[0], mentionedPrice: null }, { id: id(90), variantId: id(5), productName: "Variant 5", variantAttributes: { Size: "M" },
-      sku: null, quantity: 1, unitPrice: money(7), subtotal: money(7), mentionedPrice: null }]);
+      sku: null, quantity: 1, unitPrice: money(7), subtotal: money(7), mentionedPrice: null, stockDeductedQuantity: 0 }]);
   });
 
   test("appendItems increments the quantity of a variant already in the order", () => {

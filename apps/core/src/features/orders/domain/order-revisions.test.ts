@@ -15,7 +15,7 @@ const pricing = { quotationId: id(20), rateId: id(21), optionId: id(22), setting
 const home: DeliverySnapshot = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
   destination: { ...district, address: "Av. Lima 123", instructions: null }, pricing, recordedBy: seller };
 const item = (n: number, quantity: number, unit: number) => ({ id: id(n) as OrderItemId, variantId: id(n + 100) as VariantId, productName: "Traje",
-  variantAttributes: { Talla: "S" }, sku: null, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null });
+  variantAttributes: { Talla: "S" }, sku: null, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null, stockDeductedQuantity: 0 });
 const order = (): OrderAggregate => ({
   number: 1042 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId, fromCatalog: false,
   buyer: { contactId: id(50) as ContactId, name: "Luis", phone: "+51999111222" }, checkoutEnabledAt: null, checkoutConfirmedAt: null,

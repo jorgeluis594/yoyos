@@ -90,6 +90,14 @@ test("refuses delivering immediately with short stock, names the short variant a
   expect(f.deliver).not.toHaveBeenCalled();
 });
 
+test("delivers immediately on save with a partial payment and no stock-deduction request", async () => {
+  const f = fixture();
+  const partial = { ...payment, amount: { amount: 4, currency: "PEN" as const } };
+  expect(await createCompleteOrder({ ...input, payments: [partial], deliverImmediately: true }, context, f.deps)).toEqual(ok({ order: f.order, stockDue: null }));
+  expect(f.registerPayment).toHaveBeenCalledTimes(1);
+  expect(f.deliver).toHaveBeenCalledTimes(1);
+});
+
 test("answers a data fault while delivering immediately as INVALID_STORED_DATA, never as insufficient stock", async () => {
   const f = fixture();
   paidWith(f, { kind: "failed", stage: "lock_stock", errorCode: "INVALID_STORED_DATA" });

@@ -636,12 +636,16 @@ model OrderItem {
   productName String
   variantAttributes Json @db.Json
   sku String?
+  /// Place of the line in the order, in the order the seller entered it.
+  position Int @default(0)
   quantity BigInt
   unitPrice Decimal @db.Decimal(11, 2)
   subtotal Decimal @db.Decimal(15, 2)
   mentionedPriceAmount Decimal? @db.Decimal(11, 2)
   mentionedPriceUnits Int?
   orderCreatedAt DateTime
+  /// Units of this line already taken out of the variant's stock; the cancellation returns exactly this. It is at most `quantity` once an edit settles, but there is no CHECK (deducted <= quantity): while an edit runs `quantity` is lowered before the stock listener returns the difference, so the row is briefly above it.
+  stockDeductedQuantity BigInt @default(0)
 
   @@unique([companyId, orderId, variantId])
   @@index([companyId, variantId, orderCreatedAt, orderId])

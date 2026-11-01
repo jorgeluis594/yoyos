@@ -11,15 +11,13 @@ const t = translations.getFixedT("es", "translation");
  * so the tool and the button never drift. `shortItems` are the names of the short items and `owed` the formatted balance.
  */
 export function readinessText(readiness: ProjectableReadiness, shortItems: readonly string[], owed: string | null): string {
-  if (readiness.kind === "ready") return readiness.operation === "ship" ? "Listo para despachar" : "Listo para entregar";
+  if (readiness.kind === "ready") return readiness.operation === "ship" ? "Listo para enviar" : "Listo para entregar";
   if (readiness.kind === "delivery_unassigned") return "Entrega por definir: falta asignar la entrega.";
   const { reason, operation } = readiness;
   switch (reason.code) {
     case "SHIP_PAYMENT_REQUIRED": return `${t("orderFulfillment.SHIP_PAYMENT_REQUIRED")}${reason.pendingReport ? ` ${pendingReportSentence}` : ""}`;
     case "PAYMENT_REQUIRED": return [t("orderFulfillment.PAYMENT_REQUIRED"), owed ? `Por cobrar: ${owed}.` : "", reason.pendingReport ? pendingReportSentence : ""].filter(Boolean).join(" ");
     case "STOCK_WAITING": return t(`orderFulfillment.STOCK_WAITING_${operation}`, { items: shortItems.join(", ") });
-    case "STOCK_DEDUCTING": return t("orderFulfillment.STOCK_DEDUCTING");
-    case "STOCK_NOT_DEDUCTED": return t("orderFulfillment.STOCK_NOT_DEDUCTED");
   }
 }
 
@@ -63,9 +61,9 @@ export const searchOrdersDescription = [
   "Busca pedidos de la tienda. Úsala cuando el dueño nombre a un cliente, un número, un estado o un rango de fechas («los pedidos de Carla», «lo que despaché la semana pasada con Olva»).",
   "No la uses para «¿quién me debe?» (usa pedidos_por_cobrar) ni para «¿qué despacho hoy?» (usa pedidos_por_despachar_hoy). Para un pedido cuyo número se conoce usa ver_pedido.",
   "Todos los filtros son opcionales y se combinan. texto: número de pedido o parte del nombre del cliente; no busca por teléfono. Si el texto lleva algún dígito se busca solo por número de pedido, nunca por el nombre: un cliente sin nombre («Cliente que termina en 427») o con un número en su nombre solo se encuentra por número de pedido o por los otros filtros; díselo al dueño en vez de adivinar o paginar todos los pedidos.",
-  "pago: «por cobrar» o «pagado». entrega: «pendiente», «despachada» o «entregada». incluir_cancelados: false por defecto; se ignora cuando das pago, porque por cobrar y pagado nunca incluyen pedidos cancelados.",
+  "pago: «por cobrar» o «pagado». entrega: «pendiente», «enviada» o «entregada». incluir_cancelados: false por defecto; se ignora cuando das pago, porque por cobrar y pagado nunca incluyen pedidos cancelados.",
   "courier: nombre del courier (también los deshabilitados que aún tienen pedidos). Fechas como AAAA-MM-DD, días completos en hora de Lima con ambos extremos incluidos: creado_desde/creado_hasta, despacho_programado_desde/despacho_programado_hasta (o sin_fecha_de_despacho), despachado_desde/despachado_hasta. pagina: 20 pedidos por página, los más recientes primero.",
-  "Cada pedido trae número, fecha, cliente, origen, total, estado de pago y lo que falta cobrar, estado de entrega, modalidad, courier, fecha de despacho programada y enlace. No trae si está listo para despachar ni el distrito de destino: eso solo está en ver_pedido y pedidos_por_despachar_hoy; no lo adivines.",
+  "Cada pedido trae número, fecha, cliente, origen, total, estado de pago y lo que falta cobrar, estado de entrega, modalidad, courier, fecha de despacho programada y enlace. No trae si está listo para enviar ni el distrito de destino: eso solo está en ver_pedido y pedidos_por_despachar_hoy; no lo adivines.",
 ].join(" ");
 
 export const viewOrderDescription = [

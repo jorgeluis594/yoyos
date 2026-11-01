@@ -56,6 +56,7 @@
 /* Touch targets take precedence over compact component size utilities. */
 @media (pointer: coarse), (width < 48rem) {
   [data-slot="button"], [data-slot="navigation-link"], [data-slot="pagination-link"], [data-slot="tabs-trigger"], [data-slot="toggle-group-item"] { min-height: var(--touch-target-min-size); }
+  [data-slot="inline-action"] { display: inline-flex; align-items: center; min-height: var(--touch-target-min-size); }
   [data-slot="tabs-list"] { height: auto; }
   [data-slot="button"][data-size^="icon"] { min-width: var(--touch-target-min-size); }
   [data-slot="input"], [data-slot="select"] { min-height: var(--touch-target-min-size); }

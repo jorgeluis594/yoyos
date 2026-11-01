@@ -26,7 +26,7 @@ const item = (id: string, variantId: string, name: string, size: string | null, 
 function order(patch: Partial<OrderAggregateResponse> = {}): OrderAggregateResponse {
   return {
     checkoutEnabledAt: null, checkoutConfirmedAt: null, number: 1042, id: orderId, companyId: "00000000-0000-4000-8000-0000000000c1", sellerId: "user-1",
-    buyer: null, source: "manual", createdAt: "2026-10-30T09:10:00.000Z", scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, status: "active",
+    buyer: null, source: "manual", createdAt: "2026-10-30T09:10:00.000Z", scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelledAt: null, stockDeductedAt: null, status: "active",
     paymentStatus: "pending", paidAmount: pen(0), balanceDue: pen(178), overpaidAmount: pen(0), cancelled: false, delivery: null, deliveryStatus: "pending",
     stockDeducted: false, stockDue: null,
     items: [item("00000000-0000-4000-8000-000000000001", trajeM, "Traje de Príncipe Azul", "M", 89, 1), item("00000000-0000-4000-8000-000000000002", trajeL, "Traje de Príncipe Azul", "L", 89, 1)],
@@ -235,17 +235,20 @@ describe("OrderProductsCard", () => {
     expect(quantities()[0]).toBe("1");
   });
 
-  test("shows the locked note with its remedy when stock is deducted", async () => {
+  test("keeps the products editable and shows no lock note when stock is deducted", async () => {
     await mount(saved({ order: order({ stockDeducted: true }) }));
-    expect(text()).toContain("El stock de este pedido ya se descontó; los productos ya no se pueden cambiar. Para cambiarlos, cancela el pedido y crea una venta nueva.");
-    expect(text()).toContain("Stock descontado");
+    expect(text()).not.toContain("ya no se pueden cambiar");
+    expect(button("Agregar producto").disabled).toBe(false);
+    expect(button("Aumentar cantidad").disabled).toBe(false);
+    expect(fields()[0]!.disabled).toBe(false);
   });
 
-  test("disables every products control when stock is deducted", async () => {
-    await mount(saved({ order: order({ stockDeducted: true }) }));
-    expect(button("Agregar producto").disabled).toBe(true);
-    expect(button("Aumentar cantidad").disabled).toBe(true);
-    expect(button("Quitar Traje de Príncipe Azul, M").disabled).toBe(true);
-    expect(fields()[0]!.disabled).toBe(true);
+  test("shows the amber notice naming the products whose added units did not fit", async () => {
+    const short = order({ stockDeducted: true });
+    await mount(saved({ order: { ...short, stockDue: { kind: "partial_waiting", shortItems: [{ variantId: short.items[0]!.variantId, available: 0 }] } } }));
+    expect(text()).toContain("Se guardó el cambio, pero no hay stock suficiente de Traje de Príncipe Azul (M). Se descontará cuando haya.");
+    const notice = [...document.body.querySelectorAll("[role=note]")].find((el) => el.textContent?.includes("no hay stock suficiente"));
+    expect(notice?.className).toContain("bg-[var(--warning-surface)]");
+    expect(notice?.className).not.toContain("bg-warning/");
   });
 });
