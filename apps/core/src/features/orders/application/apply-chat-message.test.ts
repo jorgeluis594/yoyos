@@ -336,6 +336,7 @@ describe("applyChatMessage: decisions", () => {
     expect(h.traces[0]!.records).toHaveLength(3);
     expect(h.changeSaves[0]!.changes.length).toBeGreaterThan(0);
     expect(h.changeSaves[0]!.changes.every((row) => row.decision.kind === "doubtful")).toBe(true);
+    expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", decision: { kind: "doubtful", reason: { kind: "variant_changed", attribute: "Talla", from: "L", to: "M" } } }));
     expect(quantityOf(h.store, poloM.variantId)).toBe(1);
   });
 
@@ -372,6 +373,79 @@ describe("applyChatMessage: too many requests", () => {
   });
 });
 
+const pointOf = (over: Partial<ChatPending> = {}): ChatPending => ({ id: id(700) as ChatPendingId, subject: { kind: "variant", productId: productPolo }, known: {}, quantity: 3 as PositiveInteger, price: null,
+  order: { orderId: id(9) as OrderId, attachedAt: hourBefore }, lastChangedAt: hourBefore, sourceMessageId: id(70) as ChatMessageId, requestId: id(700) as ChatPendingId,
+  doubt: { reason: { kind: "quantity_set", quantity: 3 as PositiveInteger } }, pointSince: hourBefore, acknowledgedAt: null, ...over });
+const inheritedFromQuantity = { kind: "inherited", from: { kind: "quantity_set", quantity: 3 } };
+
+describe("applyChatMessage: pendings with a doubt", () => {
+  const completeWithM = (quantity: number | null) => ({ message: textMessage(quantity === null ? "el polo en M" : "uno en M"), target: poloTarget(), script: { intent: requestsOf(intent("R1", quantity === null ? "add" : "complete_pending", quantity === null ? "el polo en M" : "uno en M")),
+    extraction: [quantity === null ? addPolo("el polo") : extracted("R1", "complete_pending", { target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, values: [{ attributeWords: null, valueWords: current("M") }],
+      quantity: { value: quantity, mode: "set", quote: current("uno") } })], resolutions: quantity === null ? [poloInM()] : [] } });
+
+  test("applies a doubtful quantity change on a pending with its doubt and an unacknowledged point", async () => {
+    const more = extracted("R1", "change_quantity", { target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: { value: 2, mode: "add", quote: current("2 más") } });
+    const h = harness({ message: textMessage("2 más de esas"), target: poloTarget(), pendings: pendingSet(pointOf({ doubt: null, quantity: 2 as PositiveInteger, acknowledgedAt: hourBefore })),
+      script: { intent: requestsOf(intent("R1", "change_quantity", "2 más")), extraction: [more] } });
+    await succeeded(h.run());
+
+    expect(h.store.pendings.pendings[0]).toMatchObject({ quantity: 4, doubt: { reason: { kind: "quantity_set", quantity: 4 } }, pointSince: at, acknowledgedAt: null });
+    expect(h.changeSaves[0]!.changes).toHaveLength(0);
+  });
+
+  test("gives the item created by a full completion the pending's «Con duda»", async () => {
+    const h = harness({ ...completeWithM(null), pendings: pendingSet(pointOf()) });
+    await succeeded(h.run());
+
+    expect(h.store.pendings.pendings).toHaveLength(0);
+    expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", after: expect.objectContaining({ variantId: poloM.variantId }), decision: { kind: "doubtful", reason: inheritedFromQuantity } }));
+  });
+
+  test("gives the item created by a split completion the pending's «Con duda» while the remainder keeps the pending id", async () => {
+    const h = harness({ ...completeWithM(1), pendings: pendingSet(pointOf()) });
+    await succeeded(h.run());
+
+    expect(h.store.pendings.pendings).toMatchObject([{ id: id(700), quantity: 2 }]);
+    expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", after: expect.objectContaining({ variantId: poloM.variantId, quantity: 1 }), decision: { kind: "doubtful", reason: inheritedFromQuantity } }));
+  });
+
+  test("marks only the variant a completion created, not the other lines the message changes", async () => {
+    const both = harness({ message: textMessage("el polo en M y una gorra"), target: poloTarget(), pendings: pendingSet(pointOf()), script: { intent: requestsOf(intent("R1", "add", "el polo en M"), intent("R2", "add", "una gorra")),
+      extraction: [addPolo("el polo"), extracted("R2", "add", { target: { kind: "named", words: current("una gorra") } })], resolutions: [poloInM(), chosen("R2", productCap)] } });
+    await succeeded(both.run());
+    const rows = both.changeSaves[0]!.changes;
+
+    expect(rows.find((row) => row.after?.variantId === cap.variantId)?.decision).toEqual({ kind: "applied" });
+    expect(rows.find((row) => row.after?.variantId === poloM.variantId)?.decision).toMatchObject({ kind: "doubtful" });
+  });
+
+  test("gives no mark when the doubt was acknowledged", async () => {
+    const h = harness({ ...completeWithM(null), pendings: pendingSet(pointOf({ acknowledgedAt: at })) });
+    await succeeded(h.run());
+
+    expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", decision: { kind: "applied" } }));
+  });
+});
+
+describe("applyChatMessage: questions and noted prices", () => {
+  test("adds the suggested question of an urgent decision as the questions outcome", async () => {
+    const order = existingOrder([...poloOrder().items, ...existingOrder().items]);
+    const target: ChatOrderTarget = { kind: "open", order, productIds: new Map([[poloL.variantId, productPolo], [cap.variantId, productCap]]) };
+    const h = harness({ message: textMessage("quita uno"), target, script: { intent: requestsOf(intent("R1", "remove", "quita uno")), extraction: [extracted("R1", "remove")] } });
+    const applied = await succeeded(h.run());
+
+    expect(applied).toMatchObject({ kind: "applied", noticeDue: true, outcomes: expect.arrayContaining([{ kind: "questions", questions: [expect.objectContaining({ kind: "which_item_to_remove" })] }]) });
+  });
+
+  test("applies a price noted from context as «Con duda» with price_noted", async () => {
+    const price = extracted("R1", "mention_price", { target: { kind: "item", ref: "I1" as ItemRef, named: null }, price: { amount: 30, currency: "order", basis: "unit", quote: current("a 30") } });
+    const h = harness({ message: textMessage("a 30"), target: poloTarget(), script: { intent: requestsOf(intent("R1", "mention_price", "a 30")), extraction: [price] } });
+    await succeeded(h.run());
+
+    expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "mentioned_price_set", decision: { kind: "doubtful", reason: { kind: "price_noted" } } }]);
+  });
+});
+
 describe("applyChatMessage: link notice", () => {
   const sureAdd = () => ({ message: textMessage("dame una gorra"), target: poloTarget(), script: { intent: requestsOf(intent("R1", "add", "una gorra")),
     extraction: [extracted("R1", "add", { target: { kind: "named", words: current("una gorra") } })], resolutions: [chosen("R1", productCap)] } });
@@ -403,12 +477,33 @@ describe("applyChatMessage: link notice", () => {
     expect(h.store.linkNotices).toEqual([true]);
   });
 
-  test("sends no «Pedido #N cambió» for a doubtful change", async () => {
+  test("sends «Pedido #N cambió» for a doubtful change and closes the cycle", async () => {
     const change = extracted("R1", "change_variant", { target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, values: [{ attributeWords: null, valueWords: current("M") }] });
     const h = harness({ message: textMessage("la quiero en M"), target: poloTarget(), armed: true, script: { intent: requestsOf(intent("R1", "change_variant", "la quiero en M")), extraction: [change] } });
     const applied = await succeeded(h.run());
 
+    expect(applied.kind === "applied" && applied.outcomes.some(({ kind }) => kind === "changed_after_link")).toBe(true);
+    expect(h.store.linkNotices).toEqual([true]);
+  });
+
+  test("sends «Pedido #N cambió» for a message that only creates a «Por resolver» point of the open order", async () => {
+    const poloNoValue = extracted("R1", "add", { target: { kind: "named", words: current("el polo") } });
+    const h = harness({ message: textMessage("dame el polo"), target: poloTarget(), armed: true, script: { intent: requestsOf(intent("R1", "add", "el polo")), extraction: [poloNoValue],
+      resolutions: [{ request: "R1" as RequestRef, kind: "chosen", productId: productPolo, values: [] }] } });
+    const applied = await succeeded(h.run());
+
+    expect(h.changeSaves[0]!.changes).toHaveLength(0);
+    expect(h.changeSaves[0]!.pendingsAfter).toHaveLength(1);
+    expect(applied).toMatchObject({ kind: "applied", pendingsAfter: 1, outcomes: expect.arrayContaining([{ kind: "changed_after_link", orderId: id(9) }]) });
+    expect(h.store.linkNotices).toEqual([true]);
+  });
+
+  test("sends nothing for a message that changes neither the lines nor the points", async () => {
+    const h = harness({ message: textMessage("hola"), target: poloTarget(), armed: true });
+    const applied = await succeeded(h.run());
+
     expect(applied.kind === "applied" && applied.outcomes.some(({ kind }) => kind === "changed_after_link")).toBe(false);
+    expect(h.store.linkNotices).toEqual([]);
   });
 });
 

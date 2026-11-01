@@ -20,7 +20,8 @@ export function isAcknowledged(pending: ChatPending): boolean {
 
 function restates(reason: OriginalDoubtReason, said: StatedByMessage): boolean {
   switch (reason.kind) {
-    case "quantity_set": case "added_by_reference": return said.quantity !== null;
+    // A partial completion states the units it covers, which is not the doubted quantity; only the same number restates it.
+    case "quantity_set": case "added_by_reference": return said.quantity === reason.quantity;
     case "variant_changed": return said.values.some((entry) => normalizeValue(entry.name) === normalizeValue(reason.attribute) && normalizeValue(entry.value) === normalizeValue(reason.to));
     default: return false;
   }

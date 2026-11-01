@@ -56,6 +56,10 @@ describe("inheritedMark", () => {
     expect(inheritedMark(variant, { quantity: null, values: [{ name: "Talla", value: "M" }] })).toEqual({ kind: "inherited", from: { kind: "variant_changed", attribute: "Color", from: "Negro", to: "Rojo" } });
   });
 
+  test("gives a partial completion the mark when it states fewer units than the doubted quantity", () => {
+    expect(inheritedMark(doubted, { quantity: 1, values: [] })).toEqual({ kind: "inherited", from: quantitySet });
+  });
+
   test("gives no inherited mark when a confirmed review acknowledged the pending's doubt", () => {
     expect(inheritedMark(pending({ doubt: { reason: quantitySet }, acknowledgedAt: later }), noStatement)).toBeNull();
   });

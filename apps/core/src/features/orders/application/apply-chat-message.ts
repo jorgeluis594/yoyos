@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { applyChatActions, needsNewChatOrder, type ChatOrderTarget, type ChatOrderLimits, type ReportOutcome, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
+import { resolveVariant } from "@core/src/features/orders/domain/pending-transitions";
 import type { OrderItemChanges } from "@core/src/features/orders/domain/order-edit";
 import { pendingLife, type ChatPending, type ChatPendingId, type ChatPendings, type LastIncomingPhoto } from "@core/src/features/orders/domain/chat-pendings";
 import { checkReaderAnswer, type ChatReadingContext } from "@core/src/features/orders/domain/chat-reading";
@@ -436,29 +437,38 @@ async function fixedPhoto(message: ChatSourceMessage, shown: readonly Identified
 
 /** The change rows of the message, with `seq` after the order's highest, the decision of each line, its quote and the earlier changes it supersedes. */
 async function diffChanges(orderId: OrderId, messageId: ChatMessageId, items: Readonly<{ before: readonly OrderItem[]; after: readonly OrderItem[] }>,
-  pendings: Readonly<{ before: readonly ChatPending[]; after: readonly ChatPending[] }>, at: Date, decisionOf: (variantId: OrderItem["variantId"], added: boolean) => OrderItemChange["decision"],
+  pendings: Readonly<{ before: readonly ChatPending[]; after: readonly ChatPending[] }>, at: Date, decisionOf: (variantId: OrderItem["variantId"]) => OrderItemChange["decision"],
   quoteOf: (variantId: OrderItem["variantId"]) => QuoteId | null, deps: ApplyChatMessageDependencies): Promise<Result<MessageChanges, PersistenceError | InvalidStoredData>> {
   const linesChanged = items.before.length !== items.after.length || items.after.some((line, index) => !isDeepStrictEqual(line, items.before[index]));
   const unverdicted = linesChanged ? await deps.findUnverdictedChanges(orderId) : ok<UnverdictedChanges>({ open: [], lastSeq: 0 });
   if (!unverdicted.success) return unverdicted;
-  const beforeVariants = new Set(items.before.map(({ variantId }) => variantId));
-  const diffed = diffMessageChanges({ orderId, messageId, before: items.before, after: items.after, decision: (variantId) => decisionOf(variantId, !beforeVariants.has(variantId)),
+  const diffed = diffMessageChanges({ orderId, messageId, before: items.before, after: items.after, decision: decisionOf,
     openChanges: unverdicted.data.open, pendingsBefore: pendings.before, pendingsAfter: pendings.after, newChangeId: deps.newChangeId, at, nextSeq: (unverdicted.data.lastSeq + 1) as ChangeSeq });
   return ok({ ...diffed, changes: diffed.changes.map((change) => ({ ...change, quoteId: quoteOf((change.after ?? change.before)!.variantId) })) });
 }
 
-/** The mark an item created from a doubtful pending carries: the first unacknowledged doubt among the pendings this message completed. */
-function completionMark(decided: DecidedChanges | null, alive: readonly ChatPending[], after: readonly ChatPending[]): DoubtReason | null {
-  if (!decided) return null;
-  const stillThere = new Set(after.map(({ id }) => id));
-  for (const { checked, decision } of decided.decided) {
-    const action = checked.action;
-    if (action.kind !== "advance_pending" || decision.kind === "doubtful" || stillThere.has(action.request.pendingId)) continue;
+/** True when a pending attached to the order is new or differs from what it was before the message. */
+function pointsChanged(before: readonly ChatPending[], after: readonly ChatPending[], orderId: OrderId): boolean {
+  const previous = new Map(before.map((pending) => [pending.id, pending]));
+  return after.some((pending) => pending.order?.orderId === orderId && !isDeepStrictEqual(pending, previous.get(pending.id)));
+}
+
+/**
+ * The mark each item created from a doubtful pending carries, by variant: the pending's unacknowledged doubt, for every completion of this message,
+ * full or partial (a partial completion leaves the remainder under the same pending id, so the pending outliving the message proves nothing).
+ */
+function completionMarks(decided: DecidedChanges | null, alive: readonly ChatPending[]): ReadonlyMap<OrderItem["variantId"], DoubtReason> {
+  const marks = new Map<OrderItem["variantId"], DoubtReason>();
+  for (const { checked, decision } of decided?.decided ?? []) {
+    const { action } = checked;
+    if (action.kind !== "advance_pending" || decision.kind === "doubtful" || !action.request.product) continue;
     const pending = alive.find(({ id }) => id === action.request.pendingId);
-    const mark = pending ? inheritedMark(pending, { quantity: action.request.quantity, values: action.request.values }) : null;
-    if (mark) return mark;
+    if (!pending) continue;
+    const resolution = resolveVariant(action.request.product, pending.known, action.request.values);
+    const mark = resolution.kind === "resolved" ? inheritedMark(pending, { quantity: action.request.quantity, values: action.request.values }) : null;
+    if (resolution.kind === "resolved" && mark && !marks.has(resolution.item.variantId)) marks.set(resolution.item.variantId, mark);
   }
-  return null;
+  return marks;
 }
 
 async function applyInTransaction(message: ChatSourceMessage, plan: Plan, deps: ApplyChatMessageDependencies): Promise<Result<Applied, RunError>> {
@@ -492,27 +502,33 @@ async function applyInTransaction(message: ChatSourceMessage, plan: Plan, deps: 
     const doubt = decided?.pendingDoubts.get(pending.id);
     return doubt ? withDecisionOnPending(pending, doubt, now) : pending;
   }) };
-  const mark = completionMark(decided, alive.pendings, pendingsAfter.pendings);
+  const marks = completionMarks(decided, alive.pendings);
   // Pendings that ended with their order or by age are recorded first, silently.
   const ended = life.ended.map(({ id, reason }): ChatMessageOutcome => ({ kind: "pending_ended", pendingId: id, reason }));
   const changedOrder = target.data.kind === "open" && hasChanges(changes) && applied.data.target.kind === "open" ? applied.data.target.order : null;
-  const orderId = createdOrder?.id ?? changedOrder?.id ?? null;
+  const openOrder = createdOrder ?? (applied.data.target.kind === "open" ? applied.data.target.order : null);
+  const openOrderId = openOrder?.id ?? null;
+  // A message that only creates or changes a «Por resolver» point of the open order still belongs to that order: it is recorded and can arm «Pedido #N cambió».
+  const pointChanged = openOrderId !== null && pointsChanged(alive.pendings, pendingsAfter.pendings, openOrderId);
+  const orderId = createdOrder?.id ?? changedOrder?.id ?? (pointChanged ? openOrderId : null);
   let rows: MessageChanges | null = null;
   const outcomes: ChatMessageOutcome[] = [...ended, ...applied.data.outcomes];
   if (orderId) {
-    const items = { before: target.data.kind === "open" ? target.data.order.items : [], after: (createdOrder ?? changedOrder)?.items ?? [] };
+    const items = { before: target.data.kind === "open" ? target.data.order.items : [], after: openOrder?.items ?? [] };
     const quoteOf = (variantId: OrderItem["variantId"]) => {
       const owner = decided?.decided.find(({ checked }) => decided.doubtful.has(variantId) && checked.action.kind !== "report" && variantsTouch(checked.action, variantId))
         ?? decided?.decided.find(({ checked }) => variantsTouch(checked.action, variantId));
       return owner ? plan.quoteIds.get(owner.checked.request) ?? null : null;
     };
-    const decisionOf = (variantId: OrderItem["variantId"], added: boolean): OrderItemChange["decision"] =>
-      decided?.doubtful.get(variantId) ?? (added && mark ? { kind: "doubtful", reason: mark } : { kind: "applied" });
+    const decisionOf = (variantId: OrderItem["variantId"]): OrderItemChange["decision"] => {
+      const mark = marks.get(variantId);
+      return decided?.doubtful.get(variantId) ?? (mark ? { kind: "doubtful", reason: mark } : { kind: "applied" });
+    };
     const diffed = await diffChanges(orderId, message.id, items, { before: alive.pendings, after: pendingsAfter.pendings }, now, decisionOf, quoteOf, deps);
     if (!diffed.success) return diffed;
     rows = diffed.data;
-    // A sure change after the seller took the link arms «Pedido #N cambió»; a doubtful one never does.
-    if (rows.changes.some((change) => change.decision.kind === "applied")) {
+    // Any change after the seller took the link arms «Pedido #N cambió»: an applied one, a «Con duda» mark or a new or changed «Por resolver» point.
+    if (rows.changes.length > 0 || pointChanged) {
       const armed = await deps.findLinkNoticeArming(orderId);
       if (!armed.success) return armed;
       if (armed.data) outcomes.push({ kind: "changed_after_link", orderId });
