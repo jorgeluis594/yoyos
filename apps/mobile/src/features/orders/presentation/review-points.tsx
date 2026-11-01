@@ -12,9 +12,8 @@ type Point = OrderReviewResponse["points"][number];
 export function usePointText(money: (amount: number) => string) {
   const { t } = useTranslation();
   return (point: Point) => {
-    const title = t(`orderReview.points.${point.kind}`);
-    const head = point.product ? `${title}: ${point.product} ×${point.quantity}` : `${title}: ×${point.quantity}`;
-    const missing = point.missing.length ? ` — ${t("orderReview.points.missing", { missing: point.missing.map((name) => attributeText(name, t)).join(` ${t("orderReview.points.or")} `) })}` : "";
+    const head = point.product ? t(`orderReview.points.named.${point.kind}`, { product: point.product, quantity: point.quantity }) : t(`orderReview.points.unnamed.${point.kind}`, { quantity: point.quantity });
+    const missing = point.product && point.missing.length ? ` — ${t("orderReview.points.missing", { missing: point.missing.map((name) => attributeText(name, t)).join(` ${t("orderReview.points.or")} `) })}` : "";
     return { text: `${head}${missing}. ${t("orderReview.points.todo")}`, doubt: point.doubt ? pointDoubtText(point.doubt, { t, money: (amount) => money(amount) }) : null };
   };
 }

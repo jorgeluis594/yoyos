@@ -104,6 +104,7 @@ test("Copiar enlace on an order with something to review opens the review and co
   expect(screen.getByText("Antes de enviar el enlace")).toBeTruthy();
   expect(screen.getByText("Cambios con duda")).toBeTruthy();
   expect(screen.getByText("El cliente escribió: “la quiero en M”")).toBeTruthy();
+  expect(screen.getByText("Un mensaje cambió talla: de L a M")).toBeTruthy();
   expect(Clipboard.setStringAsync).not.toHaveBeenCalled();
   fireEvent.press(screen.getByRole("button", { name: "Confirmar revisión" }));
   await waitFor(() => expect(Clipboard.setStringAsync).toHaveBeenCalledWith(linkUrl));

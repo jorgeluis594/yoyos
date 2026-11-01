@@ -43,7 +43,7 @@ export function MessageChangesBlock({ rows, moreRows, moreLoading, moreFailed, b
               aria-label={t("orderReview.changes.undoRow", { time: time(row.at), summary })} aria-disabled={blocked || undefined} aria-describedby={blocked ? "message-changes-blocked" : undefined}
               onClick={() => { if (!blocked) onUndo(row); }}>{t("orderReview.changes.undo")}</Button>
           </>}
-          {row.undo.kind === "refused" && <p className="text-sm text-muted-foreground">{refusalText(row, t)}</p>}
+          {row.undo.kind === "refused" && <p className="basis-full text-sm text-muted-foreground">{refusalText(row, t)}</p>}
           {row.undo.kind === "undone" && <p className="text-sm font-medium text-muted-foreground">{t("orderReview.changes.undone")}</p>}
         </li>;
       })}</ul>

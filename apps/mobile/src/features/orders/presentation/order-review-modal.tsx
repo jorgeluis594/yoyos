@@ -14,7 +14,7 @@ import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { isLostAnswer } from "@mobile/features/orders/application/in-doubt";
 import { DoubtBadge } from "@mobile/features/orders/presentation/doubt-badge";
 import { confirmReview, type UndoOutcome } from "@mobile/features/orders/presentation/order-review-actions";
-import { doubtsByItem, lineLabel, lowerFirst, reasonText, undoConfirmationLines, undoRefusalText } from "@mobile/features/orders/presentation/order-review-model";
+import { doubtsByItem, lineLabel, reasonText, undoConfirmationLines, undoRefusalText } from "@mobile/features/orders/presentation/order-review-model";
 import { typedQuantity } from "@mobile/features/orders/presentation/order-items-editor";
 import { ReviewPoints } from "@mobile/features/orders/presentation/review-points";
 import { correctionsToSend, hasCorrections, isRemoved, keepCorrections, quantityTextOf, remainingCount, type CorrectionDraft } from "@mobile/features/orders/presentation/review-corrections";
@@ -42,7 +42,7 @@ type Notice = Readonly<{ text: string; tone: "alert" | "polite" }>;
 
 /** Moves the screen reader's focus to a view, where the platform can. */
 function focusOn(view: View | null) {
-  const handle = view ? findNodeHandle(view) : null;
+  const handle = view && Platform.OS !== "web" ? findNodeHandle(view) : null;
   if (handle !== null) try { AccessibilityInfo.setAccessibilityFocus(handle); } catch { /* Nothing to focus on this platform. */ }
 }
 
@@ -164,7 +164,7 @@ export function OrderReviewModal({ origin, order, review, format, onClose, onCon
           {allMarksCorrected ? <ThemedText type="small" themeColor="textSecondary">{t("orderReview.allReviewed")}</ThemedText> : null}
           {review.doubtful.map(({ change, quote }) => {
             const item = change.after ? order.items.find((candidate) => candidate.id === change.after?.itemId) : undefined;
-            const reason = change.decision.kind === "doubtful" ? lowerFirst(reasonText(change.decision.reason, reasonContext)) : "";
+            const reason = change.decision.kind === "doubtful" ? reasonText(change.decision.reason, reasonContext) : "";
             const firstOfItem = item ? !seenItems.has(item.id) : true;
             if (item) seenItems.add(item.id);
             if (!item || !change.after) {

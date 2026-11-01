@@ -14,15 +14,15 @@ test("reasons say what the message did in catalog terms", () => {
   expect(reasonText({ kind: "quantity_set", quantity: 3 }, ctx)).toBe("Un mensaje cambió la cantidad a 3");
   expect(reasonText({ kind: "removed", product: "Gorra trucker" }, ctx)).toBe("Un mensaje quitó Gorra trucker");
   expect(reasonText({ kind: "caption_unread" }, ctx)).toBe("No pudimos leer lo que escribió con la foto");
-  expect(reasonText({ kind: "price_noted", amount: 70, units: 1 }, ctx)).toBe("Un mensaje mencionó S/ 70.00 por unidad en un producto que no nombró");
-  expect(reasonText({ kind: "price_noted", amount: 120, units: 2 }, ctx)).toBe("Un mensaje mencionó S/ 120.00 por 2 en un producto que no nombró");
+  expect(reasonText({ kind: "price_noted", amount: 70, units: 1 }, ctx)).toBe("Un mensaje anotó que el cliente mencionó S/ 70.00 por unidad. El precio del pedido no cambió.");
+  expect(reasonText({ kind: "price_noted", amount: 120, units: 2 }, ctx)).toBe("Un mensaje anotó que el cliente mencionó S/ 120.00 por 2. El precio del pedido no cambió.");
   expect(reasonText({ kind: "inherited", from: { kind: "quantity_set", quantity: 3 } }, ctx)).toBe("Un mensaje cambió la cantidad a 3");
 });
 
 test("price_noted reads in Portuguese too", async () => {
   await i18n.changeLanguage("pt-BR");
   const pt = i18n.t.bind(i18n) as TFunction;
-  expect(reasonText({ kind: "price_noted", amount: 70, units: 1 }, { t: pt, money })).toBe("Uma mensagem mencionou S/ 70.00 por unidade em um produto que não nomeou");
+  expect(reasonText({ kind: "price_noted", amount: 70, units: 1 }, { t: pt, money })).toBe("Uma mensagem anotou que o cliente mencionou S/ 70.00 por unidade. O preço do pedido não mudou.");
   expect(reasonText({ kind: "variant_changed", attribute: "Tamanho", from: "L", to: "M" }, { t: pt, money })).toBe("Uma mensagem mudou tamanho: de L para M");
   await i18n.changeLanguage("es");
 });
