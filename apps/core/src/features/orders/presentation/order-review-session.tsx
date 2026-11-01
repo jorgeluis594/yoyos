@@ -125,7 +125,7 @@ export function useOrderReviewSession(given: ReviewViewProps | undefined, savedO
 
   const showReviewButton = active && entry === "detail" && review.status.toReview;
   const panel = review && active && (review.points.length > 0 || showReviewButton) ? <>
-    {review.points.length > 0 && <Card aria-labelledby="review-points-title">
+    {review.points.length > 0 && <Card role="region" aria-labelledby="review-points-title">
       <CardHeader><CardTitle id="review-points-title">{t("orderReview.sections.points")}</CardTitle></CardHeader>
       <CardContent><ReviewPoints points={review.points} money={money} currency={currency} /></CardContent>
     </Card>}

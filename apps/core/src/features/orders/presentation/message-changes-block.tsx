@@ -24,7 +24,7 @@ type BlockProps = Readonly<{
 export function MessageChangesBlock({ rows, moreRows, moreLoading, moreFailed, blocked, time, onUndo, onMore }: BlockProps) {
   const { t } = useTranslation();
   if (rows.length === 0) return null;
-  return <Card aria-labelledby="message-changes-title">
+  return <Card role="region" aria-labelledby="message-changes-title">
     <CardHeader><CardTitle id="message-changes-title">{t("orderReview.changes.title")}</CardTitle></CardHeader>
     <CardContent className="grid gap-3">
       <ul className="divide-y">{rows.map((row) => {
