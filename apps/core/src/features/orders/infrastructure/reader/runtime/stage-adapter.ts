@@ -4,7 +4,7 @@ import type { ModelUsage, StageCall } from "@core/src/features/orders/domain/rea
 import type { StageError, StageResult } from "@core/src/features/orders/application/reader/stages";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { priceOf } from "@core/src/shared/infrastructure/model-prices";
-import type { StageVersion } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+import type { StageVersion } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 import { logMetaOf, remainingMsOf } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
 import type { ReaderStageConfig } from "@core/src/features/orders/infrastructure/reader/runtime/stage-config-env";
 import type { StructuredModel } from "@core/src/features/orders/infrastructure/reader/runtime/structured-model";

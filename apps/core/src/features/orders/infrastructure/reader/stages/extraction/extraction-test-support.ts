@@ -3,7 +3,7 @@ import type { ChatPendingId } from "@core/src/features/orders/domain/chat-messag
 import type { OrderItemId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { ContextMessageRef, ItemRef, PendingRef, Quote, ReadingContextMessage, ReadingInput, ReadingItem, ReadingPending, RequestIntent, RequestKind, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
-import type { ExtractionInput } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+import type { ExtractionInput } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 
 const at = new Date("2026-10-30T12:00:00Z");
 

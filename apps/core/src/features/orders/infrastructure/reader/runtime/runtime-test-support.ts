@@ -1,5 +1,5 @@
 import { ok } from "@shared/functional";
-import type { StageVersion } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+import type { StageVersion } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 import type { ReaderStage } from "@core/src/features/orders/domain/reader/readings";
 
 /** A stage version for runtime tests: the answer is valid when it is an object with a numeric `n`. */

@@ -23,9 +23,9 @@ Quotes
 
 Target: what the request is about
 - named: the buyer names a product in words. Put the words that name it, and only those, in named: the product's name, not its attributes or the quantity. Give the product the buyer names even when the order already holds it.
-- item: the request is about a line of the order. Put its reference in ref. Put in named the words the buyer used for that line («el polo», «la de talla M»), or null when the buyer used none and you took the line from the context.
+- item: the request is about a line of the order. Put its reference in ref. Put in named the words the buyer used for that line («la casaca», «la de talla M»), or null when the buyer used none and you took the line from the context.
 - pending: the request is about a pending. Put its reference in ref and in named the words the buyer used for it, or null.
-- photo_same_message: the message captions a photo and speaks of the photo's product without naming it («lo quiero», «me interesa este»).
+- photo_same_message: the message captions a photo and speaks of the photo's product without naming it («ese mismo me sirve», «con esa me quedo»).
 - photo_just_sent: the buyer's previous message was a photo, this one is plain text, and it speaks of the product of that photo without naming it. Use it only when the facts say the previous message was a photo that left a pending or an item.
 - context: the buyer does not name the product, and it comes from the recent messages or the order. Give a basis. last_photo: the product shown in a photo of a recent message; ref is that message. mentioned_product: the product a recent message named; ref is that message. only_item: the order holds one line and nothing else points elsewhere; ref is that line.
 - none: no product and no line is involved: closing the order, asking to pay, a stated price with nothing to attach it to, a refusal of something this chat never does.
@@ -38,7 +38,7 @@ Values: the attribute values the buyer gives
 
 Quantity: how many units
 - value is a number: a pair is 2, a dozen is 12, half a dozen is 6. A word that only points at a quantity («unos», «algunos») is no number; give null. A quantity word is never read as 1.
-- mode add: the number of units wanted, or how many more. set: the total the order should end with («que queden 4», «déjalo en 4»). decrease: how many fewer («quítale 2», «una menos»).
+- mode add: the number of units wanted, or how many more. set: the total the order should end with («ponme 4 en total», «que sean 4 al final»). decrease: how many fewer («réstale 2», «una menos»).
 - For a pending, the quantity is the units this answer covers.
 - Null when the buyer states no number.
 
@@ -48,7 +48,7 @@ Price
 - basis unit when the price is for each unit, lot when it is for the whole quantity, not_explicit when the buyer does not say.
 
 Change verb
-- For a change of an attribute, the verb the buyer uses to ask for the change («cambia», «cámbiame», «troca»). Null when the buyer uses none. A wish or a need stated without such a verb («prefiero», «me gustaría») is not a change verb.
+- For a change of an attribute, the verb the buyer uses to ask for the change («cambia», «cámbiame», «troca»). Null when the buyer uses none. A wish or a need stated without such a verb («necesito», «ojalá») is not a change verb.
 
 Rules
 - Use only what the message and the context say. Do not guess, and never invent a reference: use only the references listed in the input.

@@ -62,6 +62,14 @@ describe("prompt overlap check", () => {
     expect(overlapReason("eso", "listo, eso es todo")).toBeNull();
   });
 
+  test("flags a short phrase inside an eval input for the staged reader, never a single word", () => {
+    expect(overlapReason("déjalo en 4", "de los polos premium déjalo en 4 nomás")).toBeNull();
+    expect(overlapReason("déjalo en 4", "de los polos premium déjalo en 4 nomás", { shortInside: true })).toBe("example inside the input");
+    expect(overlapReason("lo quiero", "lo quiero en blanco", { shortInside: true })).toBe("example inside the input");
+    expect(overlapReason("talla", "prefiero talla M", { shortInside: true })).toBeNull();
+    expect(overlapReason("ponme 4 en total", "de los polos premium déjalo en 4 nomás", { shortInside: true })).toBeNull();
+  });
+
   test("discovers every known prompt file among the production sources", () => {
     expect(sourceFiles).toEqual(expect.arrayContaining(promptFiles));
   });
@@ -71,10 +79,10 @@ describe("prompt overlap check", () => {
 
     expect(examples.length).toBeGreaterThan(20);
     expect(findOverlaps(examples, evalInputs).map(({ example, input, reason }) => `${example.file}:${example.line} «${example.text}» ~ «${input}» (${reason})`)).toEqual([]);
-  });
+  }, 30_000);
 
   test("never copies an eval input into a stage prompt", () => {
-    expect(findOverlaps(registeredExamples(promptRegistry), evalInputs).map(({ example, input, reason }) => `${example.file} «${example.text}» ~ «${input}» (${reason})`)).toEqual([]);
+    expect(findOverlaps(registeredExamples(promptRegistry), evalInputs, { shortInside: true }).map(({ example, input, reason }) => `${example.file} «${example.text}» ~ «${input}» (${reason})`)).toEqual([]);
   });
 
   test("flags an eval input copied into a registered version's instructions, whichever file the version lives in", () => {
