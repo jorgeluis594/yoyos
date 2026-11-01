@@ -369,3 +369,32 @@ test("the order list marks «Por revisar» only on active WhatsApp orders with s
     expect(await list()).toEqual([[order.id, false]]);
   } finally { await f.cleanup(); }
 });
+
+test("confirming a review with corrections on a deducted order settles the stock difference and serves waiting orders", async () => {
+  const f = await fixture();
+  try {
+    const order = await orderWithDoubtfulItem(f);
+    const [kept, removed] = [f.variantIds[0]!, f.variantIds[1]!];
+    const stock = (variantId: string) => inTenant(f, async () => Number((await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity));
+    await inTenant(f, () => prisma.productStock.update({ where: { variantId: removed }, data: { quantity: 1n } }));
+    expect(await payment(f, order.id, 30)).toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
+    expect(await stock(removed)).toBe(0);
+    const waiting = await inTenant(f, async () => {
+      const id = randomUUID() as OrderId;
+      const created = await orders.create({ id, items: [{ variantId: removed as VariantId, quantity: 1 as PositiveInteger }] }, access(f));
+      expect(created.success).toBe(true);
+      expect(await orders.registerPayment({ orderId: id, paymentId: randomUUID() as PaymentId, amount: { amount: 20, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, access(f))).toMatchObject({ success: true });
+      return id;
+    });
+    expect((await inTenant(f, () => prisma.order.findUniqueOrThrow({ where: { id: waiting } }))).stockDeducted).toBe(false);
+
+    const review = await load(f, order.id);
+    const answer = await confirm(f, review, order.id, { corrections: [{ itemId: itemOf(order, removed).id as OrderItemId, quantity: 0 }] });
+    expect(answer).toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
+    expect(await stock(removed)).toBe(0); // returned by the correction, taken by the waiting order
+    expect(await stock(kept)).toBe(49);
+    expect((await inTenant(f, () => prisma.order.findUniqueOrThrow({ where: { id: waiting } }))).stockDeducted).toBe(true);
+    const items = await inTenant(f, () => prisma.orderItem.findMany({ where: { orderId: order.id } }));
+    expect(items.map((item) => [item.variantId, Number(item.stockDeductedQuantity)])).toEqual([[kept, 1]]);
+  } finally { await f.cleanup(); }
+});

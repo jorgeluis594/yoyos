@@ -682,7 +682,7 @@ async function confirmConfiguredOrderReview(input: ConfirmOrderReviewInput, acce
     publishStockIncreased: (variantIds) => publishStockEvent("product_stock_increased", { companyId: access.companyId, variantIds }),
     findVariantStock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs });
   if (confirmed.success) afterTransactionCommit(() => log.info({ event: "order_review_confirmed", companyId: access.companyId, orderId: input.orderId, reviewId: input.reviewId, userId: access.userId,
-    origin: input.origin, correctedItems: input.corrections.length, shownChanges: input.loaded.changeIds.length, changedMeanwhile: confirmed.data.changedMeanwhile.length, linkAction: input.linkAction?.action ?? null }, "order_review_confirmed"));
+    origin: input.origin, correctedItems: input.corrections.length, shownChanges: input.loaded.changeIds.length, doubtfulShown: confirmed.data.doubtfulShown, pointsAcknowledged: confirmed.data.pointsAcknowledged, changedMeanwhile: confirmed.data.changedMeanwhile.length, linkAction: input.linkAction?.action ?? null }, "order_review_confirmed"));
   return confirmed;
 }
 
@@ -692,7 +692,7 @@ async function findOrdersToReview(items: readonly OrderAggregate[]): Promise<Rea
   if (chats.length === 0) return new Set();
   const facts = await findReviewListFacts(chats.map((order) => order.id), [...new Set(chats.map((order) => order.chatId!))]);
   if (!facts.success) {
-    log.warn({ event: "order_review_list_unavailable", errorCode: facts.error.code }, "order_review_list_unavailable");
+    log.warn({ event: "order_review_list_unavailable", companyId: getCompanyId(), errorCode: facts.error.code }, "order_review_list_unavailable");
     return new Set();
   }
   const now = new Date();
@@ -754,7 +754,11 @@ export const orders = {
   undoMessage: (input: UndoMessageInput, access: OrderAccess) => undoConfiguredMessage(input, access),
   loadOrderReview: loadConfiguredOrderReview,
   confirmOrderReview: confirmConfiguredOrderReview,
-  recordLinkAction: (input: RecordLinkActionInput, access: OrderAccess) => recordLinkAction(input, access, { orderExists: async (orderId) => orderExists(orderId), saveLinkAction, clock: () => new Date() }),
+  recordLinkAction: async (input: RecordLinkActionInput, access: OrderAccess) => {
+    const recorded = await recordLinkAction(input, access, { orderExists: async (orderId) => orderExists(orderId), saveLinkAction, clock: () => new Date() });
+    if (recorded.success) log.info({ event: "order_link_action_recorded", companyId: access.companyId, orderId: input.orderId, userId: access.userId, action: input.action }, "order_link_action_recorded");
+    return recorded;
+  },
   revisions: orderRevisions,
   lineCatalog,
   createCatalogOrder: createConfiguredCatalogOrder,

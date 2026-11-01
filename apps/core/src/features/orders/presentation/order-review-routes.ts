@@ -74,9 +74,11 @@ function confirmFailure(response: Response<unknown, PrivateLocals>, input: Confi
   const base = { companyId: response.locals.auth.company.id, orderId: input.orderId, reviewId: input.reviewId, errorCode: error.code };
   switch (error.code) {
     case "REVIEW_OUTDATED":
-      log.info({ event: "order_review_outdated", ...base, newPoints: error.newPoints }, "order_review_outdated");
+      log.info({ event: "order_review_outdated", ...base, affectedItems: error.affectedItemIds.length, newPoints: error.newPoints }, "order_review_outdated");
       return refusal(response, 409, { code: "REVIEW_OUTDATED", error: "The order changed while it was being reviewed", affectedItemIds: [...error.affectedItemIds], newPoints: error.newPoints });
-    case "ORDER_CHANGED": return refusal(response, 409, { code: "ORDER_CHANGED", error: "The order changed since it was loaded" });
+    case "ORDER_CHANGED":
+      log.info({ event: "order_review_conflict", companyId: base.companyId, orderId: base.orderId, reviewId: base.reviewId }, "order_review_conflict");
+      return refusal(response, 409, { code: "ORDER_CHANGED", error: "The order changed since it was loaded" });
     case "DELIVERY_LOCKED": return refusal(response, 409, { code: "DELIVERY_LOCKED", error: "The order can no longer be edited" });
     case "ORDER_CANCELLED": return refusal(response, 409, { code: "ORDER_CANCELLED", error: "Order is cancelled" });
     case "LAST_ITEM": return refusal(response, 422, { code: "LAST_ITEM", error: "The order keeps at least one item" });
@@ -84,7 +86,8 @@ function confirmFailure(response: Response<unknown, PrivateLocals>, input: Confi
     case "INVALID_INPUT":
     case "INVALID_ORDER": return refusal(response, 400, { code: "INVALID_INPUT", error: "Invalid review" });
     case "ORDER_NOT_FOUND": return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
-    case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
+    case "PERSISTENCE_UNAVAILABLE":
+    case "INVALID_STORED_DATA": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
     default:
       log.error({ event: "order_review_failed", ...base }, "order_review_failed");
       return apiError(response, 500, "INTERNAL_ERROR", "Internal error");

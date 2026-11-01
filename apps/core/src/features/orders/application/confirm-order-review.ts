@@ -34,7 +34,7 @@ export type ConfirmOrderReviewError =
   | Failure | OrderDomainError | VariantNotFound | TransactionEndingError
   | Readonly<{ code: "REVIEW_OUTDATED"; message: string; affectedItemIds: readonly OrderItemId[]; newPoints: number }>;
 
-export type ConfirmedReview = Readonly<{ review: StoredReview; order: OrderAggregate; changedMeanwhile: readonly OrderItemChange[]; total: Money; stockDue: StockEventResult["stockDue"] }>;
+export type ConfirmedReview = Readonly<{ review: StoredReview; order: OrderAggregate; changedMeanwhile: readonly OrderItemChange[]; total: Money; stockDue: StockEventResult["stockDue"]; doubtfulShown: number; pointsAcknowledged: number }>;
 
 export type ConfirmOrderReviewDependencies = PlanItemsEditDependencies<ConfirmOrderReviewError> & SettleEditStockDependencies & ItemsEditRecords<ConfirmOrderReviewError> & Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, ConfirmOrderReviewError>>) => Promise<Result<T, ConfirmOrderReviewError>>;
@@ -101,9 +101,9 @@ export async function confirmOrderReview(input: ConfirmOrderReviewInput, access:
     if (input.corrections.length > 0) {
       const lines = linesAfter(order, input.corrections);
       if (!lines.success) return lines;
-      if (lines.data.length === 0) return err({ code: "LAST_ITEM", message: "The order keeps at least one item" });
       const locked = orderEdit.checkLocks(order, new Set(["items"]));
       if (!locked.success) return locked;
+      if (lines.data.length === 0) return err({ code: "LAST_ITEM", message: "The order keeps at least one item" });
       const unchanged = order.items.length === lines.data.length && order.items.every((item) => lines.data.some((line) => line.variantId === item.variantId && Number(line.quantity) === Number(item.quantity)));
       if (!unchanged) {
         const planned = await planItemsEdit(order, lines.data, deps);
@@ -123,7 +123,7 @@ export async function confirmOrderReview(input: ConfirmOrderReviewInput, access:
     if (!savedReview.success) return savedReview;
     const marked = await deps.markChangesReviewed(order.id, input.reviewId, input.loaded.changeIds, now);
     if (!marked.success) return marked;
-    const acknowledged = stored.data.pendings.map((pending) => (input.loaded.points.some((key) => samePoint(pending, key)) ? { ...pending, acknowledgedAt: now } : pending));
+    const acknowledged = stored.data.pendings.map((pending) => (points.includes(pending) && input.loaded.points.some((key) => samePoint(pending, key)) ? { ...pending, acknowledgedAt: now } : pending));
     if (acknowledged.some((pending, index) => pending !== stored.data.pendings[index])) {
       const savedPendings = await deps.saveChatPendings(order.chatId, { ...stored.data, pendings: acknowledged });
       if (!savedPendings.success) return savedPendings;
@@ -137,7 +137,10 @@ export async function confirmOrderReview(input: ConfirmOrderReviewInput, access:
 
     const settled = await settleEditStock(order, next, { items: edited, delivery: false }, returns, deps);
     if (!settled.success) return settled;
-    return ok({ review, order: settled.data.order, changedMeanwhile: changedMeanwhileOf(after.data, input.loaded.changesThrough, confirmedThrough), total: settled.data.order.total, stockDue: settled.data.stockDue });
+    const shownIds = new Set(input.loaded.changeIds);
+    const doubtfulShown = shown.data.filter((change) => shownIds.has(change.id) && change.decision.kind === "doubtful").length;
+    const pointsAcknowledged = acknowledged.filter((pending, index) => pending !== stored.data.pendings[index]).length;
+    return ok({ review, order: settled.data.order, changedMeanwhile: changedMeanwhileOf(after.data, input.loaded.changesThrough, confirmedThrough), total: settled.data.order.total, stockDue: settled.data.stockDue, doubtfulShown, pointsAcknowledged });
   });
 }
 
@@ -157,7 +160,7 @@ async function rebuilt(order: OrderAggregate, review: StoredReview, deps: Confir
   if (!after.success) return after;
   const settled = await settleEditStock(order, order, { items: false, delivery: false }, [], deps);
   if (!settled.success) return settled;
-  return ok({ review, order, changedMeanwhile: changedMeanwhileOf(after.data, review.changesThrough, review.confirmedThrough), total: order.total, stockDue: settled.data.stockDue });
+  return ok({ review, order, changedMeanwhile: changedMeanwhileOf(after.data, review.changesThrough, review.confirmedThrough), total: order.total, stockDue: settled.data.stockDue, doubtfulShown: 0, pointsAcknowledged: 0 });
 }
 
 export type { ChatMessageId };

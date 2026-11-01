@@ -163,7 +163,8 @@ export async function findReview(reviewId: OrderReviewId): Promise<Result<Stored
   }
 }
 
-export async function saveReview(review: StoredReview, reviewedById: UserId): Promise<Result<null, PersistenceError>> {
+/** A `reviewId` that already belongs to another order or company hits the global primary key: it is invalid input, not an outage. */
+export async function saveReview(review: StoredReview, reviewedById: UserId): Promise<Result<null, PersistenceError | Readonly<{ code: "INVALID_INPUT"; message: string }>>> {
   const companyId = getCompanyId();
   requireActiveTransaction(companyId);
   try {
@@ -171,6 +172,7 @@ export async function saveReview(review: StoredReview, reviewedById: UserId): Pr
       correctedItems: review.correctedItems, changesThrough: review.changesThrough, confirmedThrough: review.confirmedThrough, confirmedAt: review.confirmedAt } });
     return ok(null);
   } catch (cause) {
+    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err({ code: "INVALID_INPUT", message: "The review id is already used" });
     return unavailable("unable_to_save_order_review", cause, "Unable to save the order review");
   }
 }
@@ -181,7 +183,7 @@ export async function markChangesReviewed(orderId: OrderId, reviewId: OrderRevie
   requireActiveTransaction(companyId);
   if (ids.length === 0) return ok(null);
   try {
-    await prisma.$executeRaw`UPDATE "OrderItemChange" SET "reviewId" = ${reviewId}::uuid, verdict = COALESCE(verdict, 'kept'::"OrderItemChangeVerdict"), "verdictAt" = COALESCE("verdictAt", ${at}::timestamptz)
+    await prisma.$executeRaw`UPDATE "OrderItemChange" SET "reviewId" = COALESCE("reviewId", ${reviewId}::uuid), verdict = COALESCE(verdict, 'kept'::"OrderItemChangeVerdict"), "verdictAt" = COALESCE("verdictAt", ${at}::timestamptz)
       WHERE "companyId" = ${companyId}::uuid AND "orderId" = ${orderId}::uuid AND id = ANY(${[...ids]}::uuid[])`;
     return ok(null);
   } catch (cause) {
