@@ -392,6 +392,49 @@ describe("checkRequests: pendings and other kinds", () => {
     expect(decision(more, "agree")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
   });
 
+  describe("an add that points at a pending", () => {
+    const pending = pendingOf("gorra", { quantity: 1 });
+    const pendings = () => snapshot({ pendings: [pendingRef(1, pending)] });
+    const context = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
+    const named = { kind: "pending", ref: "Q1" as PendingRef, named: say("la gorra") } as const;
+
+    test("sets the pending to the units its set wording states instead of adding them", () => {
+      const checked = only(checkRequests([request({ kind: "add", target: context, quantity: quantity(2, "set") })], [], pendings()));
+      expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: pending.id, mode: "set", quantity: 2 });
+      expect(decision(checked, "agree")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 2 } });
+    });
+
+    test("keeps the values and the units together when the request gives both", () => {
+      const checked = only(checkRequests([request({ kind: "add", target: context, values: [value("rojo")], quantity: quantity(2, "add") })], [], pendings()));
+      expect(checked.action).toMatchObject({ kind: "advance_pending", request: { pendingId: pending.id, values: [{ value: "Rojo" }], quantity: 3 } });
+      expect(decision(checked, "agree")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
+    });
+
+    test("never adds a unit when the request states no units", () => {
+      const checked = only(checkRequests([request({ kind: "add", target: named })], [], pendings()));
+      expect(checked.action.kind).not.toBe("change_pending_quantity");
+      expect(checked.action).toMatchObject({ kind: "advance_pending", request: { pendingId: pending.id, quantity: null, values: [] } });
+    });
+  });
+
+  test("asks which product an add with several order lines means when it points at the only item", () => {
+    const polera = item("I1", "polera", { Talla: "M" });
+    const gorra = item("I2", "gorra", {});
+    const target = { kind: "context", basis: "only_item", ref: "I1" as ItemRef } as const;
+    const checked = only(checkRequests([request({ kind: "add", target, quantity: quantity(1, "add") })], [], snapshot({ items: [polera, gorra] })));
+    expect(checked.action).toEqual({ kind: "report", outcome: { kind: "unnamed_add" } });
+    expect(decision(checked, "agree")).toMatchObject({ kind: "urgent", problem: "unnamed_add" });
+  });
+
+  test("completes a doubtful pending narrowed by values alone «Con duda», but silently when the resolution chose the product", () => {
+    const pending = doubtfulPendingOf(["polo", "oversize"]);
+    const target = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
+    const byValue = only(checkRequests([request({ kind: "complete_pending", target, values: [value("verde")] })], [], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(decision(byValue, "agree")).toMatchObject({ kind: "doubtful" });
+    const byResolution = only(checkRequests([request({ kind: "complete_pending", target, values: [value("M")] })], [chosen("polo")], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(decision(byResolution, "agree")).toEqual({ kind: "pending" });
+  });
+
   test("raises the only item for an add that points at it", () => {
     const polera = item("I1", "polera", { Talla: "M" });
     const checked = only(checkRequests([request({ kind: "add", target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, quantity: quantity(1, "add") })], [], snapshot({ items: [polera] })));
