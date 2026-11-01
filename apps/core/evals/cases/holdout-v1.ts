@@ -4,7 +4,7 @@ import { after, kept, line, M_NEGRO } from "@core/evals/cases/builders";
 /**
  * The first holdout (written fresh by the T16 reviewer, 2026-10-24): other products, idioms and sentence shapes for the rules of
  * docs/message-to-order.md. It judged T16 once and is an ordinary interpretation table since T18. Rows tagged `probe` target
- * risks found in that review and may expect more than the design delivers.
+ * risks found in that review and may expect more than the product delivers.
  */
 
 const hPolo = line("polo-basico", M_NEGRO);
