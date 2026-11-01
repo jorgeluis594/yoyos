@@ -99,7 +99,8 @@ function withSuffixes<N extends SellerNotice>(notice: N, outcomes: ChatMessageOu
  * payment request) → the order changed after the link → only item kept → ready → new order. `no_intent`, `pending_*` and silent misses never notify.
  */
 export function chooseSellerNotice(outcomes: ChatMessageOutcomes): SellerNotice | null {
-  const problems = outcomes.flatMap((outcome) => problemOf(outcome) ?? []);
+  // A message that repeats the same refusal (an instruction and the action it asks for) is one problem.
+  const problems = outcomes.flatMap((outcome) => problemOf(outcome) ?? []).filter((problem, index, all) => problem.kind !== "not_applied" || all.findIndex((other) => other.kind === "not_applied" && other.orderId === problem.orderId) === index);
   const created = outcomes.find((outcome): outcome is Extract<ChatMessageOutcome, { kind: "new_order_after_closed" }> => outcome.kind === "new_order_after_closed");
   if (problems.length > 1) {
     const productIds = [...new Set(problems.flatMap((problem) => namedProductOf(problem) ?? []))].slice(0, maxNamedProducts);

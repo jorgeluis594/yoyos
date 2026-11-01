@@ -89,6 +89,12 @@ describe("chooseSellerNotice with the single reader", () => {
     expect(chooseSellerNotice(outcomes({ kind: "reader_doubt", orderId: null }))).toEqual({ kind: "not_applied", orderId: null, newOrderId: null });
   });
 
+  test("counts a refusal the message repeats as one problem", () => {
+    const refused: ChatMessageOutcome = { kind: "request_not_allowed", orderId: order(1) };
+    expect(chooseSellerNotice(outcomes(refused, refused))).toEqual({ kind: "not_applied", orderId: order(1), newOrderId: null });
+    expect(chooseSellerNotice(outcomes(refused, missing(31)))).toMatchObject({ kind: "several_problems", problemCount: 2 });
+  });
+
   test("chooses ready with pendings only when the message has no problem", () => {
     expect(chooseSellerNotice(outcomes(added, readyWithPendings))).toEqual({ kind: "ready_with_pendings", orderId: order(1), productIds: [product(31)], unnamed: 1 });
     expect(chooseSellerNotice(outcomes(readyWithPendings, missing(32)))).toEqual({ kind: "variant_missing", productId: product(32), newOrderId: null });
