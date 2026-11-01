@@ -23,7 +23,7 @@ Quotes
 
 Target: what the request is about
 - named: the buyer names a product in words. Put the words that name it, and only those, in named: the product's name, not its attributes or the quantity. Give the product the buyer names even when the order already holds it.
-- item: the request is about a line of the order. Put its reference in ref. Put in named the words the buyer used for that line («la casaca», «la de talla M»), or null when the buyer used none and you took the line from the context.
+- item: the request is about a line of the order. Put its reference in ref. Put in named the words the buyer used for that line («la mochila», «la de talla M»), or null when the buyer used none and you took the line from the context.
 - pending: the request is about a pending. Put its reference in ref and in named the words the buyer used for it, or null.
 - photo_same_message: the message captions a photo and speaks of the photo's product without naming it («ese mismo me sirve», «con esa me quedo»).
 - photo_just_sent: the buyer's previous message was a photo, this one is plain text, and it speaks of the product of that photo without naming it. Use it only when the facts say the previous message was a photo that left a pending or an item.
@@ -48,7 +48,7 @@ Price
 - basis unit when the price is for each unit, lot when it is for the whole quantity, not_explicit when the buyer does not say.
 
 Change verb
-- For a change of an attribute, the verb the buyer uses to ask for the change («cambia», «cámbiame», «troca»). Null when the buyer uses none. A wish or a need stated without such a verb («necesito», «ojalá») is not a change verb.
+- For a change of an attribute, the verb the buyer uses to ask for the change («cambia», «cámbiame», «troca»). Null when the buyer uses none. A wish or a need stated without such a verb («me haría falta», «ojalá») is not a change verb.
 
 Rules
 - Use only what the message and the context say. Do not guess, and never invent a reference: use only the references listed in the input.

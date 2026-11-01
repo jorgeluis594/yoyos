@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import { allCases } from "@core/evals/cases";
-import { examplesOf, findOverlaps, overlapReason } from "@core/evals/lib/prompt-overlap";
+import { examplesOf, findOverlaps, normalizeText, overlapReason } from "@core/evals/lib/prompt-overlap";
 import { promptRegistry, registeredVersions, type PromptRegistry } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -83,6 +83,16 @@ describe("prompt overlap check", () => {
 
   test("never copies an eval input into a stage prompt", () => {
     expect(findOverlaps(registeredExamples(promptRegistry), evalInputs, { shortInside: true }).map(({ example, input, reason }) => `${example.file} «${example.text}» ~ «${input}» (${reason})`)).toEqual([]);
+  });
+
+  // A single word is never a copy for the guard, yet it can be the operative word of an eval case. Any new word shows up here for review;
+  // generic attribute words («talla», «color», «cambia») are acceptable, a word that decides a case is not.
+  test("lists the single-word examples of registered versions found in eval inputs, for review", () => {
+    const wordsIn = (text: string) => normalizeText(text).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const inputWords = new Set(evalInputs.flatMap(wordsIn));
+    const singleWords = registeredExamples(promptRegistry).flatMap((example) => wordsIn(example.text).length === 1 ? wordsIn(example.text) : []);
+
+    expect([...new Set(singleWords.filter((word) => inputWords.has(word)))].sort()).toEqual(["agregame", "cambia", "color", "confirmo", "m", "q", "talla"]);
   });
 
   test("flags an eval input copied into a registered version's instructions, whichever file the version lives in", () => {
