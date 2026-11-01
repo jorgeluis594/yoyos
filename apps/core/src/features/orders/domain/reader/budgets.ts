@@ -43,7 +43,9 @@ function itemChars(item: ReadingItem): number {
 
 function pendingChars(pending: ReadingPending): number {
   const known = Object.entries(pending.known).reduce((sum, [name, value]) => sum + name.length + value.length + 4, 0);
-  return known + pending.productIds.length * idChars + elementOverhead;
+  const names = (pending.productNames ?? []).reduce((sum, name) => sum + name.length + 2, 0);
+  const missing = (pending.missing ?? []).reduce((sum, { name, values }) => sum + name.length + 12 + values.reduce((total, value) => total + value.length + 2, 0), 0);
+  return known + pending.productIds.length * idChars + names + missing + elementOverhead;
 }
 
 function baseChars(input: ReadingInput): number {
