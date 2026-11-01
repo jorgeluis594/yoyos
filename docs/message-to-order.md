@@ -125,7 +125,7 @@ The only context target that counts as named.
 | --- | --- |
 | What it is | A matched product photo that is the chat's last incoming message read before this one, not itself right after another incoming photo (an album). Outgoing and skipped messages in between (seller replies, «👍») do not break it; any read buyer text in between does. |
 | What it covers | Only **set** wording without a product name: «quiero 3 de esos», «pásame 3 de esas», «que sean 3», «mejor 3», also with values. It sets the quantity, up to 99, of what that photo left: its pending, or the item it created or grew. |
-| What it does not cover | **Add** wording («2 más de esos», «otros 2», «otro igual», «uno más», «lo mismo x2») stays an unnamed add: at best «Con duda», otherwise urgent. It never applies to another item, even the only one. |
+| What it does not cover | **Add** wording («2 más de esos», «otros 2», «otro igual», «uno más», «lo mismo x2») stays an unnamed add: at best «Con duda», otherwise urgent. It never applies to another item, even the only one. «Lo mismo x2» adds 2 (a line of 1 becomes ×3). Set wording with no photo just sent («dame 2 de ese», «pásame 2 de esos») on the one line of that product sets it to 2, always «Con duda». |
 | Unchanged since | It counts only while what the photo left is as the photo left it: the pending alive and unchanged, or the item at the quantity and variant the photo left, in the same open order. Otherwise the target is plain context: at best «Con duda». |
 | No photo just sent | The previous incoming message is a text, a photo that matched nothing, a non-product photo, a product photo that left nothing, a photo right after another photo, or the photo's pending ended or its order stopped being open. |
 
