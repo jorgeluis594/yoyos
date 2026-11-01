@@ -29,7 +29,7 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
   try {
     const result = await productEditing.create(toCreateInput(parsed.data));
     if (!result.success) return createFeedback(result.error, language);
-    return redirect(companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`));
+    return redirect(companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`) + "?saved=1");
   } catch (cause) {
     log.error({ event: "unable_to_create_product", err: cause }, "unable_to_create_product");
     return { errors: { form: resources[language].translation.productEditor.inDoubtCreate }, issues: [] };
@@ -63,10 +63,10 @@ export default function ProductNew() {
   // One id per opened form, so a retry after an uncertain result is answered with a conflict instead of a second product.
   const [productId] = useState(() => crypto.randomUUID());
 
-  function save({ values, photos, draft }: ProductFormSubmission) {
+  function save({ values, photos, draft, hidden }: ProductFormSubmission) {
     submit(buildCreateProductBody(draft, {
       id: productId, name: values.name, description: values.description === "" ? null : values.description,
-      photos, currency, hidden: false,
+      photos, currency, hidden,
     }), { method: "post", encType: "application/json" });
   }
 

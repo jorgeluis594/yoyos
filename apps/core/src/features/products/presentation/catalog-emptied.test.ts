@@ -34,4 +34,10 @@ describe("catalog emptied", () => {
     expect(result).toBe(false);
     expect(logs.warn).toHaveBeenCalledWith(expect.objectContaining({ event: "product_catalog_emptied_check_failed", companyId: "c1", productId: "p1", errorCode: "PERSISTENCE_UNAVAILABLE" }), "product_catalog_emptied_check_failed");
   });
+
+  test("a storefront read that throws gives no notice and logs the failure", async () => {
+    const result = await resolveCatalogEmptied(saved(true), access, async () => { throw new Error("programming error"); });
+    expect(result).toBe(false);
+    expect(logs.warn).toHaveBeenCalledWith(expect.objectContaining({ event: "product_catalog_emptied_check_failed", companyId: "c1", productId: "p1", errorCode: "STOREFRONT_READ_THROWN" }), "product_catalog_emptied_check_failed");
+  });
 });

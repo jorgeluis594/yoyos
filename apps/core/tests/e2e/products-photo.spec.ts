@@ -45,8 +45,8 @@ test("a seller creates a product with three photos and the catalog grid and the 
     await browserExpect(page.getByRole("group", { name: "Foto 1 de 3, principal" }).locator("img")).toHaveAttribute("src", /puesto\.png$/);
 
     await page.getByRole("button", { name: "Guardar producto" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
-    const productUrl = page.url();
+    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+(\?saved=1)?$/);
+    const productUrl = page.url().replace(/\?saved=1$/, "");
     await browserExpect(page.getByText("3 de 8 fotos")).toBeVisible();
     await browserExpect(page.getByRole("group", { name: "Foto 1 de 3, principal" }).locator("img")).toHaveAttribute("src", /puesto\.png$/);
     await browserExpect(page.getByRole("group", { name: "Foto 2 de 3" }).locator("img")).toHaveAttribute("src", /frente\.png$/);
