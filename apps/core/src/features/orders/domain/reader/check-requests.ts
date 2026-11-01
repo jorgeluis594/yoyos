@@ -263,8 +263,17 @@ function checkVariant(said: Said, env: Env): CheckedAction {
   const { snapshot } = env;
   const valueWord = request.values[0]?.valueWords.text ?? "";
   const choicesOf = (product: CheckProduct) => choicesFromWords(product, request.values);
-  const variantOnly = (items: readonly CheckItem[], kind: "variant_for_which" | "which_product_for_value"): CheckedAction =>
-    problem(said, { kind: "variant_only" }, "variant_only", valueWord ? orNull(names(items), (products) => ({ language: snapshot.language, kind, value: valueWord, products })) : null);
+  const attributeOf = (items: readonly CheckItem[]): string => {
+    const product = items.map((item) => productOfItem(item, snapshot)).find((candidate) => candidate !== undefined);
+    return (product ? choicesOf(product)[0]?.name : undefined) || request.values[0]?.attributeWords?.text || "";
+  };
+  const variantOnly = (items: readonly CheckItem[], kind: "variant_for_which" | "which_product_for_value"): CheckedAction => {
+    const attribute = attributeOf(items);
+    const question = (products: readonly string[]): SuggestedQuestion =>
+      kind === "variant_for_which" ? { language: snapshot.language, kind, attribute, value: valueWord, products } : { language: snapshot.language, kind, value: valueWord, products };
+    const asks = valueWord !== "" && (kind === "which_product_for_value" || attribute !== "");
+    return problem(said, { kind: "variant_only" }, "variant_only", asks ? orNull(names(items), question) : null);
+  };
   let found = findItem(request, env);
   if (found.kind === "many" && !found.named) {
     const fitting = snapshot.items.filter((item) => offersValues(item, choicesOf, snapshot));

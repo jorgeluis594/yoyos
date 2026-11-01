@@ -51,7 +51,7 @@ describe("checkRequests: items", () => {
 
   test("asks which item the value is for when several items fit a variant-only text", () => {
     const checked = only(checkRequests([request({ kind: "change_variant", target: { kind: "none" }, values: [value("M")] })], [], snapshot({ items: [polera, item("I2", "polo", { Talla: "L", Color: "Negro" })] })));
-    expect(decision(checked)).toEqual({ kind: "urgent", problem: "variant_only", question: { language: "es", kind: "variant_for_which", value: "M", products: ["Polera con capucha", "Polo básico"] } });
+    expect(decision(checked)).toEqual({ kind: "urgent", problem: "variant_only", question: { language: "es", kind: "variant_for_which", attribute: "Talla", value: "M", products: ["Polera con capucha", "Polo básico"] } });
   });
 
   test("rates a variant change high only with a change verb, a named item and a single candidate", () => {

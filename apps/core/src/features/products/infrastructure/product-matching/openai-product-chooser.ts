@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { DecisionInputPart } from "openai/resources/decisions";
-import { err } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
 import type { ChooseProduct } from "@core/src/features/products/application/identify-products-in-image";
 import { buildChooserPrompt, NONE, parseChooserOutput, SHOWS_PRODUCT, showsProductInstructions, toDataUrl, type ChooserError } from "@core/src/features/products/infrastructure/product-matching/product-chooser";
@@ -43,9 +43,10 @@ export function createOpenAIProductChooser(config: OpenAIProductChooserConfig): 
       log.error({ event: "product_matcher_invalid_response", ...fields(), errorCode: choice.error.code, err: { answerType: answer?.type ?? null } }, "product_matcher_invalid_response");
       return choice;
     }
+    const usage = decision.usage ? { inputTokens: decision.usage.input_tokens, outputTokens: decision.usage.output_tokens } : undefined;
     log.info({ event: "product_visual_match_completed", ...fields(), candidates: input.candidates.length, detail: input.detail?.kind ?? null, choice: choice.data.kind,
       confidence: choice.data.kind === "product" ? choice.data.confidence : undefined, showsProduct: choice.data.showsProduct,
       inputTokens: decision.usage?.input_tokens, outputTokens: decision.usage?.output_tokens }, "product_visual_match_completed");
-    return choice;
+    return ok(usage ? { ...choice.data, usage } : choice.data);
   };
 }
