@@ -38,7 +38,8 @@ export type CheckSnapshot = Readonly<{
 
 type Urgent = NonNullable<CheckedAction["urgent"]>;
 type Said = Readonly<{ request: ExtractedRequest; complete: boolean }>;
-type Env = Readonly<{ snapshot: CheckSnapshot; resolutions: readonly ProductResolution[]; claims: ReadonlyMap<string, number>; added: ReadonlySet<ProductId> }>;
+type Env = Readonly<{ snapshot: CheckSnapshot; resolutions: readonly ProductResolution[]; claims: ReadonlyMap<string, number>; added: ReadonlySet<ProductId>;
+  /** Completions that took a quantity change of the same message: their target is only as named as that change was. */ contextual?: ReadonlySet<RequestRef> }>;
 type Named = CertaintySignals["targetNamed"];
 
 const changeKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["add", "remove", "change_quantity", "change_variant", "complete_pending", "mention_price"]);
@@ -72,13 +73,13 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
     return first ? [checked(first, report({ kind: "image_with_request" }), signalsOf(first, "context"), { urgent: { problem: "image_with_request", question: null } })] : [];
   }
   const claims = new Map<string, number>();
-  const retargeted = requests.map((verified) => photoRetargeted(namedOnlyIfResolved(verified, resolutions, snapshot), snapshot));
+  const retargeted = requests.map((verified) => photoRetargeted(shownIfUnresolved(namedOnlyIfResolved(verified, resolutions, snapshot), resolutions, snapshot), snapshot));
   for (const entry of retargeted) {
     const id = claimedPending(entry.request, snapshot);
     if (id) claims.set(id, (claims.get(id) ?? 0) + 1);
   }
-  const env: Env = { snapshot, resolutions, claims, added: new Set(retargeted.flatMap((entry) => addedProductsOf(entry, resolutions, snapshot))) };
-  const { requests: folded, absorbedBy } = foldSameMessage(retargeted, resolutions, snapshot);
+  const { requests: folded, absorbedBy, contextual } = foldSameMessage(retargeted, resolutions, snapshot);
+  const env: Env = { snapshot, resolutions, claims, added: new Set(retargeted.flatMap((entry) => addedProductsOf(entry, resolutions, snapshot))), contextual };
   return folded.flatMap((entry) => checkOne(entry, env).map((action) => withAbsorbed(action, absorbedBy.get(action.request))));
 }
 
@@ -104,6 +105,17 @@ function photoRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): Ve
   if (!line) return { ...verified, request: { ...request, kind: "add", target: { kind: "photo_same_message" } } };
   if (more.length > 0) return verified;
   return { ...verified, request: { ...request, target: { kind: "item", ref: line.ref, named: null } } };
+}
+
+/**
+ * In a product photo's message, an add that carries values and names words the resolution found no product for is the caption of the photo («M negro»):
+ * it speaks about the shown product, not about another one.
+ */
+function shownIfUnresolved(verified: VerifiedRequest, resolutions: readonly ProductResolution[], snapshot: CheckSnapshot): VerifiedRequest {
+  const { request } = verified;
+  if (snapshot.messageKind !== "photo_product" || request.kind !== "add" || request.target.kind !== "named" || request.values.length === 0) return verified;
+  const resolution = resolutions.find((candidate) => candidate.request === request.request);
+  return resolution?.kind === "none" ? { ...verified, request: { ...request, target: { kind: "photo_same_message" } } } : verified;
 }
 
 /** The products an order line or a pending stands for; null when it has none the resolution could choose (an item with no product). */
@@ -167,7 +179,107 @@ function mappedValuesOf(request: ExtractedRequest, resolutions: readonly Product
  * look for a line the message itself is creating. It folds only when exactly one add of the message has that product (with several the request would belong to whichever came first, so it asks) and the order has no line and no pending of that product (otherwise it can find its own
  * target) and its values add nothing the add lacks or contradicts. The add keeps its own price and quantity when it has them; the folded request leaves no action.
  */
-function foldSameMessage(requests: readonly VerifiedRequest[], resolutions: readonly ProductResolution[], snapshot: CheckSnapshot): Readonly<{ requests: readonly VerifiedRequest[]; absorbedBy: ReadonlyMap<RequestRef, readonly RequestRef[]> }> {
+type Folded = Readonly<{ requests: readonly VerifiedRequest[]; absorbedBy: ReadonlyMap<RequestRef, readonly RequestRef[]>; contextual: ReadonlySet<RequestRef> }>;
+
+const absorb = (absorbedBy: Map<RequestRef, readonly RequestRef[]>, into: RequestRef, ref: RequestRef): void => {
+  absorbedBy.set(into, [...(absorbedBy.get(into) ?? []), ref]);
+};
+
+/** Folds the requests of one message that speak about what another request of the same message creates or completes, so that none is counted twice or looks for a target the message itself is making. */
+function foldSameMessage(requests: readonly VerifiedRequest[], resolutions: readonly ProductResolution[], snapshot: CheckSnapshot): Folded {
+  const absorbedBy = new Map<RequestRef, readonly RequestRef[]>();
+  const contextual = new Set<RequestRef>();
+  const named = foldIntoNamedAdds(requests, resolutions, snapshot, absorbedBy);
+  const photo = foldIntoPhotoAdd(named, snapshot, absorbedBy);
+  const pending = foldIntoCompletions(photo, snapshot, absorbedBy, contextual);
+  return { requests: foldOtherCurrency(pending, snapshot, absorbedBy), absorbedBy, contextual };
+}
+
+const photoKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["mention_price", "change_quantity", "change_variant"]);
+const aimsAtPhoto = (request: ExtractedRequest): boolean => request.target.kind === "photo_same_message" && photoKinds.has(request.kind) && request.quantity?.mode !== "decrease";
+
+/**
+ * A price, quantity or variant the caption gives for the photo itself is part of the photo's add: one add of the message carries it (values merged, the add keeps
+ * its own price and quantity when it has them). With no add in the message the first such request becomes the add, or, when the order already has a single line of
+ * the shown product, the same request on that line.
+ */
+function foldIntoPhotoAdd(requests: readonly VerifiedRequest[], snapshot: CheckSnapshot, absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
+  if (snapshot.messageKind !== "photo_product") return requests;
+  const aimed = requests.filter((entry) => aimsAtPhoto(entry.request));
+  const photoAdds = requests.filter((entry) => entry.request.kind === "add" && entry.request.target.kind === "photo_same_message");
+  if (aimed.length === 0 || photoAdds.length > 1) return requests;
+  const [first] = aimed;
+  const [existing] = photoAdds;
+  const shownIds = shownProductIds(snapshot);
+  const lines = snapshot.items.filter((item) => item.productId !== null && shownIds.has(item.productId));
+  const [line] = lines;
+  if (first && !existing && lines.length === 1 && line && first.request.kind !== "mention_price") {
+    return requests.map((entry) => (entry === first ? { ...entry, request: { ...entry.request, target: { kind: "item", ref: line.ref, named: null } } } : entry));
+  }
+  const base: VerifiedRequest | undefined = existing ?? (first ? { ...first, request: { ...first.request, kind: "add" } } : undefined);
+  if (!base) return requests;
+  const origin = existing ?? first;
+  const folding = aimed.filter((entry) => entry !== origin);
+  const merged = folding.reduce((add, other) => {
+    if ((add.request.price !== null && other.request.price !== null) || (add.request.quantity !== null && other.request.quantity !== null)) return add;
+    absorb(absorbedBy, base.request.request, other.request.request);
+    const values = [...add.request.values, ...other.request.values.filter((value) => !add.request.values.some((have) => folded(have.valueWords.text) === folded(value.valueWords.text)))];
+    return { complete: add.complete && other.complete, request: { ...add.request, values, price: add.request.price ?? other.request.price, quantity: add.request.quantity ?? other.request.quantity } };
+  }, base);
+  const gone = new Set(absorbedBy.get(base.request.request) ?? []);
+  return requests.flatMap((entry) => (entry === origin ? [merged] : gone.has(entry.request.request) ? [] : [entry]));
+}
+
+/** The pending a quantity request points at, by its reference or as the one the photo just sent left. */
+function pendingIdOf(request: ExtractedRequest, snapshot: CheckSnapshot): string | undefined {
+  const { target } = request;
+  if (target.kind === "pending") return snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending.id;
+  return target.kind === "photo_just_sent" && snapshot.photoJustSent?.kind === "pending" ? snapshot.photoJustSent.pendingId : undefined;
+}
+
+const sameQuote = (one: { source: string; text: string }, other: { source: string; text: string }): boolean => one.source === other.source && folded(one.text) === folded(other.text);
+
+/**
+ * A quantity change of a pending that the same message completes is part of that completion, whatever order the model listed them in: the completion takes the
+ * quantity (an add on top of the pending's units), «Con duda» unless the change named the pending with set wording. When the completion states its own quantity with
+ * the very words of the change, the change is the same words read twice: it is absorbed and counts once.
+ */
+function foldIntoCompletions(requests: readonly VerifiedRequest[], snapshot: CheckSnapshot, absorbedBy: Map<RequestRef, readonly RequestRef[]>, contextual: Set<RequestRef>): readonly VerifiedRequest[] {
+  const gone = new Set<VerifiedRequest>();
+  const rewritten = new Map<VerifiedRequest, VerifiedRequest>();
+  for (const complete of requests) {
+    const { request } = complete;
+    const target = request.target;
+    if (request.kind !== "complete_pending" || target.kind !== "pending") continue;
+    const pending = snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending;
+    if (!pending) continue;
+    const change = requests.find((entry) => !gone.has(entry) && entry.request.kind === "change_quantity" && entry.request.quantity !== null && entry.request.quantity.mode !== "decrease"
+      && entry.request.values.length === 0 && entry.request.price === null && pendingIdOf(entry.request, snapshot) === pending.id);
+    const wanted = change?.request.quantity;
+    if (!change || !wanted) continue;
+    if (request.quantity && !sameQuote(request.quantity.quote, wanted.quote)) continue;
+    gone.add(change);
+    absorb(absorbedBy, request.request, change.request.request);
+    if (request.quantity) continue;
+    const units = wanted.mode === "add" ? pending.quantity + wanted.value : wanted.value;
+    const aimed = change.request.target;
+    if (wanted.mode === "add" || aimed.kind !== "pending" || aimed.named === null) contextual.add(request.request);
+    rewritten.set(complete, { ...complete, complete: complete.complete && change.complete, request: { ...request, quantity: { value: units, mode: "set", quote: wanted.quote } } });
+  }
+  return requests.filter((entry) => !gone.has(entry)).map((entry) => rewritten.get(entry) ?? entry);
+}
+
+/** A price in another currency is dropped: when the order has no line for it to land on, another request of the message answers for it instead of reporting «no open order». */
+function foldOtherCurrency(requests: readonly VerifiedRequest[], snapshot: CheckSnapshot, absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
+  if (snapshot.order === "open") return requests;
+  const dropped = (entry: VerifiedRequest): boolean => entry.request.kind === "mention_price" && entry.request.price?.currency === "other" && entry.request.quantity === null && entry.request.values.length === 0;
+  const [into] = requests.filter((entry) => !dropped(entry));
+  if (!into) return requests;
+  requests.filter(dropped).forEach((entry) => absorb(absorbedBy, into.request.request, entry.request.request));
+  return requests.filter((entry) => !dropped(entry));
+}
+
+function foldIntoNamedAdds(requests: readonly VerifiedRequest[], resolutions: readonly ProductResolution[], snapshot: CheckSnapshot, absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
   const addedProduct = (entry: VerifiedRequest): ProductId | null => addedProductOf(entry, resolutions);
   const addsOf = (productId: ProductId): number => requests.filter((other) => addedProduct(other) === productId).length;
   const folds = (entry: VerifiedRequest, add: VerifiedRequest): boolean => {
@@ -183,16 +295,15 @@ function foldSameMessage(requests: readonly VerifiedRequest[], resolutions: read
     return (request.price === null || add.request.price === null) && (request.quantity === null || add.request.quantity === null);
   };
   const absorbed = new Set<VerifiedRequest>();
-  const absorbedBy = new Map<RequestRef, readonly RequestRef[]>();
   const merged = requests.map((entry) => {
     if (addedProduct(entry) === null) return entry;
     return requests.filter((other) => other !== entry && !absorbed.has(other) && folds(other, entry)).reduce((add, other) => {
       absorbed.add(other);
-      absorbedBy.set(entry.request.request, [...(absorbedBy.get(entry.request.request) ?? []), other.request.request]);
+      absorb(absorbedBy, entry.request.request, other.request.request);
       return { complete: add.complete && other.complete, request: { ...add.request, price: add.request.price ?? other.request.price, quantity: add.request.quantity ?? other.request.quantity } };
     }, entry);
   });
-  return { requests: merged.filter((entry) => !absorbed.has(entry)), absorbedBy };
+  return merged.filter((entry) => !absorbed.has(entry));
 }
 
 const shownProductIds = (snapshot: CheckSnapshot): ReadonlySet<ProductId> => new Set(snapshot.products.filter((product) => product.shown).map((product) => product.productId));
@@ -226,7 +337,7 @@ function coversShown(request: ExtractedRequest, snapshot: CheckSnapshot, resolut
 /** The photo is the request: the products a product photo shows, added with their QR values, for a message whose requests leave them out. */
 export function checkShownPhoto(snapshot: CheckSnapshot, requests: readonly VerifiedRequest[], resolutions: readonly ProductResolution[]): readonly CheckedAction[] {
   if (snapshot.messageKind !== "photo_product") return [];
-  const covering = requests.some((entry) => coversShown(photoRetargeted(entry, snapshot).request, snapshot, resolutions));
+  const covering = requests.some((entry) => coversShown(photoRetargeted(shownIfUnresolved(namedOnlyIfResolved(entry, resolutions, snapshot), resolutions, snapshot), snapshot).request, snapshot, resolutions));
   if (covering) return [];
   const request: ExtractedRequest = { request: "R0" as ExtractedRequest["request"], kind: "add", target: { kind: "photo_same_message" }, values: [], quantity: null, price: null, changeVerb: null };
   const env: Env = { snapshot, resolutions: [], claims: new Map(), added: new Set() };
@@ -254,7 +365,7 @@ function checkOne(said: Said, env: Env): readonly CheckedAction[] {
     case "change_quantity": return [checkQuantity(said, env)];
     case "change_variant": return [checkVariant(said, env)];
     case "mention_price": return [checkPrice(said, env)];
-    case "complete_pending": return [checkComplete(said, env)];
+    case "complete_pending": return [checkComplete(said, env, env.contextual?.has(request.request) ? "context" : "named")];
     case "decline": return [checkDecline(said, env)];
     case "ready": return [checked(said, { kind: "ready" }, signalsOf(said, "named"))];
     case "payment_request": return [checked(said, report({ kind: "payment_requested", order: { kind: "none" }, productIds: [], unnamed: 0 }), signalsOf(said, "named"))];
@@ -348,7 +459,7 @@ function findItem(request: ExtractedRequest, env: Env): FoundItem {
     if (line) return others.length === 0 ? { kind: "found", item: line, named: true } : { kind: "many", productId: null, named: true };
     return { kind: "none", productId, named: true };
   }
-  if (target.kind === "pending") return { kind: "none", productId: null, named: false };
+  if (target.kind === "pending" || target.kind === "photo_same_message") return { kind: "none", productId: null, named: false };
   const [only, ...more] = items;
   if (only && more.length === 0) return { kind: "found", item: only, named: false };
   return more.length > 0 ? { kind: "many", productId: null, named: false } : { kind: "none", productId: null, named: false };
@@ -621,7 +732,7 @@ function addOnPending(said: Said, env: Env): CheckedAction {
   if (!pending || target.kind !== "pending") return checked(said, invalid("unknown_reference"), signalsOf(said, "named"), { urgent: { problem: "invalid_action", question: null } });
   if (request.values.length > 0) {
     const grown = quantity?.mode === "add" ? { ...request, quantity: { ...quantity, value: pending.quantity + quantity.value, mode: "set" as const } } : request;
-    return checkComplete({ ...said, request: grown }, env, quantity?.mode === "add" && target.named === null ? "context" : "named");
+    return checkComplete({ ...said, request: grown }, env, target.named === null ? "context" : "named");
   }
   if (!quantity) return checkComplete(said, env);
   return pendingQuantity(said, pending, quantity, target.named !== null ? "named" : "context");

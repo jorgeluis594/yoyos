@@ -716,6 +716,84 @@ describe("checkRequests: named targets against the order and the pendings", () =
   });
 });
 
+describe("checkRequests: requests of one message about the same thing", () => {
+  const ref = (name: string) => name as RequestRef;
+  const shown = Object.values(catalog).map((product) => (product.productId === productId("gorra") ? { ...product, shown: true, shownVariantId: variantOf("gorra", { Color: "Rojo" }).variantId } : product));
+  const photo = (over: Partial<CheckSnapshot> = {}) => snapshot({ messageKind: "photo_product", products: shown, ...over });
+  const photoAdd = request({ request: ref("R1"), kind: "add", target: { kind: "photo_same_message" } });
+  const trucker = item("I1", "gorra", { Color: "Negro" });
+  const polera = item("I2", "polera", { Talla: "L" });
+
+  test("folds the price and quantity a caption gives into the add of the photo", () => {
+    const price = request({ request: ref("R2"), kind: "mention_price", target: { kind: "photo_same_message" }, price: { amount: 35, currency: "order", basis: "unit", quote: say("a 35") } });
+    const amount = request({ request: ref("R3"), kind: "change_quantity", target: { kind: "photo_same_message" }, quantity: quantity(3, "set") });
+    const checked = only(checkRequests([photoAdd, price, amount], [], photo({ order: "none" })));
+    expect(checked.action).toMatchObject({ kind: "add", quantity: 3, mentionedPrice: { amount: { amount: 35 }, units: 1 } });
+    expect(checked.absorbed).toEqual(["R2", "R3"]);
+    expect(lostRequests([], ["R1", "R2", "R3"].map(ref), [checked])).toEqual([]);
+  });
+
+  test("turns a caption quantity aimed at the photo into an add of the shown product, never a change of another line", () => {
+    const amount = request({ request: ref("R1"), kind: "change_quantity", target: { kind: "photo_same_message" }, quantity: quantity(3, "set") });
+    const checked = only(checkRequests([amount], [], photo({ items: [polera] })));
+    expect(checked.action).toMatchObject({ kind: "add", quantity: 3, item: { variantId: variantOf("gorra", { Color: "Rojo" }).variantId } });
+    expect(checkShownPhoto(photo({ items: [polera] }), [amount], [])).toEqual([]);
+  });
+
+  test("applies a caption quantity aimed at the photo to the single line of the shown product", () => {
+    const amount = request({ kind: "change_quantity", target: { kind: "photo_same_message" }, quantity: quantity(3, "set") });
+    const checked = only(checkRequests([amount], [], photo({ items: [trucker, polera] })));
+    expect(checked.action).toMatchObject({ kind: "set_quantity", target: { variantId: trucker.variantId }, quantity: 3 });
+  });
+
+  test("never adds the photo twice when a quantity names another line of the order without naming it", () => {
+    const total = request({ kind: "change_quantity", target: { kind: "item", ref: "I2" as ItemRef, named: say("esas") }, quantity: quantity(3, "set") });
+    const state = photo({ items: [polera] });
+    const checked = checkRequests([total], [{ request: ref("R1"), kind: "none" }], state);
+    expect(checked.map((entry) => entry.action.kind)).toEqual(["add"]);
+    expect(checked[0]!.action).toMatchObject({ quantity: 3 });
+    expect(checkShownPhoto(state, [total], [{ request: ref("R1"), kind: "none" }])).toEqual([]);
+  });
+
+  test("reads an add with values whose name the resolution found no product for as the caption of the photo", () => {
+    const caption = request({ kind: "add", target: { kind: "named", words: say("M negro") }, values: [value("negro")] });
+    const state = photo({ order: "none" });
+    expect(only(checkRequests([caption], [{ request: ref("R1"), kind: "none" }], state)).action).toMatchObject({ kind: "add", item: { variantId: variantOf("gorra", { Color: "Negro" }).variantId } });
+    expect(checkShownPhoto(state, [caption], [{ request: ref("R1"), kind: "none" }])).toEqual([]);
+  });
+
+  test("makes a quantity change of a pending part of the completion of the same message, «Con duda» when it adds units", () => {
+    const pending = pendingOf("polo");
+    const complete = request({ request: ref("R1"), kind: "complete_pending", target: { kind: "pending", ref: "Q1" as PendingRef, named: say("el polo") }, values: [value("M")] });
+    const more = request({ request: ref("R2"), kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: quantity(2, "add") });
+    const state = snapshot({ pendings: [pendingRef(1, pending)] });
+    for (const requests of [[complete, more], [more, complete]]) {
+      const checked = only(checkRequests(requests, [], state));
+      expect(checked.action).toMatchObject({ kind: "advance_pending", request: { quantity: pending.quantity + 2 } });
+      expect(checked.absorbed).toEqual(["R2"]);
+      expect(checked.signals.targetNamed).toBe("context");
+    }
+  });
+
+  test("counts the quantity once when a completion and a change of its pending say it with the same words", () => {
+    const pending = pendingOf("polo");
+    const words = { value: 2, mode: "set", quote: say("serían 2") } as const;
+    const complete = request({ request: ref("R1"), kind: "complete_pending", target: { kind: "pending", ref: "Q1" as PendingRef, named: say("polos") }, values: [value("M")], quantity: words });
+    const again = request({ request: ref("R2"), kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: { ...words, mode: "add" } });
+    const checked = only(checkRequests([complete, again], [], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(checked.action).toMatchObject({ kind: "advance_pending", request: { quantity: 2 } });
+    expect(checked.absorbed).toEqual(["R2"]);
+  });
+
+  test("lets another request answer for a price in another currency when the chat has no open order", () => {
+    const other = request({ request: ref("R2"), kind: "mention_price", target: { kind: "none" }, price: { amount: 20, currency: "other", basis: "unit", quote: say("20 dólares") } });
+    const add = request({ request: ref("R1"), kind: "add", target: { kind: "named", words: say("gorras") } });
+    const checked = only(checkRequests([add, other], [chosen("gorra", [{ attribute: "Color", value: "Rojo" }])], snapshot({ order: "none" })));
+    expect(checked.absorbed).toEqual(["R2"]);
+    expect(checkRequests([other], [], snapshot({ order: "none" }))[0]!.blocked).toBe("no_open_order");
+  });
+});
+
 describe("checkRequests: the buyer's values mapped by the resolution", () => {
   const pendingTarget = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
   const mapped = (key: ProductKey, values: { attribute: string; value: string; word: string }[], unmatched: string[] = []): ProductResolution =>
