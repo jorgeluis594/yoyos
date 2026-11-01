@@ -96,6 +96,37 @@ describe("runReading", () => {
     expect(log.searches).toBe(1);
   });
 
+  test("keeps the refs of the dropped intents when other intents survive", async () => {
+    const { deps } = fakes({ intent: { kind: "requests", requests: [intent("R1", "add"), intent("R2", "add", "una casaca roja")], language: "es", addresses: [] }, extraction: [request("R1", "add")] });
+    const run = await runReading(deps, context, [], signal());
+
+    expect(run.success && run.data.primary).toMatchObject({ droppedIntents: 1, droppedRequests: ["R2"] });
+  });
+
+  test("reads one request for an extraction repeated once, keeps the other as absorbed, and keeps both when the message says the words twice", async () => {
+    const once = fakes({ intent: { kind: "requests", requests: [intent("R1", "add"), intent("R2", "add")], language: "es", addresses: [] }, extraction: [request("R1", "add"), request("R2", "add")] });
+    const single = await runReading(once.deps, context, [], signal());
+    expect(single.success && single.data.primary.chain?.requests.map(({ request: entry }) => entry.request)).toEqual(["R1"]);
+    expect(single.success && single.data.primary.chain?.absorbed).toEqual(["R2"]);
+
+    const twice = { ...context, input: { ...context.input, current: { ...context.input.current, text: "la polera gris y la polera gris" } } } as unknown as ReadingContextData;
+    const both = fakes({ intent: { kind: "requests", requests: [intent("R1", "add"), intent("R2", "add")], language: "es", addresses: [] }, extraction: [request("R1", "add"), request("R2", "add")] });
+    const double = await runReading(both.deps, twice, [], signal());
+    expect(double.success && double.data.primary.chain?.requests.map(({ request: entry }) => entry.request)).toEqual(["R1", "R2"]);
+  });
+
+  test("starts the confirming extraction for an add only when the order has lines", async () => {
+    const add = { kind: "requests", requests: [intent("R1", "add")], language: "es", addresses: [] } as const;
+    const empty = fakes({ intent: add, extraction: [request("R1", "add")] });
+    const none = await runReading(empty.deps, context, [], signal());
+    expect(none.success && none.data.confirming).toBeNull();
+
+    const withLines = { ...context, input: { ...context.input, items: [{ ref: "I1", itemId: "i1", productId, variantId: "v1", productName: "Polera gris", variantAttributes: {}, quantity: 1 }] } } as unknown as ReadingContextData;
+    const lines = fakes({ intent: add, extraction: [request("R1", "add")] });
+    const run = await runReading(lines.deps, withLines, [], signal());
+    expect(run.success && run.data.confirming).not.toBeNull();
+  });
+
   test("drops an intent whose quote is not in the message and reads nothing more when none is left", async () => {
     const { deps, log } = fakes({ intent: { kind: "requests", requests: [intent("R1", "add", "una casaca roja")], language: "es", addresses: [] } });
     const run = await runReading(deps, context, [], signal());

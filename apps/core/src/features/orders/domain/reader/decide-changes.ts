@@ -1,6 +1,6 @@
 import type { ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-message-outcome";
-import { agreementOf, decideChange, riskOf, type CheckedAction, type DecisionGuards } from "@core/src/features/orders/domain/reader/decide";
+import { agreementOf, decideChange, riskOfChecked, type CheckedAction, type DecisionGuards } from "@core/src/features/orders/domain/reader/decide";
 import type { Agreement, ChangeDecision, ChangeRisk } from "@core/src/features/orders/domain/reader/decision";
 import type { SuggestedQuestion } from "@core/src/features/orders/domain/suggested-question";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -59,7 +59,7 @@ function reportFor(checked: CheckedAction): ResolvedChatAction {
  */
 export function decideChanges(checks: readonly CheckedAction[], confirming: readonly CheckedAction[] | null, guards: DecisionGuards): DecidedChanges {
   const decided = checks.map((checked): DecidedAction => {
-    const risk = riskOf(checked.action, checked.signals);
+    const risk = riskOfChecked(checked);
     const agreement = agreementFor(checked, confirming);
     return { checked, risk, agreement, decision: decideChange(checked, risk, agreement, guards) };
   });

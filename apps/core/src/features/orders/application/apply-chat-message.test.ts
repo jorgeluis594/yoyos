@@ -222,6 +222,21 @@ describe("applyChatMessage: the staged pipeline", () => {
     expect(h.outcomeTimes).toEqual([at]);
   });
 
+  test("reports reader_doubt for an intent whose quote was not found and still applies the others", async () => {
+    const h = harness({ message: textMessage("dame el polo M"), script: { intent: requestsOf(intent("R1", "add", "el polo M"), intent("R2", "add", "una casaca roja")), extraction: [addPolo("el polo")], resolutions: [poloInM()] } });
+    const applied = await succeeded(h.run());
+
+    expect(applied).toMatchObject({ kind: "applied", noticeDue: true, outcomes: [{ kind: "added", variantId: poloM.variantId }, { kind: "reader_doubt" }] });
+    expect(quantityOf(h.store, poloM.variantId)).toBe(1);
+  });
+
+  test("reports reader_doubt for a kept intent the extraction left out", async () => {
+    const h = harness({ message: textMessage("dame el polo M y la gorra"), script: { intent: requestsOf(intent("R1", "add", "el polo M"), intent("R2", "add", "la gorra")), extraction: [addPolo("el polo")], resolutions: [poloInM()] } });
+    const applied = await succeeded(h.run());
+
+    expect(applied).toMatchObject({ kind: "applied", noticeDue: true, outcomes: [{ kind: "added" }, { kind: "reader_doubt" }] });
+  });
+
   test("skips extraction and resolution when the intent is no intent", async () => {
     const h = harness({ message: textMessage("hola, buenas tardes") });
     const applied = await succeeded(h.run());
@@ -432,7 +447,7 @@ describe("applyChatMessage: too many requests", () => {
   test("cuts the requests beyond the tenth and reports too_many_actions as urgent", async () => {
     const ids = Array.from({ length: 11 }, (_, index) => `R${index + 1}`);
     const h = harness({ message: textMessage("cómo te pago"), target: poloTarget(), script: { intent: requestsOf(...ids.map((request) => intent(request, "payment_request", "cómo te pago"))),
-      extraction: ids.slice(0, 10).map((request) => extracted(request, "payment_request")) } });
+      extraction: ids.slice(0, 10).map((request, index) => extracted(request, "payment_request", { quantity: { value: index + 1, mode: "set", quote: current("cómo te pago") } })) } });
     const applied = await succeeded(h.run());
 
     expect(applied).toMatchObject({ kind: "applied", noticeDue: true, outcomes: expect.arrayContaining([expect.objectContaining({ kind: "invalid_action", reason: "too_many_actions" })]) });

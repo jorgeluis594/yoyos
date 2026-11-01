@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { droppedFields, verifyIntentQuotes, verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
+import { dedupeRequests, droppedFields, verifyIntentQuotes, verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
 import type { ContextMessageRef, ExtractedRequest, Quote, ReadingInput, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 
 const ref = (value: string) => value as RequestRef;
@@ -95,5 +95,31 @@ describe("droppedFields", () => {
   test("names nothing when every quote is found", () => {
     const before = request();
     expect(droppedFields(before, only(verifyQuotes([before], input("dame el polo"))).request)).toEqual([]);
+  });
+});
+
+describe("dedupeRequests", () => {
+  const said = (id: string, over: Partial<ExtractedRequest> = {}) => ({ request: request({ request: ref(id), ...over }), complete: true });
+  const twoGorras = { quantity: { value: 2, mode: "add" as const, quote: current("2 gorras") } };
+
+  test("keeps one request of the same extracted signature when the message says the words once, and reports the other as absorbed", () => {
+    const { kept, absorbed } = dedupeRequests([said("R1", twoGorras), said("R2", twoGorras)], input("2 gorras x fa"));
+    expect(kept.map(({ request: entry }) => entry.request)).toEqual(["R1"]);
+    expect(absorbed).toEqual(["R2"]);
+  });
+
+  test("keeps as many as the message says the words", () => {
+    const { kept, absorbed } = dedupeRequests([said("R1", twoGorras), said("R2", twoGorras), said("R3", twoGorras)], input("2 gorras y 2 gorras"));
+    expect(kept.map(({ request: entry }) => entry.request)).toEqual(["R1", "R2"]);
+    expect(absorbed).toEqual(["R3"]);
+  });
+
+  test("never drops a request that extracted something else from the same words", () => {
+    const polo = { target: { kind: "named" as const, words: current("polo") } };
+    const gorra = { target: { kind: "named" as const, words: current("gorra") } };
+    const each = { quantity: { value: 2, mode: "add" as const, quote: current("dos de cada una") } };
+    const { kept, absorbed } = dedupeRequests([said("R1", { ...polo, ...each }), said("R2", { ...gorra, ...each })], input("polo y gorra, dos de cada una"));
+    expect(kept).toHaveLength(2);
+    expect(absorbed).toEqual([]);
   });
 });

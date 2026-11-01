@@ -28,7 +28,7 @@ describe("riskOf", () => {
     ["changing a variant", changeVariant, sure, "high"],
     ["adding by reference", add, { ...sure, targetNamed: "context" }, "high"],
     ["increasing an unnamed item", { kind: "increase_quantity", target: { kind: "unnamed" }, quantity: 1 as PositiveInteger }, { ...sure, targetNamed: "context" }, "high"],
-    ["increasing a named item", { kind: "increase_quantity", target: { kind: "variant", variantId }, quantity: 1 as PositiveInteger }, sure, "low"],
+    ["increasing a named item", { kind: "increase_quantity", target: { kind: "variant", variantId }, quantity: 1 as PositiveInteger }, sure, "high"],
     ["noting a mentioned price", { kind: "set_mentioned_price", target: { kind: "variant", variantId }, price: null }, sure, "low"],
     ["changing a pending's quantity", { kind: "change_pending_quantity", pendingId: "p" as never, mode: "set", quantity: 3, otherwise: add }, sure, "low"],
     ["saying listo", { kind: "ready" }, sure, "low"],

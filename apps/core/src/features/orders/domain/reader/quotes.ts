@@ -1,4 +1,4 @@
-import type { ContextMessageRef, ExtractedRequest, ExtractedValue, Quote, ReadingInput, RequestIntent, TargetReference } from "@core/src/features/orders/domain/reader/readings";
+import type { ContextMessageRef, ExtractedRequest, ExtractedValue, Quote, ReadingInput, RequestRef, RequestIntent, TargetReference } from "@core/src/features/orders/domain/reader/readings";
 
 /** A request after its quotes were checked: `complete` is false when some datum of it was dropped, which is certainty signal 1. */
 export type VerifiedRequest = Readonly<{ request: ExtractedRequest; complete: boolean }>;
@@ -50,6 +50,52 @@ function verifiedTarget(target: TargetReference, keep: (quote: Quote | null, all
 export function verifyIntentQuotes(intents: readonly RequestIntent[], input: ReadingInput): Readonly<{ kept: readonly RequestIntent[]; dropped: readonly RequestIntent[] }> {
   const found = (intent: RequestIntent) => isFound(intent.quote, input, true);
   return { kept: intents.filter(found), dropped: intents.filter((intent) => !found(intent)) };
+}
+
+const occurrencesOf = (quote: Quote, input: ReadingInput): number => {
+  const text = quote.source === "current" ? input.current.text : input.context.find((candidate) => candidate.ref === quote.ref)?.text ?? "";
+  return Math.max(1, squash(text).split(squash(quote.text)).length - 1);
+};
+
+const quoteKey = (quote: Quote): string => JSON.stringify([quote.source === "current" ? "current" : quote.ref, squash(quote.text)]);
+
+function targetKey(target: TargetReference): unknown {
+  switch (target.kind) {
+    case "named": return [target.kind, quoteKey(target.words)];
+    case "item": case "pending": return [target.kind, target.ref, target.named && quoteKey(target.named)];
+    case "context": return [target.kind, target.basis, target.ref];
+    default: return target;
+  }
+}
+
+/** What a request says, by what was extracted and not by which intent produced it: two requests with the same signature say the same thing. */
+const signatureOf = (request: ExtractedRequest): string => JSON.stringify([request.kind, targetKey(request.target),
+  request.values.map(({ attributeWords, valueWords }) => [attributeWords && quoteKey(attributeWords), quoteKey(valueWords)]),
+  request.quantity && [request.quantity.value, request.quantity.mode, quoteKey(request.quantity.quote)], request.price && [request.price.amount, request.price.currency, request.price.basis, quoteKey(request.price.quote)],
+  request.changeVerb && quoteKey(request.changeVerb)]);
+
+/** The words that justify a request, to tell «said twice» from «extracted twice»; null when the request carries none. */
+const justifyingQuote = (request: ExtractedRequest): Quote | null =>
+  request.quantity?.quote ?? request.values[0]?.valueWords ?? request.price?.quote ?? (request.target.kind === "named" ? request.target.words : null);
+
+/**
+ * Keeps one request per extracted signature (kind, target, values, quantity, price): the same thing extracted twice would add or change it twice, unless the
+ * message says those words more than once (the buyer asked twice). Two intents that quote the same words but extract different requests both stay.
+ * The refs of the removed ones are `absorbed`: another request of the message answers for them, so they are not lost.
+ */
+export function dedupeRequests(requests: readonly VerifiedRequest[], input: ReadingInput): Readonly<{ kept: readonly VerifiedRequest[]; absorbed: readonly RequestRef[] }> {
+  const seen = new Map<string, number>();
+  const absorbed: RequestRef[] = [];
+  const kept = requests.filter((entry) => {
+    const key = signatureOf(entry.request);
+    const count = (seen.get(key) ?? 0) + 1;
+    seen.set(key, count);
+    const quote = justifyingQuote(entry.request);
+    if (count <= (quote ? occurrencesOf(quote, input) : 1)) return true;
+    absorbed.push(entry.request.request);
+    return false;
+  });
+  return { kept, absorbed };
 }
 
 export type QuoteDrop = Readonly<{ requestKind: RequestIntent["kind"]; field: "intent" | "target" | "values" | "quantity" | "price" | "change_verb" }>;

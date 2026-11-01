@@ -15,8 +15,9 @@ import type { OrderAggregate, OrderDomainError } from "@core/src/features/orders
 import type { CompanyId, ContactId, OrderId, OrderItem, OrderItemId } from "@core/src/features/orders/domain/order";
 import { nextLastIncomingPhoto } from "@core/src/features/orders/domain/photo-just-sent";
 import { checkRequests, checkShownPhoto, type CheckedAction } from "@core/src/features/orders/domain/reader/check-requests";
+import { lostRequests } from "@core/src/features/orders/domain/reader/silent-guards";
 import { decideChanges, type DecidedChanges } from "@core/src/features/orders/domain/reader/decide-changes";
-import { isHighCertainty, riskOf } from "@core/src/features/orders/domain/reader/decide";
+import { isHighCertainty, riskOfChecked } from "@core/src/features/orders/domain/reader/decide";
 import type { DoubtReason } from "@core/src/features/orders/domain/reader/decision";
 import { inheritedMark, withDecisionOnPending } from "@core/src/features/orders/domain/reader/pending-doubt";
 import type { ContextMessageRef, QuoteId, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
@@ -300,7 +301,7 @@ type StagedRead = Readonly<{
   intent?: ReturnType<ReaderStages["readIntent"]>;
 }>;
 
-const isHigh = (checked: CheckedAction) => isHighCertainty(checked.signals) && riskOf(checked.action, checked.signals) === "high";
+const isHigh = (checked: CheckedAction) => isHighCertainty(checked.signals) && riskOfChecked(checked) === "high";
 
 /** The three stages, then the plan the transaction applies: the checks and the decision run again there, on the locked state. */
 async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>> {
@@ -342,7 +343,8 @@ async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>>
       const snapshot = snapshotOf(locked);
       const checks = checkRequests(chain.requests, chain.resolutions, snapshot);
       const confirmed = confirming ? checkRequests(confirming.requests, confirming.resolutions, snapshot) : null;
-      const decided = decideChanges([...checks, ...checkShownPhoto(snapshot, chain.requests, chain.resolutions), ...tooManyActions(primary.overflow)], confirmed, { captionUnread: false });
+      const lost = read.kind === "photo_not_product" ? [] : lostRequests(primary.droppedRequests, primary.intents.map(({ id }) => id), checks, chain.absorbed);
+      const decided = decideChanges([...checks, ...lost, ...checkShownPhoto(snapshot, chain.requests, chain.resolutions), ...tooManyActions(primary.overflow)], confirmed, { captionUnread: false });
       return { actions: nonEmpty(decided.actions, { kind: "report", outcome: { kind: "no_intent" } }), decided };
     } };
   return ok({ plan, data: { ...data, confirmingRun, answer: "actions", actionKinds: chain.requests.map(({ request }) => request.kind) } });

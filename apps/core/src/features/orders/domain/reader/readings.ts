@@ -50,8 +50,9 @@ export type MentionPrice = Readonly<{ amount: number; units: number; basis: "uni
 /**
  * `candidateIds` are the products the mention may be resolved to (from `assembleCandidates`); absent means any candidate listed with it.
  * `valuesOnly` marks a request that names no product by words but carries values: its target already fixes the candidates, and `words` repeats its first value words.
+ * `fixed` marks a request that quotes a name for an order line or a pending: the target fixes the candidates, `words` is that quote and the resolution says whether it names one of them.
  */
-export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[]; valuesOnly?: boolean; price?: MentionPrice }>;
+export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[]; valuesOnly?: boolean; fixed?: boolean; price?: MentionPrice }>;
 /** A buyer's value words mapped to a catalog value. */
 export type ResolvedValue = Readonly<{ attribute: string; value: string; quote: Quote }>;
 export type ProductResolution =
