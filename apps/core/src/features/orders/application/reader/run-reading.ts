@@ -10,7 +10,7 @@ import { maxReaderActions } from "@core/src/features/orders/domain/chat-reading"
 import { assembleCandidates, productsOfTarget, type MentionSearch } from "@core/src/features/orders/domain/reader/candidates";
 import { maskStageOutput, type StoredStageOutput } from "@core/src/features/orders/domain/reader/masking";
 import { droppedFields, dedupeRequests, verifyIntentQuotes, verifyQuotes, type QuoteDrop, type VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
-import type { AddressSpan, ExtractedRequest, IntentReading, ProductMention, ProductResolution, ReaderStage, Reading, ReadingInput, RequestIntent, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
+import type { AddressSpan, ExtractedRequest, IntentReading, ProductMention, ProductResolution, Quote, ReaderStage, Reading, ReadingInput, RequestIntent, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
 import type { StageInputSummary, TraceStage } from "@core/src/features/orders/domain/reader/trace";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
@@ -83,6 +83,21 @@ function inputSummary(input: ReadingInput, extra: Partial<StageInputSummary> = {
     productIds: [], productNames: [], candidateIds: [], ...extra };
 }
 
+const foldWords = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().split(/\s+/).filter(Boolean);
+
+/** The quote of a name without the words of the request's own quantity quote («las 2 poleras» → «las poleras»): the quantity is not part of what names the product. Unchanged when nothing remains or the quantity is not inside. */
+export function withoutQuantity(words: Quote, quantity: Quote | null): Quote {
+  if (!quantity) return words;
+  const tokens = words.text.split(/\s+/).filter(Boolean);
+  const folded = tokens.map((token) => foldWords(token).join(""));
+  const wanted = foldWords(quantity.text);
+  if (wanted.length === 0) return words;
+  const at = folded.findIndex((_, index) => wanted.every((word, offset) => folded[index + offset] === word));
+  if (at < 0) return words;
+  const left = [...tokens.slice(0, at), ...tokens.slice(at + wanted.length)];
+  return left.length ? { ...words, text: left.join(" ") } : words;
+}
+
 /**
  * The mentions of a message: every request that names a product by words, and every other request that carries values for a product its target
  * fixes (a pending, an item, a photo): those get the product as their one candidate, so the buyer's values are mapped to the catalog on every path.
@@ -99,7 +114,7 @@ export function mentionsOf(requests: readonly VerifiedRequest[], input: ReadingI
     if (candidateIds.length === 0) return [];
     const { target } = request;
     const nameWords = (target.kind === "item" || target.kind === "pending") ? target.named : null;
-    if (nameWords) return [{ request: request.request, words: nameWords, values: request.values, candidateIds, fixed: true }];
+    if (nameWords) return [{ request: request.request, words: withoutQuantity(nameWords, request.quantity?.quote ?? null), values: request.values, candidateIds, fixed: true }];
     return first ? [{ request: request.request, words: first.valueWords, values: request.values, candidateIds, valuesOnly: true }] : [];
   });
 }

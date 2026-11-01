@@ -117,6 +117,17 @@ describe("resolution parser", () => {
     expect(result.success && result.data[0]).toEqual({ request: "R1", kind: "chosen", productId: productId(1), values: [{ attribute: "Talla", value: "M", quote: quote("mediana") }], unmatched: [] });
   });
 
+  test("a fixed mention whose words only point at its product stays chosen with its values and says it does not name it", () => {
+    const fixed: ResolutionInput = { mentions: [{ ...mention(1, "esa", [value("mediana", "talla")], [productId(1)]), fixed: true }], candidates: [polo] };
+    const result = parseResolution(answer([{ request: "R1", kind: "chosen", names: "no", products: ["P1"], values: [{ attribute: "Talla", value: "M", quote: "mediana" }] }]), fixed, budget);
+
+    expect(result).toEqual({ success: true, data: [{ request: "R1", kind: "chosen", productId: productId(1), values: [{ attribute: "Talla", value: "M", quote: quote("mediana") }], unmatched: [], namesProduct: false }] });
+    const named = parseResolution(answer([{ request: "R1", kind: "chosen", names: "yes", products: ["P1"], values: [] }]), fixed, budget);
+    expect(named.success && named.data[0]).not.toHaveProperty("namesProduct");
+    const unfixed = parseResolution(answer([{ request: "R1", kind: "chosen", names: "no", products: ["P1"], values: [] }, { request: "R2", kind: "none", products: [], values: [] }]), input, budget);
+    expect(unfixed.success && unfixed.data[0]).not.toHaveProperty("namesProduct");
+  });
+
   test("accepts a value quoted from the mention's own words", () => {
     const inName: ResolutionInput = { mentions: [mention(1, "polo basico negro")], candidates: [polo] };
     const result = parseResolution(answer([{ request: "R1", kind: "chosen", products: ["P1"], values: [{ attribute: "Color", value: "Negro", quote: "negro" }] }]), inName, budget);

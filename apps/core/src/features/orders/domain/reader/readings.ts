@@ -57,7 +57,9 @@ export type ProductMention = Readonly<{ request: RequestRef; words: Quote; value
 export type ResolvedValue = Readonly<{ attribute: string; value: string; quote: Quote }>;
 export type ProductResolution =
   /** `unmatched` are the buyer's value words that fit no value of the product: the checks then report the value as not available instead of missing. */
-  | Readonly<{ request: RequestRef; kind: "chosen"; productId: ProductId; values: readonly ResolvedValue[]; unmatched?: readonly Quote[] }>
+  | Readonly<{ request: RequestRef; kind: "chosen"; productId: ProductId; values: readonly ResolvedValue[]; unmatched?: readonly Quote[];
+    /** False for a fixed mention whose words only point at the product (a pronoun, a demonstrative): its values still map, but the words do not name it. */
+    namesProduct?: false }>
   /** Two to four products. `values` are the ones every candidate offers. */
   | Readonly<{ request: RequestRef; kind: "between"; productIds: readonly ProductId[]; values?: readonly ResolvedValue[] }>
   | Readonly<{ request: RequestRef; kind: "none" }>;
