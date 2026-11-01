@@ -187,6 +187,25 @@ function completePending(set: ChatPendings, pending: ChatPending, request: Advan
     [{ kind: "pending_updated", pendingId: pending.id }], [add]);
 }
 
+export type PendingQuantityChange = Readonly<{ pendingId: ChatPendingId; mode: "increase" | "set" | "decrease"; quantity: number; price?: PendingPrice | null }>;
+
+/**
+ * Sets, raises or lowers a pending's quantity, keeping its values and price. Exactly 0 ends it as declined (the buyer resolved it);
+ * below 0 or above the item limit changes nothing and reports why. No notice on success.
+ */
+export function changePendingQuantity(set: ChatPendings, change: PendingQuantityChange, env: TransitionEnv): PendingStep {
+  const pending = set.pendings.find((candidate) => candidate.id === change.pendingId);
+  if (!pending) return stepOf(set);
+  const quantity = change.mode === "set" ? change.quantity : change.mode === "increase" ? pending.quantity + change.quantity : pending.quantity - change.quantity;
+  if (quantity < 0) return stepOf(set, [{ kind: "invalid_action", orderId: null, reason: "quantity_below_zero" }]);
+  if (quantity === 0) return declinePending(set, pending.id);
+  if (quantity > env.maxItemQuantity) {
+    const productId = pending.subject.kind === "variant" ? pending.subject.productId : pending.subject.candidates[0];
+    return stepOf(set, [{ kind: "quantity_above_limit", productId, identification: null }]);
+  }
+  return stepOf({ ...set, pendings: replace(set, { ...pending, quantity: quantity as PositiveInteger, price: change.price ?? pending.price, lastChangedAt: env.now }) }, [{ kind: "pending_updated", pendingId: pending.id }]);
+}
+
 /** The products a set of pendings still waits for, named once, and how many cannot be named (doubtful or deleted). */
 export function describePendings(pendings: readonly ChatPending[]): Readonly<{ productIds: readonly ProductId[]; unnamed: number }> {
   const productIds = [...new Set(pendings.flatMap((pending) => (pending.subject.kind === "variant" ? [pending.subject.productId] : [])))];

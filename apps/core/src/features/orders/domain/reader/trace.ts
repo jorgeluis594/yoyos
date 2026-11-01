@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
-import type { ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
+import { resolvedActionKinds, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import type { Agreement, CertaintySignals, ChangeDecision, ChangeRisk } from "@core/src/features/orders/domain/reader/decision";
 import type { ItemRef, ModelUsage, PendingRef, QuoteId, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
 import type { CompanyId } from "@core/src/features/orders/domain/order";
@@ -67,8 +67,7 @@ export const traceQuotesSchema: z.ZodType<readonly TraceQuote[]> = z.array(z.str
   id: count.transform((value) => value as QuoteId), text: z.string().max(maxTraceQuoteChars),
 }));
 
-/** `kind` is the resolved action's kind; the set grows with the decision work, so it is checked as a non-empty name here. */
-const actionKind = z.string().min(1) as unknown as z.ZodType<ResolvedChatAction["kind"]>;
+const actionKind: z.ZodType<ResolvedChatAction["kind"]> = z.enum(resolvedActionKinds);
 export const traceDecisionsSchema: z.ZodType<readonly TraceDecision[]> = z.array(z.strictObject({
   action: z.strictObject({ kind: actionKind, request: ref<RequestRef>(), item: ref<ItemRef>().nullable(), pending: ref<PendingRef>().nullable(), productId: productId.nullable(), variantId: variantId.nullable() }),
   signals: z.strictObject({
