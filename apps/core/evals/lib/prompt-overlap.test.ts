@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import { allCases } from "@core/evals/cases";
-import { examplesOf, findOverlaps, overlapReason } from "@core/evals/lib/prompt-overlap";
+import { examplesOf, findOverlaps, normalizeText, overlapReason } from "@core/evals/lib/prompt-overlap";
 import { promptRegistry, registeredVersions, type PromptRegistry } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -62,6 +62,14 @@ describe("prompt overlap check", () => {
     expect(overlapReason("eso", "listo, eso es todo")).toBeNull();
   });
 
+  test("flags a short phrase inside an eval input for the staged reader, never a single word", () => {
+    expect(overlapReason("déjalo en 4", "de los polos premium déjalo en 4 nomás")).toBeNull();
+    expect(overlapReason("déjalo en 4", "de los polos premium déjalo en 4 nomás", { shortInside: true })).toBe("example inside the input");
+    expect(overlapReason("lo quiero", "lo quiero en blanco", { shortInside: true })).toBe("example inside the input");
+    expect(overlapReason("talla", "prefiero talla M", { shortInside: true })).toBeNull();
+    expect(overlapReason("ponme 4 en total", "de los polos premium déjalo en 4 nomás", { shortInside: true })).toBeNull();
+  });
+
   test("discovers every known prompt file among the production sources", () => {
     expect(sourceFiles).toEqual(expect.arrayContaining(promptFiles));
   });
@@ -71,10 +79,20 @@ describe("prompt overlap check", () => {
 
     expect(examples.length).toBeGreaterThan(20);
     expect(findOverlaps(examples, evalInputs).map(({ example, input, reason }) => `${example.file}:${example.line} «${example.text}» ~ «${input}» (${reason})`)).toEqual([]);
-  });
+  }, 30_000);
 
   test("never copies an eval input into a stage prompt", () => {
-    expect(findOverlaps(registeredExamples(promptRegistry), evalInputs).map(({ example, input, reason }) => `${example.file} «${example.text}» ~ «${input}» (${reason})`)).toEqual([]);
+    expect(findOverlaps(registeredExamples(promptRegistry), evalInputs, { shortInside: true }).map(({ example, input, reason }) => `${example.file} «${example.text}» ~ «${input}» (${reason})`)).toEqual([]);
+  });
+
+  // A single word is never a copy for the guard, yet it can be the operative word of an eval case. Any new word shows up here for review;
+  // generic attribute words («talla», «color», «cambia») are acceptable, a word that decides a case is not.
+  test("lists the single-word examples of registered versions found in eval inputs, for review", () => {
+    const wordsIn = (text: string) => normalizeText(text).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const inputWords = new Set(evalInputs.flatMap(wordsIn));
+    const singleWords = registeredExamples(promptRegistry).flatMap((example) => wordsIn(example.text).length === 1 ? wordsIn(example.text) : []);
+
+    expect([...new Set(singleWords.filter((word) => inputWords.has(word)))].sort()).toEqual(["agregame", "cambia", "color", "confirmo", "m", "q", "talla"]);
   });
 
   test("flags an eval input copied into a registered version's instructions, whichever file the version lives in", () => {

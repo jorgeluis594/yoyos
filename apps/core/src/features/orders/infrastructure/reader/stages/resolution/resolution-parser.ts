@@ -2,7 +2,7 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { ProductResolution, Quote } from "@core/src/features/orders/domain/reader/readings";
-import type { ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+import type { ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 import { noneFor, planResolution, type ResolutionPlan } from "@core/src/features/orders/infrastructure/reader/stages/resolution/resolution-plan";
 
 const answerSchema = z.object({

@@ -2,7 +2,7 @@ import type { ProductMention } from "@core/src/features/orders/domain/reader/rea
 import type { RequestRef } from "@core/src/features/orders/domain/reader/refs";
 import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 import type { ProductId } from "@core/src/features/products/domain/product";
-import type { ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+import type { ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 
 /** Values listed per attribute before «y N más» (technical design 6.8). */
 export const maxValuesPerAttribute = 30;
