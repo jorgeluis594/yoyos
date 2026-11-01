@@ -71,6 +71,8 @@ test("a seller copies the link of a WhatsApp order through the review, corrects 
     await page.screenshot({ path: "test-results/order-review-dialog-desktop.png", animations: "disabled" });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: "test-results/order-review-dialog-phone.png", animations: "disabled" });
+    const removeBox = await dialog.getByRole("button", { name: /^Quitar/ }).first().boundingBox();
+    browserExpect(removeBox?.height ?? 0).toBeGreaterThanOrEqual(44);
 
     // A seller corrects the doubtful item and confirms: the corrections are saved together with the review.
     await dialog.getByRole("textbox", { name: "Cantidad de Polera gris M" }).fill("1");

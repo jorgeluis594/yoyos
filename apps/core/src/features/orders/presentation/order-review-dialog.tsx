@@ -193,7 +193,7 @@ export function OrderReviewDialog({ origin, orderId, orderNumber, initial, api, 
             className="h-control min-h-touch w-16 rounded-[var(--radius-control)] border bg-background px-2 text-center tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive disabled:opacity-50" />
           <Button type="button" variant="outline" size="icon" aria-label={t("orderReview.increase", { name })} disabled={busy || (quantity !== null && quantity >= 9999)} onClick={() => set(String((quantity ?? 0) + 1))}><Plus aria-hidden="true" /></Button>
         </div>
-        <Button type="button" variant="ghost" size="sm" className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" aria-label={t("orderReview.remove", { name })} disabled={busy}
+        <Button type="button" variant="ghost" size="sm" className="max-md:min-h-touch aria-disabled:cursor-not-allowed aria-disabled:opacity-50" aria-label={t("orderReview.remove", { name })} disabled={busy}
           aria-disabled={lastItem || undefined} aria-describedby={lastItem ? "review-last-item" : undefined} onClick={() => { if (!lastItem) setCorrections(removeItem(corrections, item.id)); }}><Trash2 data-icon="inline-start" aria-hidden="true" />{t("orderReview.remove", { name: "" }).trim()}</Button>
         {undoButton(mark)}
       </div>}
