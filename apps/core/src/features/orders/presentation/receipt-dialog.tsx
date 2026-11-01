@@ -2,7 +2,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { useTranslation } from "react-i18next";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
-import type { PaymentChoice } from "@shared/wallet-providers";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { RetryableImage } from "@core/src/shared/images/presentation/retryable-image";
@@ -10,6 +9,7 @@ import { SelectPortalContainer } from "@core/app/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
 import { paymentErrorKey, PaymentDecisionForm, type DecisionKind, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
 import { paymentDate, reportedAt, type PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
+import type { OfferedChoice, PaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 
 type Order = OrderAggregateResponse;
 export type PaymentDialogKind = "receipt" | DecisionKind;
@@ -17,8 +17,8 @@ type Step = "choose" | "approve" | "reject";
 
 type Props = Readonly<{ kind: PaymentDialogKind; paymentId: string; payment: Order["payments"][number] | null; order: Order; receiptUrl: string | null;
   format: PaymentFormat; onClose: () => void; onDone: (paymentId: string, result: PaymentDecisionResult) => void; onSubmitted: (paymentId: string) => void; onUncertain: (paymentId: string) => void; onCloseAutoFocus: (event: Event) => void;
-  /** The method a registered payment opens with. */
-  initialChoice?: PaymentChoice;
+  /** The methods the company offers, and the one a registered payment opens with. */
+  options: PaymentOptions; initialChoice?: OfferedChoice;
   /** When set, Aprobar stays focusable but does nothing, and this note describes why. Rechazar is not affected. */
   approveBlockedNote?: string }>;
 
@@ -27,7 +27,7 @@ function ReceiptImage({ url, className }: { url: string; className: string }) {
   return <RetryableImage url={url} alt={t("orders.receiptAlt")} className={className} failedText={t("orders.receiptLoadFailed")} retryText={t("orders.receiptRetry")} />;
 }
 
-export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, format, onClose, onDone, onSubmitted, onUncertain, onCloseAutoFocus, initialChoice, approveBlockedNote }: Props) {
+export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, format, onClose, onDone, onSubmitted, onUncertain, onCloseAutoFocus, options, initialChoice, approveBlockedNote }: Props) {
   const { t } = useTranslation();
   const approveNoteId = useId();
   const [step, setStep] = useState<Step>(kind === "receipt" ? "choose" : kind === "reject" ? "reject" : "approve");
@@ -66,7 +66,7 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
           <ReceiptImage url={receiptUrl} className={deciding ? "max-h-32 sm:max-h-[50dvh]" : "max-h-[60dvh]"} /></div>}
         <div className="flex flex-col gap-3">
           {deciding ? <PaymentDecisionForm kind={kind === "receipt" ? step as DecisionKind : kind} paymentId={paymentId} order={order}
-              heading={kind === "receipt"} fetcher={fetcher} initialChoice={initialChoice} onSubmit={() => { clearFailure(); onSubmitted(paymentId); }} onCancel={back} />
+              heading={kind === "receipt"} fetcher={fetcher} options={options} initialChoice={initialChoice} onSubmit={() => { clearFailure(); onSubmitted(paymentId); }} onCancel={back} />
             : reviewable ? <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-medium tabular-nums">{t("orders.orderPendingBalance", { amount: format.amount(order.balanceDue) })}</p>
               <div className="flex gap-2">

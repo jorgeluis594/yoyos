@@ -16,6 +16,7 @@ import { OrderDeliveryCard } from "@core/src/features/orders/presentation/order-
 import { OrderPaymentsPanel } from "@core/src/features/orders/presentation/order-payments-panel";
 import { OrderProductsCard } from "@core/src/features/orders/presentation/order-products-card";
 import type { PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
+import type { PaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 import { touchTargets } from "@core/src/features/orders/presentation/touch-targets";
 import { SavedHeader, SavedNotices } from "@core/src/features/orders/presentation/order-view-saved";
 import type { PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
@@ -37,7 +38,7 @@ export type ViewNotice =
   /** The order shipped, was delivered or was cancelled meanwhile; the text follows the order the view shows. */
   | Readonly<{ kind: "locked"; code: "DELIVERY_LOCKED" | "ORDER_CANCELLED" }>;
 
-export type OrderViewLinks = Readonly<{ sales: string; deliverySettings: string; createProduct: string }>;
+export type OrderViewLinks = Readonly<{ sales: string; deliverySettings: string; paymentSettings: string; createProduct: string }>;
 
 /** What a saved order adds to the view: the data its cards need and the actions the route owns. Absent on a new sale. */
 export type SavedViewProps = Readonly<{
@@ -68,6 +69,8 @@ export type OrderViewProps = Readonly<{
   state: OrderViewState;
   onStateChange: (state: OrderViewState) => void;
   settings: DeliverySettingsResponse | null;
+  /** The payment methods the company's settings offer to record payments. */
+  paymentOptions: PaymentOptions;
   links: OrderViewLinks;
   /** Drops the picker's cached empty search; the route bumps it after a save and after every loader revalidation. */
   catalogEpoch: number;
@@ -272,10 +275,10 @@ export function OrderView(props: OrderViewProps) {
         <div className="min-w-0 max-xl:order-2">
           {saved && order
             ? <OrderPaymentsPanel mode="saved" order={order} receiptUrls={saved.receiptUrls} manualPaymentId={saved.manualPaymentId} voidResult={saved.voidResult}
-              unsavedChanges={unsaved} hasProducts={hasProducts} busy={busy} format={format} />
+              unsavedChanges={unsaved} hasProducts={hasProducts} busy={busy} format={format} paymentOptions={props.paymentOptions} paymentSettingsHref={links.paymentSettings} />
             : <OrderPaymentsPanel mode="new" payments={draft.payments} onChange={(payments) => change({ ...state, draft: { ...draft, payments } })}
               estimate={paymentTotals} newPaymentId={props.newPaymentId} invalidPaymentIds={marksOf("payments").flatMap((mark) => mark.id ? [mark.id] : [])}
-              hasProducts={hasProducts} busy={busy} format={format} />}
+              hasProducts={hasProducts} busy={busy} format={format} paymentOptions={props.paymentOptions} paymentSettingsHref={links.paymentSettings} />}
         </div>
         <OrderCustomerCard customer={draft.customer} source={order?.source ?? "manual"} locked={screenLocks(state).customer !== null} required={customerRequired(state)} marks={marksOf("customer")}
           onChange={(customer) => change(setCustomer(state, customer))} onRemove={() => change(clearCustomer(state))} />

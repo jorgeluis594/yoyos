@@ -111,7 +111,7 @@ A late response from an earlier attempt does not change the screen.
 ## Pagos
 
 - Summary: «Sin pagos · necesario para enviar», «Pago parcial · falta S/ 148.00», «Pagado», «Pagado · Exceso recibido: S/ 12.00», plus «Pago por revisar» while a report is pending. The rows and their actions are described in [Orders · Web «Pagos» card](orders.md#web-pagos-card).
-- One **Agregar <wallet>** button per wallet of the country's catalog (**Agregar Yape**, **Agregar Plin** in Peru) and **Transferencia bancaria**, while the order is not cancelled, has a product and has a balance. Without products: «Agrega productos para registrar pagos.». Empty: «Aún no hay pagos registrados.».
+- One button per method the payment settings enable (**Agregar <wallet>** under the configured wallet name, **Transferencia bancaria**); without any method configured, every wallet of the country's catalog and **Transferencia bancaria** with the link **Configurar medios de cobro** (see `docs/orders.md`), while the order is not cancelled, has a product and has a balance. Without products: «Agrega productos para registrar pagos.». Empty: «Aún no hay pagos registrados.».
 - **Saved order:** each action opens the payment form with the method preset and «Importe recibido» prefilled with the balance; the partial stock box follows its [rule](orders.md#payments). Payment actions refresh the order afterwards.
 - **New sale:** each action adds a draft row prefilled with the balance at that moment and editable, with **Quitar** until **Guardar venta**. A later product change does not touch an amount already typed. An invalid draft amount is marked on its field.
 

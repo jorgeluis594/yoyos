@@ -32,6 +32,7 @@ import { editOrderRequestSchema, editOrderResultSchema, orderLineCatalogSchema, 
 import type { OrderId, PaymentId, CompanyId, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
+import { salePaymentOptions } from "@core/app/routes/sale-payment-options";
 import { OrderView, type ViewNotice } from "@core/src/features/orders/presentation/order-view";
 import { clearSaleSaved, readSaleSaved } from "@core/src/features/orders/presentation/new-sale-outcome";
 import { saveChangesOutcome, type SaveChangesResult } from "@core/src/features/orders/presentation/save-changes-outcome";
@@ -77,9 +78,9 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
   const pathname = new URL(request.url).pathname;
   const appearancePath = `${companyPath(pathname, access.company.country, "/settings/store-appearance")}#${catalogPublicationAnchor}`;
   // The aggregate comes first: the line catalog needs its variants. The rest reads in parallel.
-  const [described, receiptUrls, settings, link, lineCatalog] = await Promise.all([
+  const [described, receiptUrls, settings, link, lineCatalog, paymentOptions] = await Promise.all([
     orders.describeStockDue([order]), receiptUrlsOf(order), deliverySettings.get({ companyId: access.company.id, userId: access.user.id }),
-    orderLink(order, access.company.id, appearancePath), lineCatalogOf(order, "detail_loader"),
+    orderLink(order, access.company.id, appearancePath), lineCatalogOf(order, "detail_loader"), salePaymentOptions(access.company.id),
   ]);
   if (!described.success) throw new Response(described.error.message, { status: 503 });
   return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(order, described.data.get(order.id) ?? null), base: companyPath(pathname, access.company.country, "/orders"),
@@ -87,6 +88,7 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
     revisions: orderRevisionsSchema.parse(orders.revisions(order)), lineCatalog,
     settings: settings.success ? toDeliverySettingsResponse(settings.data) : null,
     settingsPath: companyPath(pathname, access.company.country, "/settings/delivery"),
+    paymentOptions, paymentSettingsPath: companyPath(pathname, access.company.country, "/settings/payments"),
     link };
 }
 
@@ -305,7 +307,7 @@ export default function OrderDetail() {
 
 function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
   const { t, i18n } = useTranslation();
-  const { base, manualPaymentId, receiptUrls, settings, settingsPath, link } = loaded;
+  const { base, manualPaymentId, receiptUrls, settings, settingsPath, paymentOptions, paymentSettingsPath, link } = loaded;
   const rawAction = useActionData<typeof clientAction>();
   const submit = useSubmit();
   const revalidator = useRevalidator();
@@ -479,8 +481,8 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
     onFulfill={operation => submit({ operation }, { method: "post" })} onCancel={() => setCancelOpen(true)}
     onAddPayment={() => { const panel = document.getElementById("order-payments"); panel?.scrollIntoView({ block: "center" }); panel?.focus(); }} />;
 
-  return <OrderView state={state} onStateChange={edit} settings={settings}
-    links={{ sales: base, deliverySettings: settingsPath, createProduct: base.replace(/\/orders$/, "/products") + "/new" }}
+  return <OrderView state={state} onStateChange={edit} settings={settings} paymentOptions={paymentOptions}
+    links={{ sales: base, deliverySettings: settingsPath, paymentSettings: paymentSettingsPath, createProduct: base.replace(/\/orders$/, "/products") + "/new" }}
     catalogEpoch={catalogEpoch} guard={guard} saving={saving} notice={doubt ? { kind: "doubt", checking: doubt === "checking" } : notice} attempts={attempts} headingFocus={headingFocus}
     unavailableVariantId={unavailableVariantId} coverRequired={false} format={{ amount: money, date }}
     newPaymentId={() => crypto.randomUUID()} onSave={save} onCheckAgain={() => setDoubt("checking")}

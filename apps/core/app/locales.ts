@@ -371,7 +371,7 @@ const es = {
     },
     payments: {
       title: "Pagos", none: "Sin pagos · necesario para enviar", partial: "Pago parcial · falta {{amount}}", paid: "Pagado", paidExcess: "Pagado · Exceso recibido: {{amount}}", review: "Pago por revisar",
-      addWallet: "Agregar {{wallet}}", bankTransfer: "Transferencia bancaria", needProducts: "Agrega productos para registrar pagos.", empty: "Aún no hay pagos registrados.",
+      addWallet: "Agregar {{wallet}}", bankTransfer: "Transferencia bancaria", unconfigured: "Aún no configuras tus medios de cobro, así que se muestran todos.", configure: "Configurar medios de cobro", needProducts: "Agrega productos para registrar pagos.", empty: "Aún no hay pagos registrados.",
       received: "Importe recibido", partialStock: "Descontar stock aunque sea un abono parcial", remove: "Quitar",
       confirmed: "Confirmado", reported: "Por revisar", rejected: "Rechazado", voided: "Anulado",
       viewReceipt: "Ver captura", reject: "Rechazar", approve: "Aprobar", void: "Anular pago", receiptTitle: "Comprobante de pago", rejectedReason: "Motivo: {{reason}}",
@@ -785,7 +785,7 @@ const pt = {
     },
     payments: {
       title: "Pagamentos", none: "Sem pagamentos · necessário para enviar", partial: "Pagamento parcial · faltam {{amount}}", paid: "Pago", paidExcess: "Pago · Excesso recebido: {{amount}}", review: "Pagamento para revisar",
-      addWallet: "Adicionar {{wallet}}", bankTransfer: "Transferência bancária", needProducts: "Adicione produtos para registrar pagamentos.", empty: "Ainda não há pagamentos registrados.",
+      addWallet: "Adicionar {{wallet}}", bankTransfer: "Transferência bancária", unconfigured: "Você ainda não configurou seus meios de pagamento, então todos são mostrados.", configure: "Configurar meios de pagamento", needProducts: "Adicione produtos para registrar pagamentos.", empty: "Ainda não há pagamentos registrados.",
       received: "Valor recebido", partialStock: "Baixar estoque mesmo sendo um pagamento parcial", remove: "Remover",
       confirmed: "Confirmado", reported: "Para revisar", rejected: "Rejeitado", voided: "Anulado",
       viewReceipt: "Ver captura", reject: "Rejeitar", approve: "Aprovar", void: "Anular pagamento", receiptTitle: "Comprovante de pagamento", rejectedReason: "Motivo: {{reason}}",

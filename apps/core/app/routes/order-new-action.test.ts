@@ -6,6 +6,8 @@ import resources from "@core/app/locales";
 import * as composition from "@core/src/features/orders/composition";
 import { privateUserContext } from "@core/app/private-user-context";
 import type { ReadyAccess } from "@core/src/features/users";
+import { catalogPaymentOptions } from "@core/src/features/orders/presentation/payment-options";
+import { companyPaymentSettings } from "@core/src/features/companies";
 
 const companyId = "00000000-0000-4000-8000-000000000001";
 const orderId = "00000000-0000-4000-8000-000000000002";
@@ -74,11 +76,21 @@ test("the new-sale stock note promises the wait", () => {
 test("loads Nueva venta without searching the catalog", async () => {
   const search = vi.spyOn(composition.orders, "searchProducts");
   const settings = vi.spyOn(deliverySettings, "get").mockResolvedValue({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "private" } } as never);
+  vi.spyOn(companyPaymentSettings, "getConfiguration").mockResolvedValue({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "private" } } as never);
   const context = new RouterContextProvider();
   context.set(privateUserContext, { company: { id: companyId, country: "PE" }, user: { id: "seller" } } as unknown as ReadyAccess);
   const loaded = await loader({ context, request: new Request("http://localhost/es-PE/orders/new?search=cuaderno") } as never);
   expect(search).not.toHaveBeenCalled();
   expect(settings).toHaveBeenCalledOnce();
-  expect(loaded).toEqual({ base: "/es-PE/orders", orderId: expect.stringMatching(/^[0-9a-f-]{36}$/), currency: "PEN", settings: null });
+  expect(loaded).toEqual({ base: "/es-PE/orders", orderId: expect.stringMatching(/^[0-9a-f-]{36}$/), currency: "PEN", settings: null, paymentOptions: catalogPaymentOptions });
   expect(loaded).not.toHaveProperty("products");
+});
+
+test("Nueva venta offers only the payment methods the company configured", async () => {
+  vi.spyOn(deliverySettings, "get").mockResolvedValue({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "private" } } as never);
+  vi.spyOn(companyPaymentSettings, "getConfiguration").mockResolvedValue({ success: true, data: [{ method: "bank_transfer", bank: "BCP", holder: "Ana", accountNumber: "123", cci: null, imageId: null }] } as never);
+  const context = new RouterContextProvider();
+  context.set(privateUserContext, { company: { id: companyId, country: "PE" }, user: { id: "seller" } } as unknown as ReadyAccess);
+  const loaded = await loader({ context, request: new Request("http://localhost/es-PE/orders/new") } as never);
+  expect(loaded.paymentOptions).toEqual({ choices: ["bank_transfer"], walletName: null, unconfigured: false });
 });
