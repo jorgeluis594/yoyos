@@ -12,7 +12,7 @@ import type { ChatId, OrderChatSource } from "@core/src/features/orders/domain/m
 import { diffMessageChanges, type ChangeSeq, type MessageChanges, type OrderItemChange, type OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { OrderAggregate, OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
-import type { CompanyId, ContactId, OrderId, OrderItem, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
+import type { CompanyId, ContactId, OrderId, OrderItem, OrderItemId } from "@core/src/features/orders/domain/order";
 import { nextLastIncomingPhoto } from "@core/src/features/orders/domain/photo-just-sent";
 import { checkRequests, type CheckedAction } from "@core/src/features/orders/domain/reader/check-requests";
 import { decideChanges, type DecidedChanges } from "@core/src/features/orders/domain/reader/decide-changes";
@@ -21,6 +21,7 @@ import type { DoubtReason } from "@core/src/features/orders/domain/reader/decisi
 import { inheritedMark, withDecisionOnPending } from "@core/src/features/orders/domain/reader/pending-doubt";
 import type { ContextMessageRef, QuoteId, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
 import type { MaskedText, MessageTrace, TracePhoto, TraceShadow } from "@core/src/features/orders/domain/reader/trace";
+import type { ChatSourceMessage } from "@core/src/features/orders/application/chat-source-message";
 import type { ReadChatMessage } from "@core/src/features/orders/application/read-chat-message";
 import { buildCheckSnapshot, type SnapshotInput } from "@core/src/features/orders/application/reader/build-check-snapshot";
 import { legacyAnswerFor, legacyReadingContextOf } from "@core/src/features/orders/application/reader/legacy-reading";
@@ -47,22 +48,6 @@ type InvalidStoredData = Readonly<{ code: "INVALID_STORED_DATA"; message: string
 type ContactNotFound = Readonly<{ code: "CONTACT_NOT_FOUND"; message: string }>;
 type SellerUnavailable = Readonly<{ code: "SELLER_UNAVAILABLE"; message: string }>;
 type MessageAlreadyProcessed = Readonly<{ code: "MESSAGE_ALREADY_PROCESSED"; message: string }>;
-
-export type ChatSourceMessage = Readonly<{
-  id: ChatMessageId;
-  companyId: CompanyId;
-  chatId: ChatId;
-  contactId: ContactId;
-  direction: "incoming" | "outgoing";
-  /** The seller of the orders this message creates. */
-  uploadedByUserId: UserId;
-  imageId: ImageId | null; // null for text messages
-  text: string | null;
-  caption: string | null;
-  /** The times that anchor the context window and the trace's expiry. */
-  sentAt: Date | null;
-  receivedAt: Date;
-}>;
 
 export type AppliedChatMessage = Readonly<{ orderId: OrderId | null; createdOrder: boolean; outcomes: ChatMessageOutcomes; pendingsBefore: number; pendingsAfter: number }>;
 

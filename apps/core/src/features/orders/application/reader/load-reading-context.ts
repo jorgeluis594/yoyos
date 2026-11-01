@@ -2,7 +2,7 @@ import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { RecentChatMessage, RecentChatMessagesQuery } from "@core/src/features/chats/composition";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
-import type { ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
+import type { ChatSourceMessage } from "@core/src/features/orders/application/chat-source-message";
 import type { StoredChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order-target";
 import { pendingLife, type ChatPending, type ChatPendings, type LastIncomingPhoto, type PendingLife } from "@core/src/features/orders/domain/chat-pendings";

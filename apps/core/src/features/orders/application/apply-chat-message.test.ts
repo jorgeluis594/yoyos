@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { applyChatMessage, type ApplyChatMessageDependencies, type ChatMemory, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
+import type { ChatSourceMessage } from "@core/src/features/orders/application/chat-source-message";
+import { applyChatMessage, type ApplyChatMessageDependencies, type ChatMemory } from "@core/src/features/orders/application/apply-chat-message";
 import type { ReadingContextData } from "@core/src/features/orders/application/reader/load-reading-context";
 import type { ReaderStages, StageCall } from "@core/src/features/orders/application/reader/stages";
 import type { BuiltMessageTrace } from "@core/src/features/orders/application/reader/trace-ports";
