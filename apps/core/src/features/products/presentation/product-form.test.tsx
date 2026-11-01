@@ -252,14 +252,14 @@ test("Descartar restores the stored visibility", () => {
   expect(hideSwitch().getAttribute("aria-checked")).toBe("false");
 });
 
-test("the label toggles the switch and the hint is its accessible description", () => {
+test("the label toggles the switch and no hint text is shown", () => {
   mount({ hidden: false });
   const label = container.querySelector<HTMLLabelElement>(`label[for="${hideSwitch().id}"]`)!;
   expect(label.textContent).toBe("Ocultar producto");
   click(label);
   expect(hideSwitch().getAttribute("aria-checked")).toBe("true");
-  const description = container.querySelector(`#${hideSwitch().getAttribute("aria-describedby")}`)!;
-  expect(description.textContent).toBe("Si lo ocultas, no aparece en tu catálogo y Yoyos no lo agrega a pedidos desde los chats. Puedes seguir vendiéndolo en Nueva venta.");
+  expect(hideSwitch().hasAttribute("aria-describedby")).toBe(false);
+  expect(container.textContent).not.toContain("Si lo ocultas");
 });
 
 test("the switch is disabled while saving", () => {

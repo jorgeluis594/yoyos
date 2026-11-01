@@ -385,13 +385,14 @@ describe("hide product", () => {
     expect(mockGuard).toHaveBeenLastCalledWith(false);
   });
 
-  test("the switch shows the hint and is disabled while saving", async () => {
+  test("the switch shows no hint and is disabled while saving", async () => {
     mockLoadProduct.mockResolvedValue(ok(product));
     let finish: (answer: unknown) => void = () => {};
     mockSaveProduct.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
     renderScreen();
-    expect(await screen.findByText(/Si lo ocultas, no aparece en tu catálogo/)).toBeTruthy();
-    expect(screen.getByLabelText("Ocultar producto").props.accessibilityHint).toMatch(/Nueva venta/);
+    expect(await screen.findByLabelText("Ocultar producto")).toBeTruthy();
+    expect(screen.queryByText(/Si lo ocultas/)).toBeNull();
+    expect(screen.getByLabelText("Ocultar producto").props.accessibilityHint).toBeUndefined();
     fireEvent(screen.getByLabelText("Ocultar producto"), "valueChange", true);
     await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
     expect(screen.getByLabelText("Ocultar producto").props.disabled).toBe(true);

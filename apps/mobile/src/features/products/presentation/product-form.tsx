@@ -81,17 +81,12 @@ export function ProductForm({
     </ProductTopBar>
     <ScrollView ref={page} style={styles.scroll} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       {errors.form ? <View ref={message} accessible><ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{errors.form}</ThemedText></View> : null}
-      <ProductPhotosStrip photos={photos} disabled={disabled} />
-      <View style={card}>
-        <View style={styles.toggle}>
-          <View style={styles.toggleText}>
-            <ThemedText type="subtitle">{t('hideProduct')}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">{t('hideProductHint')}</ThemedText>
-          </View>
-          <Switch accessibilityLabel={t('hideProduct')} accessibilityHint={t('hideProductHint')} value={values.hidden} disabled={disabled} hitSlop={10}
-            trackColor={{ true: theme.primary }} onValueChange={setHidden} />
-        </View>
+      <View style={styles.toggle}>
+        <ThemedText type="small">{t('hideProduct')}</ThemedText>
+        <Switch accessibilityLabel={t('hideProduct')} value={values.hidden} disabled={disabled} hitSlop={10}
+          trackColor={{ true: theme.primary }} onValueChange={setHidden} />
       </View>
+      <ProductPhotosStrip photos={photos} disabled={disabled} />
       <FieldGroup style={card}>
         <Field required invalid={!!errors.name} disabled={disabled}>
           <FieldLabel>{t('name')}</FieldLabel><Input value={values.name} onChangeText={(value) => setValue("name", value)} maxLength={200} placeholder={t('productNamePlaceholder')} accessibilityLabel={t('name')} />
@@ -159,8 +154,7 @@ const styles = StyleSheet.create({
   card: { borderWidth: tokens.sizing.borderWidth, borderRadius: tokens.radius.card, padding: tokens.spacing["4"], gap: tokens.spacing["4"] },
   cardTitle: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: tokens.spacing["2"] },
   cardHeading: { fontWeight: 600 },
-  toggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: tokens.spacing["3"], minHeight: tokens.sizing.touchTargetMinSize },
-  toggleText: { flex: 1, gap: tokens.spacing["1"] },
+  toggle: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: tokens.spacing["3"], minHeight: tokens.sizing.touchTargetMinSize },
   descriptionInput: { minHeight: 88, textAlignVertical: "top" },
   columns: { flexDirection: "row", flexWrap: "wrap", gap: tokens.spacing["3"] },
   column: { flexGrow: 1, flexBasis: 136, minWidth: 0 },
