@@ -491,6 +491,18 @@ describe("applyChatMessage: pendings with a doubt", () => {
     expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", after: expect.objectContaining({ variantId: poloM.variantId, quantity: 1 }), decision: { kind: "doubtful", reason: inheritedFromQuantity } }));
   });
 
+  test("gives the item a completion creates the doubt another request of the same message left on the pending", async () => {
+    const pending = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
+    const more = extracted("R1", "change_quantity", { target: pending, quantity: { value: 2, mode: "add", quote: current("2 más") } });
+    const complete = extracted("R2", "complete_pending", { target: pending, values: [{ attributeWords: null, valueWords: current("M") }] });
+    const h = harness({ message: textMessage("2 más en M"), target: poloTarget(), pendings: pendingSet(pointOf({ doubt: null, quantity: 1 as PositiveInteger })),
+      script: { intent: requestsOf(intent("R1", "change_quantity", "2 más"), intent("R2", "complete_pending", "en M")), extraction: [more, complete] } });
+    await succeeded(h.run());
+
+    expect(h.store.pendings.pendings).toHaveLength(0);
+    expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", after: expect.objectContaining({ variantId: poloM.variantId, quantity: 3 }), decision: { kind: "doubtful", reason: inheritedFromQuantity } }));
+  });
+
   test("marks only the variant a completion created, not the other lines the message changes", async () => {
     const both = harness({ message: textMessage("el polo en M y una gorra"), target: poloTarget(), pendings: pendingSet(pointOf()), script: { intent: requestsOf(intent("R1", "add", "el polo en M"), intent("R2", "add", "una gorra")),
       extraction: [addPolo("el polo"), extracted("R2", "add", { target: { kind: "named", words: current("una gorra") } })], resolutions: [poloInM(), chosen("R2", productCap)] } });

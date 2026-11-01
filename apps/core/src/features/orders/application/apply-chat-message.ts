@@ -463,13 +463,16 @@ function pointsChanged(before: readonly ChatPending[], after: readonly ChatPendi
  * The mark each item created from a doubtful pending carries, by variant: the pending's unacknowledged doubt, for every completion of this message,
  * full or partial (a partial completion leaves the remainder under the same pending id, so the pending outliving the message proves nothing).
  */
-function completionMarks(decided: DecidedChanges | null, alive: readonly ChatPending[]): ReadonlyMap<OrderItem["variantId"], DoubtReason> {
+function completionMarks(decided: DecidedChanges | null, alive: readonly ChatPending[], now: Date): ReadonlyMap<OrderItem["variantId"], DoubtReason> {
   const marks = new Map<OrderItem["variantId"], DoubtReason>();
   for (const { checked, decision } of decided?.decided ?? []) {
     const { action } = checked;
     if (action.kind !== "advance_pending" || decision.kind === "doubtful" || !action.request.product) continue;
-    const pending = alive.find(({ id }) => id === action.request.pendingId);
-    if (!pending) continue;
+    const before = alive.find(({ id }) => id === action.request.pendingId);
+    if (!before) continue;
+    // A doubt another request of this message left on the pending counts: the pending ends here, so pendingsAfter never keeps it.
+    const doubt = decided?.pendingDoubts.get(before.id);
+    const pending = doubt ? withDecisionOnPending(before, doubt, now) : before;
     const resolution = resolveVariant(action.request.product, pending.known, action.request.values);
     const mark = resolution.kind === "resolved" ? inheritedMark(pending, { quantity: action.request.quantity, values: action.request.values }) : null;
     if (resolution.kind === "resolved" && mark && !marks.has(resolution.item.variantId)) marks.set(resolution.item.variantId, mark);
@@ -508,7 +511,7 @@ async function applyInTransaction(message: ChatSourceMessage, plan: Plan, deps: 
     const doubt = decided?.pendingDoubts.get(pending.id);
     return doubt ? withDecisionOnPending(pending, doubt, now) : pending;
   }) };
-  const marks = completionMarks(decided, alive.pendings);
+  const marks = completionMarks(decided, alive.pendings, now);
   // Pendings that ended with their order or by age are recorded first, silently.
   const ended = life.ended.map(({ id, reason }): ChatMessageOutcome => ({ kind: "pending_ended", pendingId: id, reason }));
   const changedOrder = target.data.kind === "open" && hasChanges(changes) && applied.data.target.kind === "open" ? applied.data.target.order : null;

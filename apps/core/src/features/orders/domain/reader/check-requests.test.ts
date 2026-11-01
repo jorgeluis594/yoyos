@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { catalog, pendingOf, productId, variantOf, type ProductKey } from "@core/src/features/orders/domain/chat-reading-fixtures";
+import { catalog, doubtfulPendingOf, pendingOf, productId, variantOf, type ProductKey } from "@core/src/features/orders/domain/chat-reading-fixtures";
 import type { OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { ChatPending } from "@core/src/features/orders/domain/chat-pendings";
 import { checkRequests, checkShownPhoto, type CheckItem, type CheckSnapshot, type CheckedAction } from "@core/src/features/orders/domain/reader/check-requests";
@@ -86,6 +86,16 @@ describe("checkRequests: items", () => {
     const gorra = item("I2", "gorra", { Color: "Rojo" });
     const unnamed = only(checkRequests([request({ kind: "remove", target: { kind: "none" } })], [], snapshot({ items: [polera, gorra] })));
     expect(decision(unnamed, "agree")).toEqual({ kind: "urgent", problem: "unclear_item", question: { language: "es", kind: "which_item_to_remove", products: ["Polera con capucha", "Gorra trucker"] } });
+  });
+
+  test("reports an «only item» target as unclear when the order has several lines that fit", () => {
+    const gorra = item("I2", "gorra", { Color: "Rojo" });
+    const set = request({ kind: "change_quantity", target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, quantity: quantity(2, "set") });
+    const removal = request({ kind: "remove", target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef } });
+    for (const unnamed of [set, removal]) {
+      const checked = only(checkRequests([unnamed], [], snapshot({ items: [polera, gorra] })));
+      expect(decision(checked, "agree")).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+    }
   });
 
   test("lowers a named item with the quantity doubt as the reason when only context names it", () => {
@@ -338,6 +348,55 @@ describe("checkRequests: pendings and other kinds", () => {
     const checked = checkRequests([request({ kind: "complete_pending", target, values: [value("negro"), value("M")] }),
       { ...request({ kind: "complete_pending", target, values: [value("blanco"), value("L")] }), request: { ...request({}).request, request: "R2" as RequestRef, kind: "complete_pending", target, values: [value("blanco"), value("L")] } }], [], snapshot({ pendings: [pendingRef(1, pending)] }));
     expect(checked.map((entry) => (entry.action.kind === "advance_pending" ? entry.action.request.quantity : null))).toEqual([1, 1]);
+  });
+
+  describe("with several pendings", () => {
+    const toPending = (n: number) => ({ kind: "pending", ref: `Q${n}` as PendingRef, named: null }) as const;
+    const blackAndWhite = () => [pendingRef(1, pendingOf("polo", { n: 1, known: { Color: "Negro" } })), pendingRef(2, pendingOf("polo", { n: 2, known: { Color: "Blanco" } }))];
+
+    test("asks which pending a value is for when it fits several and the buyer named none", () => {
+      const checked = only(checkRequests([request({ kind: "complete_pending", target: toPending(1), values: [value("M")] })], [], snapshot({ pendings: blackAndWhite() })));
+      expect(decision(checked)).toEqual({ kind: "urgent", problem: "variant_for_several_pendings", question: null });
+    });
+
+    test("completes the pending the values fit alone", () => {
+      const checked = only(checkRequests([request({ kind: "complete_pending", target: toPending(1), values: [value("negro"), value("M")] })], [], snapshot({ pendings: blackAndWhite() })));
+      expect(checked.action).toMatchObject({ kind: "advance_pending", request: { pendingId: blackAndWhite()[0]!.pending.id } });
+    });
+
+    test("keeps one completion per pending when the message addresses each of them", () => {
+      const second = { ...request({ kind: "complete_pending", target: toPending(2), values: [value("M")] }).request, request: "R2" as RequestRef };
+      const checked = checkRequests([request({ kind: "complete_pending", target: toPending(1), values: [value("M")] }), { complete: true, request: second }], [], snapshot({ pendings: blackAndWhite() }));
+      expect(checked.map((entry) => entry.action.kind)).toEqual(["advance_pending", "advance_pending"]);
+    });
+  });
+
+  test("narrows a doubtful pending by the candidate the resolution chose or the only one that sells the values", () => {
+    const pending = doubtfulPendingOf(["polo", "oversize"]);
+    const target = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
+    const byValue = only(checkRequests([request({ kind: "complete_pending", target, values: [value("verde")] })], [], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(byValue.action).toMatchObject({ kind: "advance_pending", request: { productId: productId("oversize") } });
+    const byResolution = only(checkRequests([request({ kind: "complete_pending", target, values: [value("M")] })], [chosen("polo")], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(byResolution.action).toMatchObject({ kind: "advance_pending", request: { productId: productId("polo") } });
+    const both = only(checkRequests([request({ kind: "complete_pending", target, values: [value("M")] })], [], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(decision(both)).toEqual({ kind: "urgent", problem: "variant_only", question: null });
+  });
+
+  test("checks an add that points at a pending against that pending", () => {
+    const pending = pendingOf("gorra", { quantity: 1 });
+    const target = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
+    const complete = only(checkRequests([request({ kind: "add", target, values: [value("rojo")] })], [], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(complete.action).toMatchObject({ kind: "advance_pending", request: { pendingId: pending.id } });
+    const more = only(checkRequests([request({ kind: "add", target, quantity: quantity(2, "add") })], [], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(more.action).toMatchObject({ kind: "change_pending_quantity", pendingId: pending.id, mode: "increase", quantity: 2 });
+    expect(decision(more, "agree")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
+  });
+
+  test("raises the only item for an add that points at it", () => {
+    const polera = item("I1", "polera", { Talla: "M" });
+    const checked = only(checkRequests([request({ kind: "add", target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, quantity: quantity(1, "add") })], [], snapshot({ items: [polera] })));
+    expect(checked.action).toMatchObject({ kind: "increase_quantity", target: { variantId: polera.variantId }, quantity: 1 });
+    expect(decision(checked, "agree")).toMatchObject({ kind: "doubtful" });
   });
 
   test("decides a payment request as urgent with the open order", () => {
