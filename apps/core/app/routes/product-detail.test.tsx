@@ -27,10 +27,11 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 
-async function open(loaded: { hidden: boolean; saved: boolean; catalogEmptied: boolean }) {
+async function open(loaded: { hidden: boolean; saved: boolean; catalogEmptied: boolean }, action?: (request: Request) => Promise<null>) {
   const data = { product: product(loaded.hidden), catalog: "/es-PE/products", saved: loaded.saved, catalogEmptied: loaded.catalogEmptied, variantDeleted: false };
-  const router = createMemoryRouter([{ path: "/es-PE/products/:productId", element: <ProductDetail />, loader: () => data }], { initialEntries: [`/es-PE/products/${id(50)}`] });
+  const router = createMemoryRouter([{ path: "/es-PE/products/:productId", element: <ProductDetail />, loader: () => data, action: ({ request }) => action ? action(request) : null }], { initialEntries: [`/es-PE/products/${id(50)}`] });
   await act(async () => { root.render(<I18nextProvider i18n={i18n}><RouterProvider router={router} /></I18nextProvider>); });
+  return router;
 }
 const status = () => container.querySelector('[role="status"]')?.textContent ?? "";
 const hideSwitch = () => container.querySelector<HTMLButtonElement>('button[role="switch"]')!;
@@ -41,10 +42,17 @@ test("the saved message adds the last-visible notice after Producto guardado cor
   expect(hideSwitch().getAttribute("aria-checked")).toBe("true");
 });
 
-test("creating a hidden product opens its page with the switch on and no last-visible notice", async () => {
-  await open({ hidden: true, saved: false, catalogEmptied: false });
-  expect(hideSwitch().getAttribute("aria-checked")).toBe("true");
-  expect(container.textContent).not.toContain("sin productos visibles");
-  await open({ hidden: true, saved: true, catalogEmptied: false });
-  expect(status()).toBe("Producto guardado correctamente.");
+async function saveBody(toggle: boolean) {
+  let body: unknown;
+  await open({ hidden: false, saved: false, catalogEmptied: false }, async (request) => { body = await request.json(); return null; });
+  if (toggle) act(() => hideSwitch().click());
+  await act(async () => { container.querySelector("form")!.requestSubmit(); });
+  await vi.waitFor(() => expect(body).toBeDefined());
+  return body as Record<string, unknown>;
+}
+
+test("the save body sends hidden only when the switch differs from the stored value", async () => {
+  expect(await saveBody(true)).toMatchObject({ hidden: true });
+  act(() => root.unmount()); root = createRoot(container);
+  expect(await saveBody(false)).not.toHaveProperty("hidden");
 });

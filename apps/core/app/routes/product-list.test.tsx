@@ -31,5 +31,8 @@ test("the list shows the Oculto badge with an eye-off icon for a hidden product"
   const polo = rows.find((row) => row.textContent?.includes("Polo básico"))!;
   expect(jacket.textContent).toContain("Oculto");
   expect(jacket.querySelector("svg.lucide-eye-off")).not.toBeNull();
+  const link = jacket.querySelector("a")!;
+  expect(container.querySelector(`#${link.getAttribute("aria-describedby")}`)?.textContent).toBe("Oculto");
+  expect(polo.querySelector("a")!.hasAttribute("aria-describedby")).toBe(false);
   expect(polo.textContent).not.toContain("Oculto");
 });

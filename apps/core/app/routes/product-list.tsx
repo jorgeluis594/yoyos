@@ -50,8 +50,8 @@ export default function ProductList() {
       mobile: "title",
       cell: (item) => (
         <span className="flex flex-wrap items-center gap-2">
-          <TextLink asChild><Link to={`${base}/${item.id}`}>{item.name}</Link></TextLink>
-          {item.hidden && <Badge variant="outline"><EyeOff aria-hidden="true" />{t("products.hiddenBadge")}</Badge>}
+          <TextLink asChild><Link to={`${base}/${item.id}`} aria-describedby={item.hidden ? `hidden-${item.id}` : undefined}>{item.name}</Link></TextLink>
+          {item.hidden && <Badge id={`hidden-${item.id}`} variant="outline"><EyeOff aria-hidden="true" />{t("products.hiddenBadge")}</Badge>}
         </span>
       ),
     },

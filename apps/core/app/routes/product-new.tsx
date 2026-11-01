@@ -29,7 +29,7 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
   try {
     const result = await productEditing.create(toCreateInput(parsed.data));
     if (!result.success) return createFeedback(result.error, language);
-    return redirect(companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`));
+    return redirect(companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`) + "?saved=1");
   } catch (cause) {
     log.error({ event: "unable_to_create_product", err: cause }, "unable_to_create_product");
     return { errors: { form: resources[language].translation.productEditor.inDoubtCreate }, issues: [] };

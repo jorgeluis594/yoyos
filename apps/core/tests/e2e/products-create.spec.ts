@@ -34,8 +34,8 @@ test("create products from the private form, validate input, and reload detail",
     await page.getByLabel("Nombre *").fill("  Cuaderno  ");
     await page.getByLabel("Precio de venta (PEN) *").fill("12.50");
     await page.getByRole("button", { name: "Guardar producto" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
-    const firstProductUrl = page.url();
+    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+(\?saved=1)?$/);
+    const firstProductUrl = page.url().replace(/\?saved=1$/, "");
     await browserExpect(page.getByRole("heading", { name: "Cuaderno" })).toBeVisible();
     await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("12.50");
     await browserExpect(page.getByLabel("SKU")).toHaveValue("");
@@ -60,7 +60,7 @@ test("create products from the private form, validate input, and reload detail",
     await page.getByLabel("Stock inicial").fill("7");
     await page.getByLabel("Descripción").fill("Grafito");
     await page.getByRole("button", { name: "Guardar producto" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
+    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+(\?saved=1)?$/);
     await page.reload();
     await browserExpect(page.getByLabel("SKU")).toHaveValue("LAP-1");
     await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("1.20");
@@ -90,7 +90,7 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page.getByText("Este SKU ya está en uso.")).toBeVisible();
     await page.getByLabel("SKU").fill("LAP-2");
     await page.getByRole("button", { name: "Guardar producto" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
+    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+(\?saved=1)?$/);
 
     const count = await withTenantIsolation(companyId, async () => prisma.product.count({ where: { companyId } }));
     expect(count).toBe(3);
@@ -150,7 +150,7 @@ test("create products from the private form, validate input, and reload detail",
     await prepareVerifiedCompany(page, { email: otherEmail, name: "Otra persona", companyName: "Otra empresa", country: "US" });
     await page.goto("/es-US/dashboard");
     await page.goto(firstProductUrl);
-    await browserExpect(page).toHaveURL(/\/es-US\/products\/[0-9a-f-]+$/);
+    await browserExpect(page).toHaveURL(/\/es-US\/products\/[0-9a-f-]+(\?saved=1)?$/);
     await browserExpect(page.getByRole("heading", { name: "Producto no encontrado" })).toBeVisible();
     await page.goto("/es-US/products?search=Cuaderno");
     await browserExpect(page.getByText("No se encontraron productos para esta búsqueda.")).toBeVisible();
