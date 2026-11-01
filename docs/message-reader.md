@@ -12,7 +12,7 @@ message_created ─▶ apply-chat-message (ordered per chat, 85 s attempt deadli
   ├─ photo cascade (QR, visual 0.8); its summary goes to the trace
   ├─ intent stage (model port)      → requests | no_intent | unsure, buyer language, address spans of unmasked messages
   ├─ extraction stage (model port)  → per request: target, values, quantity, price, change verb, each with its quote
-  │    └─ confirming extraction starts together with it when an intent is high risk
+  │    └─ confirming extraction starts together with it when an intent is high risk, or an add reaches an order that has lines
   ├─ resolution stage (model port)  → per mention: catalog choice among searched candidates, catalog values
   ├─ checks (pure)                  → resolved actions with certainty signals; agreement (pure)
   └─ transaction: lock Contact → Order → ChatPendings → decide (pure) → apply → change rows, OrderMessage, outcome
@@ -33,7 +33,7 @@ On a captioned photo the intent stage starts concurrently with the photo cascade
 | Confirming chain | Starts together with the primary extraction only when an intent is remove, change quantity or change variant (the kinds that can reach high certainty with high risk). It is aborted as soon as the checks show no action needs it; its partial cost is still recorded. | Pays for a second opinion only where the policy can use it. |
 | Time budget | Each stage's signal combines the job signal with the stage timeout (`READER_STAGE_TIMEOUT_MS`, 10 s) capped by what is left of the reading budget (`READER_READING_BUDGET_MS`, 60 s, under the 85 s deadline). A stage does not start with less than 2 s left; it ends as `DEADLINE_EXCEEDED`, retried as usual. | A reading never outlives its attempt. |
 | Decision policy | A pure function of signals, risk and agreement, evaluated inside the transaction on the locked state. | The same inputs give the same decision without a model. |
-| Justifying words | Every datum carries a quote; `verifyQuotes` (pure) checks it is a substring of the current message ignoring case and whitespace. Unverified data is dropped; only targets may come from context. | Nothing the buyer did not say is applied. |
+| Justifying words | Every datum carries a quote; `verifyQuotes` (pure) checks it is a substring of the current message ignoring case and whitespace. Unverified data is dropped; only targets may come from context. An intent whose quote is not found, and an intent no extracted request answers, become an urgent `reader_doubt` for that request, never a silent loss; intents of one kind with one quote count once unless the message says those words as many times. A target `named` by a quote that holds no word of the line's or pending's catalog names and values (a pronoun) counts as taken from context. | Nothing the buyer did not say is applied, and nothing the buyer asked is lost silently. |
 
 ## Stage contracts
 
@@ -85,7 +85,7 @@ All of a message's mentions are searched in one statement (`findMentionCandidate
 Pure functions in `domain/reader/`:
 
 - `CertaintySignals`: `quotesComplete`, `targetNamed` (`named`, `photo_same_message`, `photo_just_sent_set`, `context`), `variantChangeVerb` (`present`, `absent`, `not_applicable`), `candidates` (`single`, `several`). `isHighCertainty` holds when all four signals hold; `photo_just_sent_set` counts as named only for set wording on what the photo left while it is unchanged.
-- `riskOf(action)`, `agreementOf(primary, confirming)` (`agree` when the confirming chain resolves to the same action kind, target, variant and quantity; `disagree`; `not_run`) and `decideChange`, which implements the decision table of [message-to-order](message-to-order.md#decision). The photo-then-variant guard is a precondition of the decision.
+- `riskOf(action)` (a check may raise it in `CheckedAction.risk`: an add that lands on a variant the order already has is high), `agreementOf(primary, confirming)` (`agree` when the confirming chain resolves to the same action kind, target, variant and quantity; `disagree`; `not_run`) and `decideChange`, which implements the decision table of [message-to-order](message-to-order.md#decision). The photo-then-variant guard is a precondition of the decision.
 - Doubt reasons: `variant_changed`, `quantity_set`, `added_by_reference`, `removed`, `price_noted`, `caption_unread` and `inherited` (which wraps an original reason and never nests). Reasons are structured data; presentation renders their text.
 - Pending doubt: a pending change that is not high certainty carries a doubt with a point time and no acknowledgement; completing or splitting it gives each created item an `inherited` mark unless the message restates the same value with the same number or a review already acknowledged the point.
 
@@ -170,7 +170,7 @@ Texts never travel as UI copy, except the suggested questions (text for the buye
 
 ## Latency and cost
 
-Per text message, before caching, at the default models: intent about US$0.00034 and 1.5 s, extraction about 0.00047 and 2.0 s, resolution about 0.00035 and 1.5 s, the catalog search 0.3 s, the transaction 0.3 s: about US$0.0012 and 5.8 s p95. A message with a high-risk intent also pays the confirming extraction (about US$0.0005) even if the checks then abort it; a confirming chain that finds new mention words adds about 1.8 s. Photo messages have their own p95 (about 6.1 s) and about US$0.001 for the cascade. The evaluation reports photo and text messages apart. Cost levers, in order: prompt caching of the fixed instructions (each stage's instructions must reach the provider's cacheable prefix), then a cheaper model on resolution.
+Per text message, before caching, at the default models: intent about US$0.00034 and 1.5 s, extraction about 0.00047 and 2.0 s, resolution about 0.00035 and 1.5 s, the catalog search 0.3 s, the transaction 0.3 s: about US$0.0012 and 5.8 s p95. A message with a high-risk intent, or an add in an order that has lines, also pays the confirming extraction (about US$0.0005) even if the checks then abort it; a confirming chain that finds new mention words adds about 1.8 s. Photo messages have their own p95 (about 6.1 s) and about US$0.001 for the cascade. The evaluation reports photo and text messages apart. Cost levers, in order: prompt caching of the fixed instructions (each stage's instructions must reach the provider's cacheable prefix), then a cheaper model on resolution.
 
 ## Observability
 
