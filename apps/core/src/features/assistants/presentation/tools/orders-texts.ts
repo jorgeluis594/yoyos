@@ -53,7 +53,6 @@ export const orderToolsInstructions = [
   "Los montos, las fechas y los estados ya vienen listos para mostrar; no los recalcules.",
   "Los teléfonos y las direcciones de los clientes se ocultan a propósito: nunca digas que puedes obtenerlos.",
   "Si una llamada se rechaza por falta de autorización, pide al dueño que vuelva a conectar el conector desde la configuración de tu asistente; la dirección está en Yoyos → Ajustes → Asistentes de IA.",
-  "Este conector todavía no da totales de ventas ni finanzas: dilo en vez de sumar páginas de pedidos.",
   "Cuando repitas el motivo por el que un pedido no está listo, transmite su sentido sin convertirlo en una promesa, en el idioma del dueño; «Tiene un pago por revisar.» significa pedir al dueño que revise ese reporte en Yoyos (con el enlace del pedido), no que registre un pago.",
   "Cada lista indica «Hoy es …» en Lima: calcula los rangos relativos («la semana pasada») con esa fecha y no con tu reloj.",
 ].join(" ");

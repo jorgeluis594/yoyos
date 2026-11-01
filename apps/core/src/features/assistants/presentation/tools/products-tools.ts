@@ -10,10 +10,11 @@ import {
   type AssistantProduct, type AssistantProductSummary, type InCatalogLine, type AssistantVariantMatch, type ProductProjectionContext, type ProjectableProduct, type ProjectableProductSummary, type ProjectableStorefront,
   type ProjectableValueRejection,
 } from "@core/src/features/assistants/domain/product-projection";
+import { page, unknownField } from "@core/src/features/assistants/presentation/tools/input-fields";
 import { display as defaultDisplay } from "@core/src/features/assistants/presentation/display";
 import {
   noProductMessage, pageOutOfRangeMessage, productReadFailureMessage, productToolsInstructions, reversedPriceMessage, searchProductsDescription,
-  unknownFieldMessage, viewProductDescription,
+  viewProductDescription,
 } from "@core/src/features/assistants/presentation/tools/products-texts";
 
 type Failure = ToolRunError;
@@ -44,9 +45,6 @@ export type ProductToolsDependencies = Readonly<{
 
 const maxNameLength = 30;
 const maxAmount = 999_999_999.99;
-const unknownField = { error: (issue: { code: string; keys?: string[] }) => issue.code === "unrecognized_keys" ? unknownFieldMessage((issue.keys ?? []).join(", ")) : undefined };
-
-const page = z.number({ error: "La página debe ser un número entero." }).int("La página debe ser un número entero.").min(1, "La página empieza en 1.").default(1);
 const valueEntry = z.string({ error: "valores debe ser una lista de textos, por ejemplo [\"Azul\", \"Talla: M\"]." }).trim().min(1, "Cada entrada de valores necesita un texto.")
   .refine((entry) => {
     const colon = entry.indexOf(":");
@@ -168,7 +166,7 @@ export function createProductToolsModule(deps: ProductToolsDependencies, options
     },
   };
 
-  return { scope: "products:read", access: "read", instructions: productToolsInstructions, readFailureMessage: productReadFailureMessage, tools: [searchProducts, viewProduct] };
+  return { scopes: ["products:read"], access: "read", instructions: productToolsInstructions, readFailureMessage: productReadFailureMessage, tools: [searchProducts, viewProduct] };
 }
 
 // Sample outputs for the static validator: maximum-length ASCII texts, so the 24 KB budget is checked on realistic worst cases.

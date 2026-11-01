@@ -20,7 +20,7 @@ export const annotationsOf = (access: ToolModule["access"]): ToolAnnotations => 
 
 type JsonSchema = Record<string, unknown>;
 export type ToolDefinition = Readonly<{
-  scope: AssistantScope;
+  scopes: readonly AssistantScope[];
   readFailureMessage: string;
   tool: RegisteredTool<unknown, unknown>;
   annotations: ToolAnnotations;
@@ -49,7 +49,7 @@ export function buildToolDefinitions(modules: readonly ToolModule[]): readonly T
       if (!toolNamePattern.test(tool.name)) throw new Error(`Invalid tool name: ${tool.name}`);
       if (names.has(tool.name)) throw new Error(`Repeated tool name: ${tool.name}`);
       names.add(tool.name);
-      return { scope: module.scope, readFailureMessage: module.readFailureMessage, tool, annotations, inputJsonSchema: jsonSchemaOf(tool.inputSchema, "input"), outputJsonSchema: jsonSchemaOf(tool.outputSchema, "output") };
+      return { scopes: module.scopes, readFailureMessage: module.readFailureMessage, tool, annotations, inputJsonSchema: jsonSchemaOf(tool.inputSchema, "input"), outputJsonSchema: jsonSchemaOf(tool.outputSchema, "output") };
     });
   });
 }
@@ -117,10 +117,10 @@ export function createToolRegistry(options: ToolRegistryOptions): ToolRegistry {
   }
 
   function createServer(access: AssistantAccess): McpServer {
-    const modules = options.modules.filter((module) => access.scopes.includes(module.scope));
+    const modules = options.modules.filter((module) => holdsEvery(access, module.scopes));
     const server = new McpServer({ name: "yoyos", version: "1.0.0" }, { instructions: serverInstructions(modules) });
     for (const definition of definitions) {
-      if (!access.scopes.includes(definition.scope)) continue;
+      if (!holdsEvery(access, definition.scopes)) continue;
       server.registerTool(definition.tool.name, {
         title: definition.tool.title,
         description: definition.tool.description,
@@ -144,20 +144,24 @@ const languageViolations = [
 ];
 const plain = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
+const scopesOf = (module: Pick<ToolModule, "scopes">) => module.scopes.join("+");
+const holdsEvery = (access: AssistantAccess, scopes: readonly AssistantScope[]) => scopes.every((scope) => access.scopes.includes(scope));
+
 const words = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word !== "");
 
 /** The static rules every tool module must keep. Returns one sentence per violation; empty when the modules are fine. */
 export function checkToolModules(modules: readonly ToolModule[]): string[] {
   const violations: string[] = [];
   for (const module of modules) {
-    if ((module.access as string) !== "read") violations.push(`A module of scope ${module.scope} is not declared read.`);
+    if ((module.access as string) !== "read") violations.push(`A module of scope ${scopesOf(module)} is not declared read.`);
+    if (new Set(module.scopes).size !== module.scopes.length) violations.push(`A module of scope ${scopesOf(module)} repeats a scope.`);
   }
   const checkLanguage = (where: string, text: string) => {
     for (const { phrase, message } of languageViolations) if (plain(text).includes(phrase)) violations.push(`${where} contains «${phrase === "en espanol" ? "en español" : phrase}» and ${message}.`);
   };
   for (const module of modules) {
-    checkLanguage(`Module of scope ${module.scope}:`, module.instructions);
-    if (module.readFailureMessage.trim() === "") violations.push(`Module of scope ${module.scope}: needs a reading-failure message.`);
+    checkLanguage(`Module of scope ${scopesOf(module)}:`, module.instructions);
+    if (module.readFailureMessage.trim() === "") violations.push(`Module of scope ${scopesOf(module)}: needs a reading-failure message.`);
   }
   let definitions: readonly ToolDefinition[] = [];
   // The tools of a module that is not read are checked too, as if it were.

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getCompanyId, prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import { isStatementTimeout } from "@core/src/features/products/infrastructure/statement-timeout";
+import { isStatementTimeout } from "@core/src/shared/infrastructure/statement-timeout";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import { searchedWordCap, type TextMatchLimits } from "@core/src/features/products/domain/message-words";
 import type { MessageCandidates } from "@core/src/features/products/application/find-message-candidates";

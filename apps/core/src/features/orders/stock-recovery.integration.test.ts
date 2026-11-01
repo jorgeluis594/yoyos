@@ -33,8 +33,9 @@ it.skipIf(!process.env.STOCK_RECOVERY_MEASURE)("the recovery job deducts a due o
   try {
     const insert = () => withTenantIsolation(companyId, async () => {
       const id = randomUUID();
-      await prisma.order.create({ data: { id, number: BigInt(Math.floor(Math.random() * 1e9) + 1001), sellerId, currency: "PEN", total: new Prisma.Decimal(10), itemsTotal: new Prisma.Decimal(10), createdAt: new Date() } });
-      await prisma.orderItem.create({ data: { orderId: id, variantId, productName: "Camisa", variantAttributes: {}, quantity: 1n, unitPrice: new Prisma.Decimal(10), subtotal: new Prisma.Decimal(10) } });
+      const createdAt = new Date();
+      await prisma.order.create({ data: { id, number: BigInt(Math.floor(Math.random() * 1e9) + 1001), sellerId, currency: "PEN", total: new Prisma.Decimal(10), itemsTotal: new Prisma.Decimal(10), createdAt } });
+      await prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: createdAt, variantId, productName: "Camisa", variantAttributes: {}, quantity: 1n, unitPrice: new Prisma.Decimal(10), subtotal: new Prisma.Decimal(10) } });
       await prisma.payment.create({ data: { id: randomUUID(), orderId: id, status: "confirmed", amount: new Prisma.Decimal(10), currency: "PEN", method: "bank_transfer",
         data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
       return id;

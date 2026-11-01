@@ -437,8 +437,8 @@ test("a restoration that serves 100 candidates finishes within about a second", 
     await prisma.$executeRaw`INSERT INTO "Order" (id, number, "sellerId", currency, total, "itemsTotal", "createdAt")
       SELECT gen_random_uuid(), 100000 + n, (SELECT id FROM "user" WHERE "companyId" = current_setting('app.company_id')::uuid LIMIT 1), 'PEN', 10, 10, now() + n * interval '1 second'
       FROM generate_series(1, 100) n`;
-    await prisma.$executeRaw`INSERT INTO "OrderItem" (id, "orderId", "variantId", "productName", "variantAttributes", quantity, "unitPrice", subtotal)
-      SELECT gen_random_uuid(), o.id, ${s.variants[0]!}::uuid, 'Camisa', '{}'::json, 1, 10, 10 FROM "Order" o`;
+    await prisma.$executeRaw`INSERT INTO "OrderItem" (id, "orderId", "orderCreatedAt", "variantId", "productName", "variantAttributes", quantity, "unitPrice", subtotal)
+      SELECT gen_random_uuid(), o.id, o."createdAt", ${s.variants[0]!}::uuid, 'Camisa', '{}'::json, 1, 10, 10 FROM "Order" o`;
     await prisma.$executeRaw`INSERT INTO "Payment" (id, "orderId", status, amount, currency, method, data)
       SELECT gen_random_uuid(), o.id, 'confirmed', 10, 'PEN', 'bank_transfer', '{}'::jsonb FROM "Order" o`;
   });
@@ -459,8 +459,8 @@ test("with 10,000 unpaid pending orders in the company the waiting query stays u
       await prisma.$executeRaw`INSERT INTO "Order" (id, number, "sellerId", currency, total, "itemsTotal", "createdAt")
         SELECT gen_random_uuid(), 200000 + n, (SELECT id FROM "user" WHERE "companyId" = current_setting('app.company_id')::uuid LIMIT 1), 'PEN', 10, 10, now() - n * interval '1 second'
         FROM generate_series(${first}::int, ${last}::int) n`;
-      await prisma.$executeRaw`INSERT INTO "OrderItem" (id, "orderId", "variantId", "productName", "variantAttributes", quantity, "unitPrice", subtotal)
-        SELECT gen_random_uuid(), o.id, ${s.variants[0]!}::uuid, 'Camisa', '{}'::json, 1, 10, 10 FROM "Order" o WHERE o.number BETWEEN ${200000 + first}::int AND ${200000 + last}::int`;
+      await prisma.$executeRaw`INSERT INTO "OrderItem" (id, "orderId", "orderCreatedAt", "variantId", "productName", "variantAttributes", quantity, "unitPrice", subtotal)
+        SELECT gen_random_uuid(), o.id, o."createdAt", ${s.variants[0]!}::uuid, 'Camisa', '{}'::json, 1, 10, 10 FROM "Order" o WHERE o.number BETWEEN ${200000 + first}::int AND ${200000 + last}::int`;
     }
     await prisma.$executeRaw`ANALYZE "Order"`;
   });

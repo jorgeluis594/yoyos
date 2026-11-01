@@ -9,6 +9,7 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { VocabularyRow } from "@core/src/features/products/domain/product-search";
 import { stockLevelOf } from "@core/src/features/products/domain/stock-level";
+import { productMatchesText } from "@core/src/features/products/infrastructure/product-text-match";
 import type { AssistantReadError } from "@core/src/features/products/application/assistant-read";
 import type { ActiveSummary, ProductSearchPage, ProductSearchQuery, SearchedProduct, SearchedVariant, SkuSummary } from "@core/src/features/products/application/search-for-assistant";
 
@@ -54,8 +55,6 @@ async function read<Row>(stage: Stage, statement: Prisma.Sql, schema: z.ZodType<
 // ICU Spanish collation, as the app list: case- and accent-insensitive at the primary level.
 const orders = { name: Prisma.sql`name COLLATE "es-x-icu" ASC, id ASC`, recent: Prisma.sql`"createdAt" DESC, id ASC` } as const;
 
-const likePattern = (text: string) => `%${text.trim().replace(/[\\%_]/g, "\\$&")}%`;
-
 const hasVariantFilters = (query: ProductSearchQuery) =>
   query.valueSets.length > 0 || query.priceFrom !== undefined || query.priceTo !== undefined || query.stock !== undefined;
 
@@ -97,12 +96,7 @@ export function vocabularySql(companyId: string): Prisma.Sql {
 export function pageSql(companyId: string, query: ProductSearchQuery): Prisma.Sql {
   const product: Prisma.Sql[] = [Prisma.sql`p."companyId" = ${companyId}::uuid`];
   const text = query.text?.trim();
-  if (text) {
-    const pattern = likePattern(text);
-    product.push(Prisma.sql`(unaccent(lower(p.name)) LIKE unaccent(lower(${pattern}))
-      OR EXISTS (SELECT 1 FROM "ProductVariant" sv WHERE sv."companyId" = p."companyId" AND sv."productId" = p.id
-        AND unaccent(lower(sv.sku)) LIKE unaccent(lower(${pattern}))))`);
-  }
+  if (text) product.push(productMatchesText(text));
   if (hasVariantFilters(query)) {
     product.push(Prisma.sql`EXISTS (SELECT 1 FROM "ProductVariant" v
       JOIN "ProductStock" s ON s."companyId" = v."companyId" AND s."variantId" = v.id
