@@ -30,7 +30,7 @@ export type SearchCriteria = Readonly<{
   text?: string; values?: readonly [string, ...string[]]; priceFrom?: PriceCents; priceTo?: PriceCents;
   stock?: VariantStockFilter; inCatalog?: boolean; sort: "recent" | "name"; page: number;
 }>;
-export type SearchCriteriaError = Readonly<{ code: "INVALID_PRICE" | "INVALID_PAGE" | "INVALID_SORT" | "PRICE_RANGE_REVERSED" | "VARIANT_FILTER_OUTSIDE_CATALOG"; message: string }>;
+export type SearchCriteriaError = Readonly<{ code: "INVALID_PRICE" | "INVALID_PAGE" | "INVALID_SORT" | "PRICE_RANGE_REVERSED"; message: string }>;
 
 function parseOptionalPrice(cents: number | undefined): Result<PriceCents | undefined, SearchCriteriaError> {
   if (cents === undefined) return ok(undefined);
@@ -48,8 +48,6 @@ export function parseSearchCriteria(input: SearchInput): Result<SearchCriteria, 
   if (from.data !== undefined && to.data !== undefined && from.data > to.data)
     return err({ code: "PRICE_RANGE_REVERSED", message: "The minimum price is above the maximum price" });
   const values = input.values?.length ? input.values as readonly [string, ...string[]] : undefined;
-  if (input.inCatalog === false && (values || from.data !== undefined || to.data !== undefined || input.stock !== undefined))
-    return err({ code: "VARIANT_FILTER_OUTSIDE_CATALOG", message: "Variant filters need products in the catalog" });
   return ok({
     ...input.text === undefined ? {} : { text: input.text },
     ...values ? { values } : {},
