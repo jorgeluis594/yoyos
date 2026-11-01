@@ -1,11 +1,10 @@
 import * as Crypto from "expo-crypto";
-import type { ConfirmOrderReviewResponse, OrderReviewResponse } from "@shared/contracts/order-review";
+import type { ConfirmOrderReviewRequest, ConfirmOrderReviewResponse, OrderReviewResponse } from "@shared/contracts/order-review";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { Result } from "@shared/result";
 import { orders } from "@mobile/features/orders/composition";
 import { repeatWhileInDoubt } from "@mobile/features/orders/application/in-doubt";
 import type { ReviewRequestError } from "@mobile/features/orders/application/order-operations";
-import type { ConfirmOrderReviewInput } from "@mobile/features/orders/infrastructure/order-api";
 
 export type LinkActionKind = "copy" | "share" | "open";
 export type UndoRefusalReason = "order_moved_on" | "later_change" | "would_empty" | "not_sold";
@@ -15,6 +14,8 @@ export type UndoOutcome =
   | Readonly<{ kind: "failed" }>;
 
 /** Confirms a review. The same input (and client id) is repeated while the answer may have been lost, so the review is saved once. */
+type ConfirmOrderReviewInput = Omit<ConfirmOrderReviewRequest, "version">;
+
 export function confirmReview(orderId: string, input: ConfirmOrderReviewInput, onInDoubt: () => void): Promise<Result<ConfirmOrderReviewResponse, ReviewRequestError>> {
   return repeatWhileInDoubt(() => orders.confirmOrderReview(orderId, input), { onInDoubt });
 }
