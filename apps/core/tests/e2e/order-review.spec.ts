@@ -63,9 +63,13 @@ test("a seller copies the link of a WhatsApp order through the review, corrects 
     await browserExpect(dialog.getByRole("heading", { name: "Cambios con duda" })).toBeVisible();
     await browserExpect(dialog).toContainText("Un mensaje cambió la cantidad a 2");
     await page.screenshot({ path: "test-results/order-review-dialog-desktop.png", animations: "disabled" });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: "test-results/order-review-dialog-phone.png", animations: "disabled" });
 
     // A seller corrects the doubtful item and confirms: the corrections are saved together with the review.
     await dialog.getByRole("textbox", { name: "Cantidad de Polera gris M" }).fill("1");
+    await page.screenshot({ path: "test-results/order-review-dialog-phone-corrected.png", animations: "disabled" });
+    await page.setViewportSize({ width: 1280, height: 900 });
     await dialog.getByRole("button", { name: "Confirmar revisión" }).click();
     await browserExpect(dialog).toHaveCount(0);
     await browserExpect(page.getByRole("textbox", { name: "Enlace del pedido" })).toHaveValue(new RegExp(`/checkout/${orderId}$`));
@@ -76,6 +80,7 @@ test("a seller copies the link of a WhatsApp order through the review, corrects 
     await page.getByRole("button", { name: /^Deshacer mensaje de las .*Agregó Gorra trucker/ }).click();
     const confirmation = page.getByRole("dialog", { name: "¿Deshacer lo que hizo este mensaje?" });
     await browserExpect(confirmation).toContainText("Quitar Gorra trucker");
+    await page.screenshot({ path: "test-results/order-review-undo-confirmation-desktop.png", animations: "disabled" });
     await confirmation.getByRole("button", { name: "Deshacer cambios" }).click();
     await browserExpect(page.getByText("Cambios deshechos.")).toBeVisible();
     await browserExpect(page.getByRole("textbox", { name: /^Cantidad: Gorra trucker/ })).toHaveCount(0);

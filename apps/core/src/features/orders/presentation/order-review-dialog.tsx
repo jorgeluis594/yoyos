@@ -236,7 +236,7 @@ export function OrderReviewDialog({ origin, orderId, orderNumber, initial, api, 
               <p className="font-medium">{item.productName} <span className="font-normal text-muted-foreground">×{item.quantity}</span></p>
               <p className="text-sm text-muted-foreground">{t("orderReview.lineDetail", { variant: lineVariant({ variantAttributes: item.variantAttributes }) || t("orderView.products.uniqueVariant"),
                 price: money(item.unitPrice.amount, currency), subtotal: money(item.subtotal.amount, currency) })}</p>
-              {changedSince.get(item.id) && <p className="text-sm font-medium">{t("orderReview.changedSince")}</p>}
+              {review.status.hasPreviousReview && changedSince.get(item.id) && <p className="text-sm font-medium">{t("orderReview.changedSince")}</p>}
             </li>)}
             {review.removedSinceLastReview.map((line) => <li key={line.itemId} className="py-2 text-sm text-muted-foreground">{t("orderReview.removedSince", { line: lineLabel(line, t) })}</li>)}</ul>
           </>)}
