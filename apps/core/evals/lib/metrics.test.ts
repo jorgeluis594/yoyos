@@ -39,9 +39,11 @@ describe("metrics of one run", () => {
     expect(run.urgentShare).toBeCloseTo(2 / 5);
     expect(run.urgentPrecision).toBeCloseTo(1 / 2);
     expect(run.urgentRecall).toBeCloseTo(1 / 2);
+    expect(run.falseUrgentShare).toBeCloseTo(1 / 5);
     expect(run.changedNotices).toBe(1);
     expect(metricsOfRun([record()]).urgentPrecision).toBeNull();
     expect(metricsOfRun([record()]).urgentRecall).toBeNull();
+    expect(metricsOfRun([record()]).falseUrgentShare).toBe(0);
   });
 
   test("computes p95 from reading start to decision without queue wait", () => {

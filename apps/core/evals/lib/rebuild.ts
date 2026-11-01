@@ -3,6 +3,7 @@ import { splitOf, type EvalSplit } from "@core/evals/cases/split";
 import type { CaseRecord } from "@core/evals/lib/case-record";
 import type { ModelCall } from "@core/evals/lib/model-meter";
 import { buildReport, type EvalReport } from "@core/evals/lib/report";
+import { decisionOf } from "@core/evals/lib/stage-facts";
 import { scoreMessage, type MessageActual } from "@core/evals/lib/scorers";
 
 /**
@@ -26,7 +27,10 @@ export function rescoreMessage(record: CaseRecord): CaseRecord {
   const fields = { ...scored.fields, unitPrice: record.fields.unitPrice ?? true };
   const exactPassed = Object.values(fields).every((value) => value !== false);
   const rescued = record.passed && !record.exactPassed;
-  return { ...record, fields, exactPassed, passed: exactPassed || rescued, expectationIndex: scored.expectationIndex, ignoredActions: scored.ignoredActions,
+  // The expected decision is derived again, so a change of `decisionOf` reaches saved runs.
+  const decisionExpected = decisionOf(expectations[scored.expectationIndex]!);
+  const facts = record.facts ? { ...record.facts, decisionExpected, decision: record.facts.decision === null ? null : record.facts.decisionActual === decisionExpected } : undefined;
+  return { ...record, ...(facts ? { facts } : {}), fields, exactPassed, passed: exactPassed || rescued, expectationIndex: scored.expectationIndex, ignoredActions: scored.ignoredActions,
     wrongSilentChange: scored.wrongSilentChange, extraNotice: scored.extraNotice, expectedSilent: scored.expectedSilent };
 }
 

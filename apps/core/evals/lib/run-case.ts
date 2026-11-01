@@ -2,7 +2,7 @@ import { chooseSellerNotice } from "@core/src/features/orders/domain/seller-noti
 import { productById, describeVariantId, type CatalogScope } from "@core/evals/fixtures/catalog";
 import { isMessageStep, needsJudge, type ConversationCase, type MessageExpectation, type EvalCase, type ImageCase, type MessageCase, type MessageInput, type OrderLine, type OutcomeKind } from "@core/evals/cases/schema";
 import type { Claude, JudgeVerdict } from "@core/evals/lib/claude";
-import { appendRecord, type CaseRecord, type StageFacts } from "@core/evals/lib/case-record";
+import { appendRecord, type CaseRecord, type ReadingRecord, type StageFacts } from "@core/evals/lib/case-record";
 import { metered, type ModelCall } from "@core/evals/lib/model-meter";
 import { observedTrace, observing, type AppliedMessage, type Observation, type ProductionPath } from "@core/evals/lib/production";
 import { readFixtureImage } from "@core/evals/lib/eval-catalog";
@@ -42,6 +42,15 @@ export function stageFactsOf(applied: AppliedMessage, trace: MessageTrace | null
   return scoreStages(expectedStagesOf(expectation), answer);
 }
 
+/** The masked output of each stage and the decision of each action the reading trace holds; null when no reading ran. */
+export function readingOf(trace: MessageTrace | null): ReadingRecord | null {
+  if (!trace) return null;
+  return {
+    stages: trace.stages.map(({ call, output, errorCode }) => ({ stage: call.stage, reading: call.reading, promptVersion: call.promptVersion, errorCode, output })),
+    decisions: trace.decisions.map(({ action, risk, agreement, decision }) => ({ action: action.kind, risk, agreement, decision })),
+  };
+}
+
 const describeOrder = (order: MessageActual["order"]) => order.map((line) =>
   `${line.product ?? "?"}[${Object.values(line.variant).join(" ")}]x${line.quantity}${line.mentionedPrice ? `@${line.mentionedPrice.amount}/${line.mentionedPrice.units}` : ""}`).sort().join(",");
 
@@ -68,7 +77,7 @@ type Evaluated = Readonly<{
   /** The scored model step alone (setup excluded), and the attempts it took. */
   latencyMs: number; attempts: number;
   /** Set for message passes and conversation messages. */
-  message?: Readonly<{ facts?: StageFacts; kind: NonNullable<CaseRecord["messageKind"]>; noticeProducts: readonly string[]; previousOrder: readonly OrderLine[]; expectsRepeatNotice: boolean;
+  message?: Readonly<{ facts?: StageFacts; reading?: ReadingRecord; kind: NonNullable<CaseRecord["messageKind"]>; noticeProducts: readonly string[]; previousOrder: readonly OrderLine[]; expectsRepeatNotice: boolean;
     conversationId: string | null; step: number | null; expected: unknown; input: string }>;
 }>;
 
@@ -103,6 +112,7 @@ function entryOf(testCase: Readonly<{ id: string; kind: string; tags: readonly s
     passed, exactPassed: scored.passed, fields: scored.fields, expectationIndex: scored.expectationIndex, judge,
     messageKind: message?.kind ?? null, conversationId: message?.conversationId ?? null, step: message?.step ?? null,
     ...(message?.facts ? { facts: message.facts } : {}),
+    ...(message?.reading ? { reading: message.reading } : {}),
     ignoredActions: flags?.ignoredActions ?? 0, wrongSilentChange: flags?.wrongSilentChange ?? false, extraNotice: flags?.extraNotice ?? false, expectedSilent: flags?.expectedSilent ?? false,
     noticeProducts: message?.noticeProducts ?? [], expectsRepeatNotice: message?.expectsRepeatNotice ?? false, previousOrder: message?.previousOrder ?? [],
     input: message?.input ?? "", expected: message?.expected ?? null, actual: evaluated.actual, signature: evaluated.signature,
@@ -144,9 +154,11 @@ export function runMessageCase(context: RunCaseContext, testCase: MessageCase, r
     const applied = await context.path.applyMessage(testCase.input, testCase.pass === "interpretation" ? "fixed" : "real", context.scope);
     const actual = messageActualOf(applied);
     const scored = scoreMessage(actual, testCase.expected, testCase.input.order, context.scope);
-    const facts = stageFactsOf(applied, observedTrace(), actual, scored, testCase.expected[scored.expectationIndex]!);
+    const trace = observedTrace();
+    const facts = stageFactsOf(applied, trace, actual, scored, testCase.expected[scored.expectationIndex]!);
+    const reading = readingOf(trace);
     return { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual), error: actual.error, latencyMs: applied.latencyMs, attempts: applied.attempts,
-      message: { facts, kind: messageKindOf(testCase.input), noticeProducts: actual.noticeProducts, previousOrder: testCase.input.order, expectsRepeatNotice: false,
+      message: { facts, ...(reading ? { reading } : {}), kind: messageKindOf(testCase.input), noticeProducts: actual.noticeProducts, previousOrder: testCase.input.order, expectsRepeatNotice: false,
         conversationId: null, step: null, expected: testCase.expected, input: describeInput(testCase) } };
   });
 }
@@ -190,8 +202,9 @@ export async function runConversationCase(context: RunCaseContext, testCase: Con
       const before = previousOrder.map(lineOf);
       const scored = scoreMessage(actual, [step.expected], before, context.scope);
       const facts = stageFactsOf(applied, observation.trace, actual, scored, step.expected);
+      const reading = readingOf(observation.trace);
       const evaluated: Evaluated = { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual), error: actual.error, latencyMs: applied.latencyMs,
-        attempts: applied.attempts, message: { ...base, facts, noticeProducts: actual.noticeProducts, previousOrder: before } };
+        attempts: applied.attempts, message: { ...base, facts, ...(reading ? { reading } : {}), noticeProducts: actual.noticeProducts, previousOrder: before } };
       records.push(entryOf(testCase, 0, repeat, evaluated, observation, calls, null, scored.passed, caseId));
     }
   }

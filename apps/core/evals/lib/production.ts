@@ -445,6 +445,19 @@ async function applyConversation(steps: readonly ConversationStepInput[], wiring
     return { results: done, error: null };
   } catch (cause) {
     return { results: done, error: cause instanceof Error ? cause : new Error(String(cause)) };
+  } finally {
+    await restoreDeactivated(steps, company);
+  }
+}
+
+/** The company is shared by every case, so a product a conversation deactivated goes back to the catalog's status (a variant the catalog marks inactive stays so). */
+export async function restoreDeactivated(steps: readonly ConversationStepInput[], company: EvalCompany): Promise<void> {
+  const products = new Set(steps.flatMap((step) => "event" in step && step.event === "deactivate_product" ? [step.product] : []));
+  for (const product of products) {
+    const catalogProduct = productById(productIdOf(product, company.scope));
+    for (const variant of catalogProduct?.variants ?? []) {
+      await setProductStatus(product, variant.attributes, catalogProduct?.active && variant.active ? "active" : "inactive", company);
+    }
   }
 }
 
