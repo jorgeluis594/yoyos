@@ -398,7 +398,7 @@ WHERE name = 'apply-chat-message' AND state = 'failed';
 | Paid runs | A run that calls models needs `EVAL_PAID=1` and prints an estimate first; each paid step is approved by the founder separately. |
 | Cancel-and-recreate | Measured after switch-on as cancelled WhatsApp orders followed by a new order in the same chat within 24 hours. |
 
-The suites run the production `applyChatMessage` over the three stages and score each stage from the reading trace it returns, so the stage metrics and the final outcome come from the same run.
+The suites run the production staged `applyChatMessage` and score each stage from the `MessageTrace` it builds: the trace is kept in memory for the running case and stored nowhere. The intent, extracted fields and chosen product come from the primary readings of the trace; the decision is the most severe decision kind of the trace (the notice, when one was sent); stage cost sums every call, confirming readings and the photo cascade included; reading time runs from the start of the reading to the decision, with no queue wait. A message with no reading (too long, photo without caption) is scored from its outcomes. Cases without stage labels are relabelled from their notice and outcomes, and the fake mode builds the same stage answers from scripted stages, so the stage metrics and the final outcome of a run come from one run.
 
 ## Display
 
