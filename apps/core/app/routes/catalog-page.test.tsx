@@ -117,7 +117,8 @@ test("the product page shows Este producto ya no está disponible inside the sto
   await shows("Este producto ya no está disponible");
   expect(container.querySelector('[data-store-theme-id="noche"]')).not.toBeNull();
   expect(container.querySelector('[data-store-part="header"]')?.textContent).toContain("Moda Lucía");
-  expect(container.querySelector("a")?.textContent).toBe("Volver al catálogo");
+  expect(container.querySelector('[data-store-part="header"] a')?.getAttribute("href")).toBe("/");
+  expect(container.querySelector("main a")?.textContent).toBe("Volver al catálogo");
 });
 
 test("Catálogo no disponible and the catalog load error render without a theme scope", async () => {
