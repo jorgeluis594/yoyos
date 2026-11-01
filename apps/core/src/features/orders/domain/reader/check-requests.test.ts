@@ -480,6 +480,17 @@ describe("checkRequests: named targets against the order and the pendings", () =
     }
   });
 
+  test("never adds the product a photo add shows a second time for a named quantity, and asks instead", () => {
+    const shown = Object.values(catalog).map((product) => (product.productId === productId("gorra") ? { ...product, shown: true, shownVariantId: variantOf("gorra", { Color: "Rojo" }).variantId } : product));
+    const add = request({ request: ref("R1"), kind: "add", target: { kind: "photo_same_message" } });
+    const set3 = request({ request: ref("R2"), kind: "change_quantity", target: { kind: "named", words: say("las gorras") }, quantity: quantity(3, "set") });
+    const resolutions: ProductResolution[] = [{ ...chosen("gorra", [{ attribute: "Color", value: "Rojo" }]), request: ref("R2") }];
+    const checked = checkRequests([add, set3], resolutions, snapshot({ messageKind: "photo_product", products: shown, items: [] }));
+    expect(checked.filter((entry) => entry.action.kind === "add")).toHaveLength(1);
+    expect(checked.some((entry) => entry.action.kind === "add" && entry.action.quantity === 3)).toBe(false);
+    expect(decision(checked[checked.length - 1]!, "agree")).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+  });
+
   test("folds a same-message price or quantity only when exactly one add of the message has that product", () => {
     const rojo = request({ request: ref("R1"), kind: "add", target: { kind: "named", words: say("una gorra roja") }, values: [value("Rojo")] });
     const negra = request({ request: ref("R2"), kind: "add", target: { kind: "named", words: say("una negra") }, values: [value("Negro")] });

@@ -77,7 +77,7 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
     if (id) claims.set(id, (claims.get(id) ?? 0) + 1);
   }
   const retargeted = requests.map((verified) => photoRetargeted(verified, snapshot));
-  const env: Env = { snapshot, resolutions, claims, added: new Set(retargeted.map((entry) => addedProductOf(entry, resolutions)).filter((id): id is ProductId => id !== null)) };
+  const env: Env = { snapshot, resolutions, claims, added: new Set(retargeted.flatMap((entry) => addedProductsOf(entry, resolutions, snapshot))) };
   return foldSameMessage(retargeted, resolutions, snapshot).flatMap((entry) => checkOne(entry, env));
 }
 
@@ -110,6 +110,13 @@ const chosenProductOf = (request: ExtractedRequest, resolutions: readonly Produc
 
 /** The product a named add of the message adds, when its resolution chose one. */
 const addedProductOf = (entry: VerifiedRequest, resolutions: readonly ProductResolution[]): ProductId | null => (entry.request.kind === "add" && entry.request.target.kind === "named" ? chosenProductOf(entry.request, resolutions) : null);
+
+/** Every product a request of the message adds: the named one, or the products the photo shows when the add points at the photo. */
+const addedProductsOf = (entry: VerifiedRequest, resolutions: readonly ProductResolution[], snapshot: CheckSnapshot): readonly ProductId[] => {
+  if (entry.request.kind === "add" && entry.request.target.kind === "photo_same_message") return [...shownProductIds(snapshot)];
+  const named = addedProductOf(entry, resolutions);
+  return named === null ? [] : [named];
+};
 
 /** The values a request's resolution mapped, and whether it left words unmapped or unmatched (those cannot be folded without being dropped). */
 function mappedValuesOf(request: ExtractedRequest, resolutions: readonly ProductResolution[]): Readonly<{ values: readonly AttributeChoice[]; complete: boolean }> | null {
