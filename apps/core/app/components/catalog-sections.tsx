@@ -19,14 +19,14 @@ export const formatCatalogAmount = (money: Money) => formatCurrency(money.amount
 export const formatCatalogPrice = ({ kind, amount }: CatalogProduct["price"]) =>
   kind === "from" ? `Desde ${formatCatalogAmount(amount)}` : formatCatalogAmount(amount);
 
-/** The store's theme paints every buyer page of the catalog, with the same scope and fixed color scheme as the checkout. `cart` is the mount point for the cart button. */
-export function CatalogShell({ appearance, storeName, cart, children }: Readonly<{
-  appearance: PublicStoreAppearance; storeName: string; cart?: ReactNode; children: ReactNode;
+/** The store's theme paints every buyer page of the catalog, with the same scope and fixed color scheme as the checkout. `cart` is the mount point for the cart button; the store logo and name link to the catalog home unless `linkHome` is false (the inert editor preview). */
+export function CatalogShell({ appearance, storeName, cart, linkHome = true, children }: Readonly<{
+  appearance: PublicStoreAppearance; storeName: string; cart?: ReactNode; linkHome?: boolean; children: ReactNode;
 }>) {
   return <StoreTheme appearance={appearance} surface="catalog">
     <div className="min-h-screen bg-background text-foreground">
       <header data-store-part="header" className="border-b bg-card"><div className={`${catalogPage} flex min-h-16 items-center justify-between gap-3 py-3`}>
-        <StoreBrandHeader companyName={storeName} logoUrl={appearance.logoUrl} />{cart}
+        <StoreBrandHeader companyName={storeName} logoUrl={appearance.logoUrl} to={linkHome ? "/" : undefined} />{cart}
       </div></header>
       <main className={`${catalogPage} flex flex-col gap-4 py-6 pb-24`}>{children}</main>
     </div>
