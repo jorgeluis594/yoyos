@@ -25,13 +25,17 @@ function maskDigitRun(run: string): string {
   }).join("");
 }
 
+/** The stage inputs render line breaks as «⏎», so a reported span may hold one where the message has the real break. */
+const lineBreak = "(?:\\r\\n|[\\n\\r\\u0085\\u2028\\u2029])";
+const spanPattern = (span: string): RegExp => new RegExp(span.split("⏎").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(lineBreak), "g");
+
 /**
  * Addresses first (the longest span wins when two overlap), then phone-like digit runs.
  * A span that is not a substring of the text is ignored. A text masked once is never masked again by the callers.
  */
 export function maskPersonalData(text: string, addressSpans: readonly string[]): string {
-  const spans = [...new Set(addressSpans)].filter((span) => span.length > 0 && text.includes(span)).sort((a, b) => b.length - a.length);
-  const withoutAddresses = spans.reduce((masked, span) => masked.replaceAll(span, addressPlaceholder), text);
+  const spans = [...new Set(addressSpans)].filter((span) => span.length > 0).map(spanPattern).filter((pattern) => pattern.test(text)).sort((a, b) => b.source.length - a.source.length);
+  const withoutAddresses = spans.reduce((masked, pattern) => masked.replace(pattern, addressPlaceholder), text);
   return withoutAddresses.replace(digitRun, (run) => run.replace(/\d/g, "0").length >= minPhoneDigits ? maskDigitRun(run) : run);
 }
 

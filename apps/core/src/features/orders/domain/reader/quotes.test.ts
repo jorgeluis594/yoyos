@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
+import { verifyIntentQuotes, verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
 import type { ContextMessageRef, ExtractedRequest, Quote, ReadingInput, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 
 const ref = (value: string) => value as RequestRef;
@@ -57,3 +57,29 @@ describe("verifyQuotes", () => {
     expect(only(verifyQuotes([request()], input("quiero el polo"))).complete).toBe(true);
   });
 });
+
+describe("line breaks rendered as ⏎", () => {
+  test("accepts a quote the model copied with ⏎ where the message has a line break", () => {
+    const checked = only(verifyQuotes([request({ quantity: { value: 2, mode: "set", quote: current("dame dos⏎del polo") } })], input("hola\ndame dos\ndel polo")));
+    expect(checked.request.quantity?.value).toBe(2);
+    expect(checked.complete).toBe(true);
+  });
+});
+
+describe("verifyIntentQuotes", () => {
+  const intent = (id: string, quote: Quote) => ({ id: ref(id), kind: "add" as const, quote });
+
+  test("keeps the intents whose quote is in the message and reports the dropped ones", () => {
+    const verified = verifyIntentQuotes([intent("R1", current("dame dos")), intent("R2", current("una casaca"))], input("hola, dame dos del polo"));
+    expect(verified.kept.map(({ id }) => id)).toEqual(["R1"]);
+    expect(verified.dropped.map(({ id }) => id)).toEqual(["R2"]);
+  });
+
+  test("verifies a context quote against its context message and ignores ⏎", () => {
+    const context = [{ ref: "M1" as ContextMessageRef, direction: "incoming", kind: "text", text: "la gorra\ntrucker", sentAt: new Date(), masked: false } as const];
+    const quote: Quote = { source: "context", ref: "M1" as ContextMessageRef, text: "la gorra⏎trucker" };
+    expect(verifyIntentQuotes([intent("R1", quote)], input("dame uno", context)).kept).toHaveLength(1);
+    expect(verifyIntentQuotes([intent("R1", { ...quote, ref: "M9" as ContextMessageRef })], input("dame uno", context)).kept).toHaveLength(0);
+  });
+});
+
