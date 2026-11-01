@@ -147,6 +147,7 @@ describe("checkRequests: adds and prices", () => {
     expect(without.action).toEqual({ kind: "report", outcome: { kind: "invalid_action", orderId: null, reason: "not_the_shown_product" } });
     const completes = only(checkRequests([naming], [resolution], snapshot({ messageKind: "photo_product", products: shown, pendings: [pendingRef(1, pendingOf("polera"))] })));
     expect(completes.action.kind).toBe("advance_pending");
+    expect(completes.action).toMatchObject({ otherwise: { kind: "report", outcome: { kind: "invalid_action", reason: "not_the_shown_product" } } });
   });
 
   test("applies a quantity of a photo message to the shown product, not to an order line of another product", () => {
@@ -161,9 +162,30 @@ describe("checkRequests: adds and prices", () => {
   test("adds the shown product only when no request speaks about it", () => {
     const shown = Object.values(catalog).map((product) => (product.productId === productId("gorra") ? { ...product, shown: true, shownVariantId: variantOf("gorra", { Color: "Rojo" }).variantId } : product));
     const photo = snapshot({ messageKind: "photo_product", products: shown });
-    expect(checkShownPhoto(photo, [request({ kind: "payment_request" }), request({ kind: "ready" })]).map((entry) => entry.action.kind)).toEqual(["add"]);
-    expect(checkShownPhoto(photo, [request({ kind: "payment_request" }), request({ kind: "decline", target: { kind: "photo_same_message" } })])).toEqual([]);
-    expect(checkShownPhoto(snapshot({ products: shown }), [])).toEqual([]);
+    expect(checkShownPhoto(photo, [request({ kind: "payment_request" }), request({ kind: "ready" })], []).map((entry) => entry.action.kind)).toEqual(["add"]);
+    expect(checkShownPhoto(photo, [request({ kind: "payment_request" }), request({ kind: "decline", target: { kind: "photo_same_message" } })], [])).toEqual([]);
+    expect(checkShownPhoto(snapshot({ products: shown }), [], [])).toEqual([]);
+  });
+
+  test("still adds the shown product when a remove, a decline or a named quantity points at another line or pending", () => {
+    const shown = Object.values(catalog).map((product) => (product.productId === productId("gorra") ? { ...product, shown: true, shownVariantId: variantOf("gorra", { Color: "Rojo" }).variantId } : product));
+    const photo = snapshot({ messageKind: "photo_product", products: shown, items: [item("I1", "polera", { Talla: "L" })], pendings: [pendingRef(1, pendingOf("polera"))] });
+    const removeOther = request({ kind: "remove", target: { kind: "item", ref: "I1" as ItemRef, named: say("la polera") } });
+    const declineOther = request({ kind: "decline", target: { kind: "pending", ref: "Q1" as PendingRef, named: null } });
+    const namedOther = request({ kind: "change_quantity", target: { kind: "named", words: say("la polera") }, quantity: quantity(2, "set") });
+    const resolutions = [chosen("polera", [])];
+    for (const other of [removeOther, declineOther, namedOther]) expect(checkShownPhoto(photo, [other], resolutions).map((entry) => entry.action.kind)).toEqual(["add"]);
+    const removeShown = request({ kind: "remove", target: { kind: "named", words: say("la gorra") } });
+    expect(checkShownPhoto(photo, [removeShown], [chosen("gorra", [])])).toEqual([]);
+  });
+
+  test("retargets a quantity aimed at another product to the single line of the shown product instead of adding to it", () => {
+    const shown = Object.values(catalog).map((product) => (product.productId === productId("gorra") ? { ...product, shown: true, shownVariantId: variantOf("gorra", { Color: "Rojo" }).variantId } : product));
+    const total = request({ kind: "change_quantity", target: { kind: "item", ref: "I1" as ItemRef, named: null }, quantity: quantity(3, "set") });
+    const items = [item("I1", "polera", { Talla: "L" }), item("I2", "gorra", { Color: "Rojo" })];
+    const checked = only(checkRequests([total], [], snapshot({ messageKind: "photo_product", products: shown, items })));
+    expect(checked.action).toMatchObject({ kind: "set_quantity", quantity: 3 });
+    expect(checkShownPhoto(snapshot({ messageKind: "photo_product", products: shown, items }), [total], [])).toEqual([]);
   });
 
   test("answers a request a photo that is not a product made with the image-with-request problem once", () => {

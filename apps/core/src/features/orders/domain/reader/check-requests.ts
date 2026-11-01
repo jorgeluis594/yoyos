@@ -82,7 +82,8 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
 
 /**
  * In a product photo's message, a quantity or variant request that points at an order line of another product, without the buyer naming it,
- * is about the shown product: the photo is the request. It becomes an add of the shown product with the request's quantity and values.
+ * is about the shown product: the photo is the request. It becomes an add of the shown product, or, when the order already has a single line of it,
+ * the same request on that line; with several lines of the shown product it stays as read.
  */
 function photoRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): VerifiedRequest {
   const { request } = verified;
@@ -91,14 +92,47 @@ function photoRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): Ve
   const { target } = request;
   const aimed = target.kind === "item" && target.named === null ? itemOfRef(target.ref, snapshot)
     : target.kind === "context" && target.basis === "only_item" ? itemOfRef(target.ref, snapshot) : undefined;
-  if (!aimed || snapshot.products.some((product) => product.shown && product.productId === aimed.productId)) return verified;
-  return { ...verified, request: { ...request, kind: "add", target: { kind: "photo_same_message" } } };
+  const shownIds = shownProductIds(snapshot);
+  if (!aimed || (aimed.productId !== null && shownIds.has(aimed.productId))) return verified;
+  const lines = snapshot.items.filter((item) => item.productId !== null && shownIds.has(item.productId));
+  const [line, ...more] = lines;
+  if (!line) return { ...verified, request: { ...request, kind: "add", target: { kind: "photo_same_message" } } };
+  if (more.length > 0) return verified;
+  return { ...verified, request: { ...request, target: { kind: "item", ref: line.ref, named: null } } };
+}
+
+const shownProductIds = (snapshot: CheckSnapshot): ReadonlySet<ProductId> => new Set(snapshot.products.filter((product) => product.shown).map((product) => product.productId));
+
+/** Whether a request speaks about the products the photo shows, by what it points at and not by its kind: a request about another line or pending leaves the photo to be added. */
+function coversShown(request: ExtractedRequest, snapshot: CheckSnapshot, resolutions: readonly ProductResolution[]): boolean {
+  if (!coversShownProduct.has(request.kind)) return false;
+  if (request.kind === "add") return true;
+  const shownIds = shownProductIds(snapshot);
+  const { target } = request;
+  switch (target.kind) {
+    case "photo_same_message": return true;
+    case "item": case "context": {
+      if (target.kind === "context" && target.basis !== "only_item") return false;
+      const productId = itemOfRef(target.ref, snapshot)?.productId;
+      return productId != null && shownIds.has(productId);
+    }
+    case "pending": {
+      const subject = snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending.subject;
+      return subject !== undefined && (subject.kind === "variant" ? shownIds.has(subject.productId) : subject.candidates.some((id) => shownIds.has(id)));
+    }
+    case "named": {
+      const resolution = resolutions.find((entry) => entry.request === request.request);
+      if (resolution?.kind === "chosen") return shownIds.has(resolution.productId);
+      return resolution?.kind === "between" && resolution.productIds.some((id) => shownIds.has(id));
+    }
+    default: return false;
+  }
 }
 
 /** The photo is the request: the products a product photo shows, added with their QR values, for a message whose requests leave them out. */
-export function checkShownPhoto(snapshot: CheckSnapshot, requests: readonly VerifiedRequest[]): readonly CheckedAction[] {
+export function checkShownPhoto(snapshot: CheckSnapshot, requests: readonly VerifiedRequest[], resolutions: readonly ProductResolution[]): readonly CheckedAction[] {
   if (snapshot.messageKind !== "photo_product") return [];
-  const covering = requests.some(({ request }) => coversShownProduct.has(request.kind));
+  const covering = requests.some((entry) => coversShown(photoRetargeted(entry, snapshot).request, snapshot, resolutions));
   if (covering) return [];
   const request: ExtractedRequest = { request: "R0" as ExtractedRequest["request"], kind: "add", target: { kind: "photo_same_message" }, values: [], quantity: null, price: null, changeVerb: null };
   const env: Env = { snapshot, resolutions: [], claims: new Map() };
@@ -419,7 +453,12 @@ function checkNamedAdd(said: Said, env: Env, quantity: number): CheckedAction {
   if (snapshot.messageKind === "photo_product" && !product.shown && matchPendings(product, choices, snapshot).kind === "none") {
     return checked(said, invalid("not_the_shown_product"), signals, { urgent: { problem: "invalid_action", question: null } });
   }
-  return withProduct(said, env, product, choices, quantity, signals, added);
+  const action = withProduct(said, env, product, choices, quantity, signals, added);
+  // Naming another product from a photo completes its pending or adds nothing: the pending being gone by the time it runs does not turn it into an add.
+  if (snapshot.messageKind === "photo_product" && !product.shown && action.action.kind === "advance_pending") {
+    return { ...action, action: { ...action.action, otherwise: invalid("not_the_shown_product") } };
+  }
+  return action;
 }
 
 function checkShown(said: Said, env: Env, quantity: number): readonly CheckedAction[] {

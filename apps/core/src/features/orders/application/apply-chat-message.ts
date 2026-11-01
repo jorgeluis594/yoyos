@@ -342,7 +342,7 @@ async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>>
       const snapshot = snapshotOf(locked);
       const checks = checkRequests(chain.requests, chain.resolutions, snapshot);
       const confirmed = confirming ? checkRequests(confirming.requests, confirming.resolutions, snapshot) : null;
-      const decided = decideChanges([...checks, ...checkShownPhoto(snapshot, chain.requests), ...tooManyActions(primary.overflow)], confirmed, { captionUnread: false });
+      const decided = decideChanges([...checks, ...checkShownPhoto(snapshot, chain.requests, chain.resolutions), ...tooManyActions(primary.overflow)], confirmed, { captionUnread: false });
       return { actions: nonEmpty(decided.actions, { kind: "report", outcome: { kind: "no_intent" } }), decided };
     } };
   return ok({ plan, data: { ...data, confirmingRun, answer: "actions", actionKinds: chain.requests.map(({ request }) => request.kind) } });
