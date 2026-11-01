@@ -93,6 +93,9 @@ describe("chooseSellerNotice with the single reader", () => {
     const refused: ChatMessageOutcome = { kind: "request_not_allowed", orderId: order(1) };
     expect(chooseSellerNotice(outcomes(refused, refused))).toEqual({ kind: "not_applied", orderId: order(1), newOrderId: null });
     expect(chooseSellerNotice(outcomes(refused, missing(31)))).toMatchObject({ kind: "several_problems", problemCount: 2 });
+    const doubt: ChatMessageOutcome = { kind: "reader_doubt", orderId: order(1) };
+    expect(chooseSellerNotice(outcomes(refused, doubt))).toMatchObject({ kind: "several_problems", problemCount: 2 });
+    expect(chooseSellerNotice(outcomes(doubt, doubt))).toMatchObject({ kind: "several_problems", problemCount: 2 });
   });
 
   test("chooses ready with pendings only when the message has no problem", () => {

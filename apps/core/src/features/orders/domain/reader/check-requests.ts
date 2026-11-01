@@ -77,7 +77,7 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
     if (id) claims.set(id, (claims.get(id) ?? 0) + 1);
   }
   const env: Env = { snapshot, resolutions, claims };
-  return foldSameMessage(requests.map((verified) => photoRetargeted(verified, snapshot)), resolutions).flatMap((entry) => checkOne(entry, env));
+  return foldSameMessage(requests.map((verified) => photoRetargeted(verified, snapshot)), resolutions, snapshot).flatMap((entry) => checkOne(entry, env));
 }
 
 /**
@@ -107,27 +107,42 @@ const chosenProductOf = (request: ExtractedRequest, resolutions: readonly Produc
   return resolution?.kind === "chosen" ? resolution.productId : null;
 };
 
+/** The values a request's resolution mapped, and whether it left words unmapped or unmatched (those cannot be folded without being dropped). */
+function mappedValuesOf(request: ExtractedRequest, resolutions: readonly ProductResolution[]): Readonly<{ values: readonly AttributeChoice[]; complete: boolean }> | null {
+  const resolution = resolutions.find((entry) => entry.request === request.request);
+  if (resolution?.kind !== "chosen") return null;
+  const values = resolution.values.map(({ attribute, value }): AttributeChoice => ({ name: attribute, value }));
+  return { values, complete: (resolution.unmatched ?? []).length === 0 && request.values.length <= values.length };
+}
+
 /**
  * A price or quantity request that speaks about the product another request of the same message adds is part of that add: checked on its own it would
- * look for a line the message itself is creating. The add keeps its own price and quantity when it has them; the folded request leaves no action.
+ * look for a line the message itself is creating. It folds only when the order has no line and no pending of that product (otherwise it can find its own
+ * target) and its values add nothing the add lacks or contradicts. The add keeps its own price and quantity when it has them; the folded request leaves no action.
  */
-function foldSameMessage(requests: readonly VerifiedRequest[], resolutions: readonly ProductResolution[]): readonly VerifiedRequest[] {
+function foldSameMessage(requests: readonly VerifiedRequest[], resolutions: readonly ProductResolution[], snapshot: CheckSnapshot): readonly VerifiedRequest[] {
   const addedProduct = (entry: VerifiedRequest): ProductId | null => (entry.request.kind === "add" && entry.request.target.kind === "named" ? chosenProductOf(entry.request, resolutions) : null);
   const folds = (entry: VerifiedRequest, add: VerifiedRequest): boolean => {
     const { request } = entry;
     if ((request.kind !== "mention_price" && request.kind !== "change_quantity") || request.target.kind !== "named" || request.quantity?.mode === "decrease") return false;
-    if (chosenProductOf(request, resolutions) !== addedProduct(add)) return false;
+    const productId = chosenProductOf(request, resolutions);
+    if (productId === null || productId !== addedProduct(add)) return false;
+    if (snapshot.items.some((item) => item.productId === productId) || snapshot.pendings.some((entry) => productsOfPending(entry.pending).includes(productId))) return false;
+    const mine = mappedValuesOf(request, resolutions);
+    const theirs = mappedValuesOf(add.request, resolutions);
+    if (!mine?.complete || !theirs) return false;
+    if (!mine.values.every((choice) => theirs.values.some((other) => folded(other.name) === folded(choice.name) && folded(other.value) === folded(choice.value)))) return false;
     return (request.price === null || add.request.price === null) && (request.quantity === null || add.request.quantity === null);
   };
-  const folded = new Set<VerifiedRequest>();
+  const absorbed = new Set<VerifiedRequest>();
   const merged = requests.map((entry) => {
     if (addedProduct(entry) === null) return entry;
-    return requests.filter((other) => other !== entry && !folded.has(other) && folds(other, entry)).reduce((add, other) => {
-      folded.add(other);
+    return requests.filter((other) => other !== entry && !absorbed.has(other) && folds(other, entry)).reduce((add, other) => {
+      absorbed.add(other);
       return { complete: add.complete && other.complete, request: { ...add.request, price: add.request.price ?? other.request.price, quantity: add.request.quantity ?? other.request.quantity } };
     }, entry);
   });
-  return merged.filter((entry) => !folded.has(entry));
+  return merged.filter((entry) => !absorbed.has(entry));
 }
 
 const shownProductIds = (snapshot: CheckSnapshot): ReadonlySet<ProductId> => new Set(snapshot.products.filter((product) => product.shown).map((product) => product.productId));
@@ -171,7 +186,7 @@ export function checkShownPhoto(snapshot: CheckSnapshot, requests: readonly Veri
 /** A remove or quantity change that lands on a pending, which lives without an order. */
 function onPending(request: ExtractedRequest, env: Env): boolean {
   if (request.kind === "change_quantity") return pendingOfRequest(request, env) !== undefined || (request.target.kind === "photo_just_sent" && env.snapshot.photoJustSent?.kind === "pending");
-  return request.kind === "remove" && pendingOfRequest(request, env) !== undefined;
+  return request.kind === "remove" && (request.target.kind === "pending" || request.target.kind === "named") && pendingOfRequest(request, env) !== undefined;
 }
 
 function checkOne(said: Said, env: Env): readonly CheckedAction[] {
@@ -339,13 +354,13 @@ function checkQuantity(said: Said, env: Env): CheckedAction {
   }
 }
 
-/** A quantity for a named product the order does not have: it is added with that quantity, marked as read by reference. */
+/** A quantity for a named product the order does not have: it is added with that quantity, marked as read by reference. When the order already has lines the request kind contradicts the state, so it stays «Con duda». */
 function addUnordered(said: Said, env: Env, productId: ProductId | null, quantity: number): CheckedAction | null {
   const product = productId ? env.snapshot.products.find((candidate) => candidate.productId === productId) : undefined;
   const resolution = resolutionOf(said.request, env);
   if (!product || resolution?.kind !== "chosen") return null;
   const choices = resolution.values.map((entry): AttributeChoice => ({ name: entry.attribute, value: entry.value }));
-  return withProduct(said, env, product, choices, quantity, signalsOf(said, "named"), { kind: "added_by_reference", quantity: quantity as PositiveInteger, quote: null });
+  return withProduct(said, env, product, choices, quantity, signalsOf(said, env.snapshot.items.length > 0 ? "context" : "named"), { kind: "added_by_reference", quantity: quantity as PositiveInteger, quote: null })[0] ?? null;
 }
 
 /** A quantity change on a pending: low risk, and never better than «Con duda» unless it is high certainty. */
