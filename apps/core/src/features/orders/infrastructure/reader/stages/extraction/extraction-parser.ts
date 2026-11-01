@@ -1,9 +1,10 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { ContextMessageRef, ExtractedRequest, ItemRef, PendingRef, Quote, TargetReference } from "@core/src/features/orders/domain/reader/readings";
-import type { ExtractionInput } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+import type { ContextMessageRef, ExtractedRequest, ItemRef, PendingRef, Quote, ReadingInput, RequestIntent, TargetReference } from "@core/src/features/orders/domain/reader/readings";
 import { extractionAnswerSchema, type ExtractionAnswer } from "@core/src/features/orders/infrastructure/reader/stages/extraction/extraction-schema";
 
+/** What the stage reads; structurally the registry's `ExtractionInput`, declared here so the stage files do not import the registry that imports them. */
+export type ExtractionStageInput = Readonly<{ input: ReadingInput; intents: readonly RequestIntent[] }>;
 type Entry = ExtractionAnswer["requests"][number];
 type ParsedQuote = NonNullable<Entry["changeVerb"]>;
 type Refusal = Readonly<{ message: string }>;
@@ -14,7 +15,7 @@ const refusal = (message: string): Refusal => ({ message });
  * Turns the model's JSON into one `ExtractedRequest` for each intent, in the intents' order. It validates shape and references only, and
  * drops nothing: an unverified quote stays until `verifyQuotes` removes it. A reason never carries model text.
  */
-export function parseExtractionAnswer(answer: unknown, { input, intents }: ExtractionInput): Result<readonly ExtractedRequest[]> {
+export function parseExtractionAnswer(answer: unknown, { input, intents }: ExtractionStageInput): Result<readonly ExtractedRequest[]> {
   const parsed = extractionAnswerSchema.safeParse(answer);
   if (!parsed.success) return err(refusal(`The extraction answer does not match its schema at ${parsed.error.issues.map(({ path }) => path.join(".") || "root").join(", ")}`));
 

@@ -1,6 +1,6 @@
 import { defaultReadingBudgets } from "@core/src/features/orders/domain/reader/budgets";
+import type { ExtractionStageInput } from "@core/src/features/orders/infrastructure/reader/stages/extraction/extraction-parser";
 import type { ReadingContextMessage, ReadingInput, ReadingItem, ReadingPending, RequestIntent } from "@core/src/features/orders/domain/reader/readings";
-import type { ExtractionInput } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 
 /** The quote of an intent is shown up to this long: it only points at where the request is. */
 const maxIntentQuoteChars = 200;
@@ -28,7 +28,7 @@ function photoLines({ current, photo, photoMemory }: ReadingInput): string[] {
  * text: the oldest context messages go first, then what is left is filled by priority (current message and requests, order lines newest
  * first, pendings). The requests and the buyer's message are never cut.
  */
-export function renderExtractionInput({ input, intents }: ExtractionInput, maxChars: number = defaultReadingBudgets.stageInputMaxChars): string {
+export function renderExtractionInput({ input, intents }: ExtractionStageInput, maxChars: number = defaultReadingBudgets.stageInputMaxChars): string {
   const head = [...photoLines(input), "Requests to extract:", ...intents.map(intentLine)];
   const tail = ["Buyer's message:", input.current.text === "" ? "(no text)" : input.current.text];
   const assemble = (context: readonly string[], items: readonly string[], pendings: readonly string[]) => [
