@@ -142,6 +142,17 @@ describe("stage adapter", () => {
     expect(result).toMatchObject({ success: true, data: { value: 4, call: { attempts: 2 } } });
   });
 
+  test("hands the fallback the last answer's JSON, and nothing when the last attempt was not JSON", async () => {
+    const seen: unknown[] = [];
+    const version = { ...testVersion("intent", "intent-v1"), fallback: (_: string, lastAnswer: unknown) => { seen.push(lastAnswer); return 0; } };
+    const run = (answers: Parameters<typeof createFakeStructuredModel>[0]) => createStageAdapter({ config: config(), version, model: createFakeStructuredModel(answers), now: () => 0 })("x", new AbortController().signal);
+
+    await run({ intent: [{ json: { n: "a" } }, { json: { n: "b" } }] });
+    await run({ intent: [{ json: { n: "a" } }, { error: "INVALID_AI_RESPONSE" }] });
+
+    expect(seen).toEqual([{ n: "b" }, undefined]);
+  });
+
   test("still fails when the fallback has no value", async () => {
     const model = createFakeStructuredModel({ intent: [{ json: "bad" }, { json: "worse" }] });
     const version = { ...testVersion("intent", "intent-v1"), fallback: () => null };
