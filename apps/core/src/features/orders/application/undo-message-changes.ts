@@ -44,6 +44,8 @@ export type UndoMessageChangesDependencies = Readonly<{
   saveChatPendings: (chatId: ChatId, pendings: ChatPendings) => Promise<Result<null, UndoMessageError>>;
   markMessageUndone: (orderId: OrderId, messageId: ChatMessageId, userId: UserId, at: Date) => Promise<Result<null, UndoMessageError>>;
   setUndoneVerdicts: (orderId: OrderId, messageId: ChatMessageId, at: Date) => Promise<Result<null, UndoMessageError>>;
+  /** The changes this message superseded are the current ones again: their `supersededById` is cleared, so a doubtful one asks for review again. */
+  releaseSupersededChanges: (orderId: OrderId, messageId: ChatMessageId) => Promise<Result<null, UndoMessageError>>;
   saveSellerActedAt: (orderId: OrderId, companyId: CompanyId, at: Date) => Promise<Result<null, UndoMessageError>>;
   clock: () => Date;
   newItemId: () => OrderItemId;
@@ -95,6 +97,8 @@ export async function undoMessageChanges(input: UndoMessageInput, access: OrderA
     if (!marked.success) return marked;
     const verdicts = await deps.setUndoneVerdicts(input.orderId, input.messageId, now);
     if (!verdicts.success) return verdicts;
+    const released = await deps.releaseSupersededChanges(input.orderId, input.messageId);
+    if (!released.success) return released;
     const acted = await deps.saveSellerActedAt(input.orderId, access.companyId, now);
     if (!acted.success) return acted;
     return ok<UndoneMessage>({ order: plan.data.order, undone: true, changeCount: message.data.changes.length, pendingsRestored: plan.data.pendingsRestored, pendingsEnded: plan.data.pendingsEnded });

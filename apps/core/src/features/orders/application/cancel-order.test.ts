@@ -24,15 +24,17 @@ function dependencies(order = pendingOrder()) {
   let committed = false;
   let saved = 0;
   const savedAt: Date[] = [];
+  const settledAt: Date[] = [];
   const events: unknown[] = [];
   const deps: CancelOrderDependencies = {
     transaction: async (_company, work) => { const result = await work(); committed = result.success; return result; },
     findOrderForUpdate: async () => ok(order),
     saveCancellation: async (_id, _company, at) => { saved++; savedAt.push(at); return ok(null); },
+    settleUnreviewedChanges: async (_order, at) => { settledAt.push(at); return ok(null); },
     publishOrderCancelled: async payload => { expect(committed).toBe(true); events.push(payload); return ok(undefined); },
     clock: () => cancelledAt,
   };
-  return { deps, events, saved: () => saved, savedAt: () => savedAt };
+  return { deps, events, saved: () => saved, savedAt: () => savedAt, settledAt: () => settledAt };
 }
 
 test.each([false, true])("publishes once after commit while retaining stock %s", async stockDeducted => {
@@ -82,4 +84,15 @@ test("cancelled result narrows dates and state without forcing stock restoration
   const delivered: CancelledOrder = { ...cancelled, deliveredAt: new Date() };
   expect(waiting.stockDeducted).toBe(true);
   void [invalid, active, delivered];
+});
+
+test("cancelling fixes not_reviewed on the unverdicted changes once, and a repeat settles nothing", async () => {
+  const f = dependencies();
+  const result = await cancelOrder(orderId, context, f.deps);
+  expect(result.success).toBe(true);
+  expect(f.settledAt()).toEqual([cancelledAt]);
+  if (!result.success) throw new Error("Expected cancellation");
+  const repeated = dependencies(result.data);
+  await cancelOrder(orderId, context, repeated.deps);
+  expect(repeated.settledAt()).toEqual([]);
 });

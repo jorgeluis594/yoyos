@@ -42,12 +42,13 @@ function dependencies(world: World, overrides: Partial<UndoMessageChangesDepende
   const saveChatPendings = vi.fn<UndoMessageChangesDependencies["saveChatPendings"]>(async () => { writes.push("pendings"); return ok(null); });
   const markMessageUndone = vi.fn<UndoMessageChangesDependencies["markMessageUndone"]>(async () => { writes.push("undone"); return ok(null); });
   const setUndoneVerdicts = vi.fn<UndoMessageChangesDependencies["setUndoneVerdicts"]>(async () => { writes.push("verdicts"); return ok(null); });
+  const releaseSupersededChanges = vi.fn<UndoMessageChangesDependencies["releaseSupersededChanges"]>(async () => { writes.push("released"); return ok(null); });
   const saveSellerActedAt = vi.fn<UndoMessageChangesDependencies["saveSellerActedAt"]>(async () => { writes.push("acted"); return ok(null); });
   const deps: UndoMessageChangesDependencies = { transaction: async (_company, work) => work(), findOrderForUpdate: async () => ok(world.order),
     findChatPendingsForUpdate: async () => ok(world.pendings), findMessageChanges: async () => ok(world.stored), findLaterChanges: async () => ok([]),
-    findSellableVariants: async () => ok(world.sellable), saveItemChanges, saveChatPendings, markMessageUndone, setUndoneVerdicts, saveSellerActedAt,
+    findSellableVariants: async () => ok(world.sellable), saveItemChanges, saveChatPendings, markMessageUndone, setUndoneVerdicts, releaseSupersededChanges, saveSellerActedAt,
     clock: () => at, newItemId: () => id(990) as OrderItemId, pendingTtlMs: 7 * 86_400_000, ...overrides };
-  return { deps, writes, saveItemChanges, saveChatPendings, markMessageUndone, setUndoneVerdicts, saveSellerActedAt };
+  return { deps, writes, saveItemChanges, saveChatPendings, markMessageUndone, setUndoneVerdicts, releaseSupersededChanges, saveSellerActedAt };
 }
 const input = { orderId: id(1) as OrderId, messageId };
 const stored = (changes: readonly OrderItemChange[], rest: Partial<MessageRowSource> = {}): MessageRowSource =>
@@ -60,7 +61,7 @@ test("restores a removed line at its copied price and position, marks the messag
   const { deps, writes, saveItemChanges, markMessageUndone, setUndoneVerdicts, saveSellerActedAt } = dependencies(world);
   const result = await undoMessageChanges(input, access, deps);
   expect(result).toMatchObject({ success: true, data: { undone: true, order: { items: [{ productName: "Polo básico", unitPrice: money(35), quantity: 2 }, { productName: "Gorra" }], total: money(90) } } });
-  expect(writes).toEqual(["items", "undone", "verdicts", "acted"]);
+  expect(writes).toEqual(["items", "undone", "verdicts", "released", "acted"]);
   expect(saveItemChanges.mock.calls[0]?.[1]).toMatchObject({ added: [{ id: id(3) }] });
   expect(markMessageUndone).toHaveBeenCalledWith(input.orderId, messageId, "seller", at);
   expect(setUndoneVerdicts).toHaveBeenCalledWith(input.orderId, messageId, at);
@@ -114,4 +115,13 @@ test("fails the transaction when a write fails", async () => {
   const { deps, setUndoneVerdicts } = dependencies(world, { markMessageUndone: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) });
   expect(await undoMessageChanges(input, access, deps)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
   expect(setUndoneVerdicts).not.toHaveBeenCalled();
+});
+
+test("gives back the earlier changes the undone message had superseded, so their marks come back", async () => {
+  const polo = item(3, "Polo básico", 2, 35);
+  const world: World = { order: orderOf([polo, item(4, "Gorra", 1, 20)]), pendings: { pendings: [], readyRemembered: false }, sellable: [],
+    stored: stored([change({ kind: "added", before: null, after: snapshotOf(item(4, "Gorra", 1, 20), 1) })]) };
+  const { deps, releaseSupersededChanges } = dependencies(world);
+  expect(await undoMessageChanges(input, access, deps)).toMatchObject({ success: true, data: { undone: true } });
+  expect(releaseSupersededChanges).toHaveBeenCalledWith(input.orderId, messageId);
 });
