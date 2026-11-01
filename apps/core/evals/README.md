@@ -253,10 +253,10 @@ Every product named by a case must exist in `catalog.json`. A file inside the re
 The report's `runs` section scores each of the `EVAL_REPEATS` runs apart (`lib/metrics.ts`) and gives mean, min and max per metric:
 intent, fields, resolution and decision accuracy (over the messages whose case states them), silent wrong changes (an applied change with no
 «Con duda» mark and no notice whose order differs from the expected one), ignored requests (no change, mark, «Por resolver» point or notice),
-urgent share with precision and recall, the «Pedido #N cambió» count apart, cost per message and per stage (photo stages included), and the p95
+urgent share with precision and recall, the false urgent share (messages that interrupted the seller without needing it, over the decided messages), the «Pedido #N cambió» count apart, cost per message and per stage (photo stages included), and the p95
 from the start of the reading to the decision without queue wait. `eval:compare` calls a metric better or worse only when the ranges of the two
 runs do not overlap; otherwise it prints «not distinguishable». A case states its stages with `stages` (intent, fields, product) and `decision`;
-the cases without them are relabelled by derivation from their notice and outcomes (`lib/stage-facts.ts`), and `cases/stage-labels.ts` labels
+the cases without them are relabelled by derivation from their notice and outcomes (`lib/stage-facts.ts`; an outcome that is a problem, with no pending beside it, expects an urgent decision), a conversation that deactivates a product restores the catalog's status when it ends, each record keeps the masked output of every stage (`reading`), and `cases/stage-labels.ts` labels
 the cases of the four seed-bank families. Records of the current (legacy) reader path carry no stage facts and feed only the gate flags until
 the suites point at the staged pipeline.
 

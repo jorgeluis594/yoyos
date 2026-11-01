@@ -35,6 +35,12 @@ export type StageFacts = Readonly<{
   stageCostsUsd: Readonly<Record<string, number>>;
 }>;
 
+/** What the stages of the reading said for one message (masked, as the trace stores them), so a failure can be traced to a stage instead of inferred. */
+export type ReadingRecord = Readonly<{
+  stages: readonly Readonly<{ stage: string; reading: string; promptVersion: string; errorCode: string | null; output: unknown }>[];
+  decisions: readonly Readonly<{ action: string; risk: string; agreement: string; decision: string }>[];
+}>;
+
 /** What one run of one case (or one message of a conversation) left: scores, the actual result, latency and model calls. Plain JSON. */
 export type CaseRecord = Readonly<{
   /** A conversation's record is one message: `<conversation id>#<message number>`. */
@@ -65,6 +71,8 @@ export type CaseRecord = Readonly<{
   expectedSilent: boolean;
   /** The v2 metric inputs; absent in records of the legacy reader path. */
   facts?: StageFacts;
+  /** The masked output of each stage the reading ran; absent outside the staged path. */
+  reading?: ReadingRecord;
   /** The products the message's notice names; a conversation checks that no product is named by two notices. */
   noticeProducts: readonly string[];
   expectsRepeatNotice: boolean;
