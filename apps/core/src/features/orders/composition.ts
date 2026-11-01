@@ -51,8 +51,9 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredMessageTraces, type DeleteExpiredMessageTracesDependencies, type DeleteExpiredMessageTracesInput } from "@core/src/features/orders/application/delete-expired-message-traces";
-import { deleteExpiredMessageTraces as deleteCompanyExpiredMessageTraces, listCompaniesWithExpiredMessageTraces, readAuditedMessageTraces, type TraceReadAudit } from "@core/src/features/orders/infrastructure/message-trace-repository";
+import { deleteExpiredMessageTraces as deleteCompanyExpiredMessageTraces, findTraceQuotes, listCompaniesWithExpiredMessageTraces, readAuditedMessageTraces, type TraceReadAudit } from "@core/src/features/orders/infrastructure/message-trace-repository";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
+import type { AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, findChatOrderTarget, findChatOrdersOpenedSince, saveItemChanges as saveOrderItemChanges, saveOrderCustomer, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariants, findSellableVariantStock, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, restoreStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
@@ -66,11 +67,14 @@ import { createChatMessageDeadLetterHandler, createChatMessageHandler, type Chat
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
 import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
-import { findLaterChanges, findMessageChanges, findUnverdictedChanges, markMessageUndone, saveMessageChanges, saveSellerActedAt, setUndoneVerdicts, setVerdictsForEdit } from "@core/src/features/orders/infrastructure/message-change-repository";
+import { confirmOrderReview, type ConfirmOrderReviewInput } from "@core/src/features/orders/application/confirm-order-review";
+import { loadOrderReview, type LoadOrderReviewInput } from "@core/src/features/orders/application/load-order-review";
+import { recordLinkAction, type RecordLinkActionInput } from "@core/src/features/orders/application/record-link-action";
+import { findChangesAfter, findChangesByIds, findLatestChatOrder, findOrderChanges, findReview, findReviewListFacts, markChangesReviewed, saveLinkAction, saveReview, settleUnreviewedChanges } from "@core/src/features/orders/infrastructure/order-review-repository";
+import { pointsOfOrder, reviewStatus } from "@core/src/features/orders/domain/order-review";
+import { findLaterChanges, findMessageChanges, findUnverdictedChanges, markMessageUndone, releaseSupersededChanges, saveMessageChanges, saveSellerActedAt, setUndoneVerdicts, setVerdictsForEdit } from "@core/src/features/orders/infrastructure/message-change-repository";
 import { undoMessageChanges, type UndoMessageError, type UndoMessageInput } from "@core/src/features/orders/application/undo-message-changes";
-import { isOpenForMessageItems } from "@core/src/features/orders/domain/message-order";
 import type { OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
-import type { OrderReviewResponse } from "@shared/contracts/order-review";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
 import { readerStagesFromEnv } from "@core/src/features/orders/infrastructure/reader/runtime/reader-stages-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
@@ -313,7 +317,7 @@ function forFulfillment<A extends unknown[], T>(operation: FulfillmentOperation,
 
 // Shipping and delivering deduct pending stock, so each deduction logs under the operation that asked for it, like set_order_delivery does.
 const fulfillmentDependenciesFor = (operation: FulfillmentOperation): FulfillOrderDependencies => ({ transaction: fulfillmentTransaction, findOrderForUpdate,
-  saveFulfillment, clock: () => new Date(),
+  saveFulfillment, settleUnreviewedChanges, clock: () => new Date(),
   lockVariantStock: forFulfillment(operation, lockVariantStock, "lock_stock"), deductStockBulk: forFulfillment(operation, deductStockBulk, "deduct_stock"),
   saveStockDeduction: (id, companyId, at) => saveStockDeduction(id, companyId, at, operation) });
 
@@ -373,7 +377,7 @@ export function createConfiguredOrder(input: CreateCompleteOrderInput, context: 
     create: orders.create,
     setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access),
     registerPayment: (payment, access) => registerPayment(payment, access, { transaction: paymentTransaction,
-      findOrderForUpdate, savePayment, updatePayment, saveCompletion, publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock: () => new Date() }),
+      findOrderForUpdate, savePayment, updatePayment, saveCompletion, settleUnreviewedChanges, publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock: () => new Date() }),
     ship: orders.ship,
     deliver: orders.deliver,
   });
@@ -651,6 +655,7 @@ async function undoConfiguredMessage(input: UndoMessageInput, access: OrderAcces
     saveChatPendings,
     markMessageUndone,
     setUndoneVerdicts,
+    releaseSupersededChanges,
     saveSellerActedAt,
     clock: () => new Date(),
     newItemId: () => randomUUID() as OrderItemId,
@@ -661,13 +666,42 @@ async function undoConfiguredMessage(input: UndoMessageInput, access: OrderAcces
   return undone satisfies Result<unknown, UndoMessageError>;
 }
 
-/**
- * The review the undo answers with until the review core builds the full projection: nothing to review, no rows, and the items revision and `changesThrough` 0 as loaded.
- * The review core replaces it with `loadOrderReview` in this one place.
- */
-async function minimalReviewOf(order: OrderAggregate): Promise<Result<OrderReviewResponse, never>> {
-  return ok({ version: 1, status: { openForMessages: order.chatId ? isOpenForMessageItems(order, order.chatId) : false, toReview: false, doubtfulCount: 0, pointCount: 0, entry: "none", hasPreviousReview: false },
-    doubtful: [], points: [], products: [], removedSinceLastReview: [], messageRows: [], moreRows: 0, loaded: { changesThrough: 0, changeIds: [], points: [], itemsRevision: orderRevisions(order).items } });
+/** The review of an order, read from one snapshot. The web loader, the review route and the answer of an undo all call it. */
+function loadConfiguredOrderReview(input: LoadOrderReviewInput, access: OrderAccess) {
+  return loadOrderReview(input, access, { inSnapshot: withinReadSnapshot, findOrder: async (id, companyId) => { const found = await findOrderAggregate(id, companyId); return found.success ? found : err({ code: found.error.code === "INVALID_ORDER" ? "INVALID_STORED_DATA" : found.error.code, message: found.error.message }); }, findOrderChanges, findChatPendings, findLatestChatOrder, findTraceQuotes,
+    findSellableVariants, findProductNames: findProductNoticeNames, clock: () => new Date(), pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs });
+}
+
+/** Review confirmation runs in a producer-style transaction, because its corrections publish stock events like an edit does. */
+async function confirmConfiguredOrderReview(input: ConfirmOrderReviewInput, access: OrderAccess) {
+  const confirmed = await confirmOrderReview(input, access, {
+    transaction: (companyId, work) => producerTransaction(companyId, work),
+    findOrderForUpdate, findChatPendingsForUpdate, findLatestChatOrder, findReview, findChangesAfter, findChangesByIds, saveReview, markChangesReviewed, saveChatPendings, saveLinkAction,
+    findSellableVariants, newItemId: () => randomUUID() as OrderItemId, saveItemChanges: saveOrderItemChanges, setVerdictsForEdit, saveSellerActedAt, clock: () => new Date(),
+    publishStockEvent: (payload) => publishStockEvent("order_edited", payload),
+    publishStockIncreased: (variantIds) => publishStockEvent("product_stock_increased", { companyId: access.companyId, variantIds }),
+    findVariantStock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs });
+  if (confirmed.success) afterTransactionCommit(() => log.info({ event: "order_review_confirmed", companyId: access.companyId, orderId: input.orderId, reviewId: input.reviewId, userId: access.userId,
+    origin: input.origin, correctedItems: input.corrections.length, shownChanges: input.loaded.changeIds.length, doubtfulShown: confirmed.data.doubtfulShown, pointsAcknowledged: confirmed.data.pointsAcknowledged, changedMeanwhile: confirmed.data.changedMeanwhile.length, linkAction: input.linkAction?.action ?? null }, "order_review_confirmed"));
+  return confirmed;
+}
+
+/** The orders of a list page that have something to review: the batched read of section 11, a fixed number of queries whatever the page size. */
+async function findOrdersToReview(items: readonly OrderAggregate[]): Promise<ReadonlySet<OrderId>> {
+  const chats = items.filter((order) => order.chatId && !order.cancelled && order.completedAt === null);
+  if (chats.length === 0) return new Set();
+  const facts = await findReviewListFacts(chats.map((order) => order.id), [...new Set(chats.map((order) => order.chatId!))]);
+  if (!facts.success) {
+    log.warn({ event: "order_review_list_unavailable", companyId: getCompanyId(), errorCode: facts.error.code }, "order_review_list_unavailable");
+    return new Set();
+  }
+  const now = new Date();
+  return new Set(chats.filter((order) => {
+    const points = pointsOfOrder(facts.data.pendings.get(order.chatId!) ?? [], order, facts.data.latestByChat.get(order.chatId!) ?? null, now, chatMessageDependencies.limits.pendingTtlMs);
+    return reviewStatus({ order, unreviewed: facts.data.unreviewed.get(order.id) ?? [], hasPreviousReview: facts.data.reviewed.has(order.id),
+      points: points.map((pending) => ({ key: { pendingId: pending.id, since: pending.pointSince }, kind: "variant_missing", product: null, quantity: pending.quantity, missing: [], doubt: pending.doubt?.reason ?? null,
+        acknowledged: (pending.acknowledgedAt?.getTime() ?? -1) >= pending.pointSince.getTime(), question: { language: "es", kind: "photo_product_name" } })) }).toReview;
+  }).map((order) => order.id));
 }
 
 /** Whether the stored order already locks its products: the card shows no stock warning then, so the stock is not read. */
@@ -718,7 +752,13 @@ export const orders = {
   setDelivery: (input: SetDeliveryInput, context: OrderAccess) => setConfiguredOrderDelivery(input, context),
   edit: (input: EditOrderInput, access: OrderAccess) => editConfiguredOrder(input, access),
   undoMessage: (input: UndoMessageInput, access: OrderAccess) => undoConfiguredMessage(input, access),
-  reviewAfterUndo: minimalReviewOf,
+  loadOrderReview: loadConfiguredOrderReview,
+  confirmOrderReview: confirmConfiguredOrderReview,
+  recordLinkAction: async (input: RecordLinkActionInput, access: OrderAccess) => {
+    const recorded = await recordLinkAction(input, access, { orderExists: async (orderId) => orderExists(orderId), saveLinkAction, clock: () => new Date() });
+    if (recorded.success) log.info({ event: "order_link_action_recorded", companyId: access.companyId, orderId: input.orderId, userId: access.userId, action: input.action }, "order_link_action_recorded");
+    return recorded;
+  },
   revisions: orderRevisions,
   lineCatalog,
   createCatalogOrder: createConfiguredCatalogOrder,
@@ -748,8 +788,11 @@ export const orders = {
     if (result.data.changed) log.info({ event: "order_checkout_confirmed", companyId: access.companyId, orderNumber: result.data.checkout.number, fromCatalog: result.data.fromCatalog }, "Order checkout confirmed");
     return ok(result.data.checkout);
   },
-  listAggregates: (criteria: Parameters<typeof listOrderAggregates>[0], context: Parameters<typeof listOrderAggregates>[1]) =>
-    listOrderAggregates(criteria, context, findOrderAggregates),
+  /** The page with the set of its orders that need the seller's review (`toReview`). */
+  listAggregates: async (criteria: Parameters<typeof listOrderAggregates>[0], context: Parameters<typeof listOrderAggregates>[1]) => {
+    const page = await listOrderAggregates(criteria, context, findOrderAggregates);
+    return page.success ? ok<AggregatePage & Readonly<{ toReview?: ReadonlySet<OrderId> }>>({ ...page.data, toReview: await findOrdersToReview(page.data.items) }) : page;
+  },
   /** Read-only: the company's orders among these ids with their derived state, one query. */
   getAggregatesByIds: (ids: readonly OrderId[], companyId: CompanyId) => findOrderAggregatesByIds(ids, companyId),
   getAggregate: (id: Parameters<typeof getOrderAggregate>[0], context: Parameters<typeof getOrderAggregate>[1]) =>
@@ -782,7 +825,7 @@ export const orders = {
       if (!published.success) failure = published.error;
       return published;
     };
-    const result = await cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation, publishOrderCancelled, clock: () => new Date() });
+    const result = await cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation, settleUnreviewedChanges, publishOrderCancelled, clock: () => new Date() });
     if (failure && result.success) log.error({ event: "order_cancelled_publish_failed", companyId: context.companyId, orderId: id, orderNumber: result.data.number, errorCode: failure.code, err: failure }, "order_cancelled_publish_failed");
     return result;
   },
@@ -796,7 +839,7 @@ export const orders = {
     const markSaved: typeof savePayment = async (...args) => { const result = await savePayment(...args); if (result.success) applied = true; return result; };
     const markUpdated: typeof updatePayment = async (...args) => { const result = await updatePayment(...args); if (result.success) applied = true; return result; };
     const result = await registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate,
-      savePayment: markSaved, updatePayment: markUpdated, saveCompletion,
+      savePayment: markSaved, updatePayment: markUpdated, saveCompletion, settleUnreviewedChanges,
       publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock: () => new Date() });
     if (result.success) {
       const { order, stockDue } = result.data;

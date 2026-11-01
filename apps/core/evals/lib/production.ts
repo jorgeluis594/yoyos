@@ -27,6 +27,7 @@ import { minShowsProduct, type ImageBytes, type MatchConfidence, type VariantQrC
 import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
 import { chatMessageDeadlineMs } from "@core/src/features/orders/application/chat-message-policy";
 import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, findOrderAggregate, findOrderForUpdate, recordProcessedMessage, saveCancellation, saveCompletion, savePayment, savePendingOrder, updatePayment } from "@core/src/features/orders/infrastructure/order-repository";
+import { settleUnreviewedChanges } from "@core/src/features/orders/infrastructure/order-review-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
@@ -448,12 +449,12 @@ async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clo
     const aggregate = await run(() => findOrderAggregate(orderId, access.companyId));
     if (!aggregate) throw new Error("Order not found");
     await run(() => registerPayment({ orderId, paymentId: id as PaymentId, source, amount: partial ? { ...aggregate.total, amount: Math.floor(Math.round(aggregate.total.amount * 100) / 2) / 100 } : aggregate.total, method: "digital_wallet", deductStockIfPartial: false },
-      access, { transaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion,
+      access, { transaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion, settleUnreviewedChanges,
         publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock }));
   };
   switch (step.event) {
     case "cancel_order":
-      await run(() => cancelOrder(orderId, access, { transaction, findOrderForUpdate, saveCancellation, publishOrderCancelled: async () => ok(undefined), clock }));
+      await run(() => cancelOrder(orderId, access, { transaction, findOrderForUpdate, saveCancellation, settleUnreviewedChanges, publishOrderCancelled: async () => ok(undefined), clock }));
       return payment;
     case "report_payment": {
       const checkout = { companyId: access.companyId, orderId };

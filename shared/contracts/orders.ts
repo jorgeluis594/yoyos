@@ -152,8 +152,8 @@ export type ListOrderAggregatesRequest = z.infer<typeof listOrderAggregatesSchem
 export const orderAggregateSummarySchema = orderAggregateSchema.pick({ checkoutEnabledAt: true, checkoutConfirmedAt: true, number: true, id: true, createdAt: true, scheduledDispatchDate: true, shippedAt: true, deliveredAt: true, completedAt: true, status: true,
   paymentStatus: true, deliveryStatus: true, stockDeducted: true, buyer: true, source: true, sellerId: true, total: true })
   .extend({ courier: snapshotCourierSchema.nullable().optional(),
-    /** Something in the order needs the seller's review. Optional until core fills it in with the review core. */
-    toReview: z.boolean().optional() });
+    /** Something in the order needs the seller's review: an active WhatsApp order with changes, marks or points not reviewed yet. */
+    toReview: z.boolean() });
 export const listOrderAggregatesResponseSchema = z.strictObject({ items: z.array(orderAggregateSummarySchema),
   page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
 export type ListOrderAggregatesResponse = z.infer<typeof listOrderAggregatesResponseSchema>;

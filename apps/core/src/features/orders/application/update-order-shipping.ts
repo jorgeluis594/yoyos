@@ -16,6 +16,7 @@ export type UpdateOrderShippingDependencies = Readonly<{
   lockVariantStock: FulfillOrderDependencies["lockVariantStock"];
   deductStockBulk: FulfillOrderDependencies["deductStockBulk"];
   saveStockDeduction: FulfillOrderDependencies["saveStockDeduction"];
+  settleUnreviewedChanges: FulfillOrderDependencies["settleUnreviewedChanges"];
   clock: () => Date;
 }>;
 

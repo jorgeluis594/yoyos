@@ -173,6 +173,21 @@ export async function setUndoneVerdicts(orderId: OrderId, messageId: ChatMessage
   }
 }
 
+/** Undoing a message makes the lines it superseded current again: the changes it had superseded lose their superseder, whatever their verdict. */
+export async function releaseSupersededChanges(orderId: OrderId, messageId: ChatMessageId): Promise<Result<null, PersistenceError>> {
+  const companyId = getCompanyId();
+  requireActiveTransaction(companyId);
+  try {
+    await prisma.$executeRaw`UPDATE "OrderItemChange" old SET "supersededById" = NULL
+      FROM "OrderItemChange" n
+      WHERE old."companyId" = ${companyId}::uuid AND old."orderId" = ${orderId}::uuid AND old."supersededById" = n.id
+        AND n."companyId" = old."companyId" AND n."orderId" = old."orderId" AND n."messageId" = ${messageId}::uuid`;
+    return ok(null);
+  } catch (cause) {
+    return unavailable("unable_to_release_superseded_changes", cause, "Unable to release the superseded changes");
+  }
+}
+
 /** An edit gives its verdict to the unverdicted changes of the edited items, superseded ones included, one statement per verdict kind. The first verdict of a change stays. */
 export async function setVerdictsForEdit(orderId: OrderId, companyId: CompanyId, verdicts: EditVerdicts, at: Date): Promise<Result<null, PersistenceError>> {
   requireActiveTransaction(companyId);
