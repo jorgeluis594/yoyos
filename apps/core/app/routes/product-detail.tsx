@@ -13,6 +13,7 @@ import { privateUserContext } from "@/private-user-context";
 import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
 import { saveProductRequestSchema } from "@shared/contracts/products";
 import { buildSaveProductBody, draftFromProduct } from "@shared/product-variants";
+import { visibilityToSave } from "@shared/product-visibility";
 import { catalogStorefront } from "@core/src/features/catalog";
 import type { CompanyId } from "@shared/identity";
 import { resolveCatalogEmptied } from "@core/src/features/products/presentation/catalog-emptied";
@@ -83,7 +84,7 @@ export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { ac
 
 export default function ProductDetail() {
   const { t } = useTranslation();
-  const { product, catalog, saved, variantDeleted } = useLoaderData<typeof loader>();
+  const { product, catalog, saved, catalogEmptied, variantDeleted } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof clientAction>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -99,10 +100,10 @@ export default function ProductDetail() {
   };
   const originalNames = Object.fromEntries(product.options.flatMap((option) => [[option.id, option.name], ...option.values.map((value) => [value.id, value.name])]));
 
-  function save({ values: next, photos, draft }: ProductFormSubmission) {
+  function save({ values: next, photos, draft, hidden }: ProductFormSubmission) {
     submit(buildSaveProductBody(draft, {
       structureVersion: product.structureVersion, name: next.name, description: next.description === "" ? null : next.description,
-      photos, visibility: { kind: "unchanged" },
+      photos, visibility: visibilityToSave(product.hidden, hidden),
     }), { method: "put", encType: "application/json", action: `${catalog}/${product.id}` });
   }
 
@@ -119,10 +120,10 @@ export default function ProductDetail() {
       </PageHeader.Heading>
       <PageHeader.Actions><Button asChild variant="outline"><Link to={catalog}>{t("products.backProducts")}</Link></Button></PageHeader.Actions>
     </PageHeader>
-    {saved && <Alert variant="success" className="mt-5"><AlertDescription>{t("products.saved")}</AlertDescription></Alert>}
+    {saved && <Alert variant="success" className="mt-5"><AlertDescription>{t("products.saved")}{catalogEmptied && <> {t("products.catalogEmptied")}</>}</AlertDescription></Alert>}
     {variantDeleted && <Alert variant="success" className="mt-5"><AlertDescription>{t("variantDetail.variantDeleted")}</AlertDescription></Alert>}
     <ProductForm key={`${product.updatedAt}:${product.structureVersion}:${reloads}`} currency={product.currency} cancelTo={catalog} feedback={feedback} pending={pending} values={values}
-      draft={draftFromProduct(product)} originalNames={originalNames} variantHref={(variantId) => `${catalog}/${product.id}/variants/${variantId}`} submitLabel={t("products.saveChanges")} photos={product.photos} onSave={save} onReload={reload} />
+      draft={draftFromProduct(product)} hidden={product.hidden} originalNames={originalNames} variantHref={(variantId) => `${catalog}/${product.id}/variants/${variantId}`} submitLabel={t("products.saveChanges")} photos={product.photos} onSave={save} onReload={reload} />
   </PageContainer>;
 }
 

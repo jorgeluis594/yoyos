@@ -63,10 +63,10 @@ export default function ProductNew() {
   // One id per opened form, so a retry after an uncertain result is answered with a conflict instead of a second product.
   const [productId] = useState(() => crypto.randomUUID());
 
-  function save({ values, photos, draft }: ProductFormSubmission) {
+  function save({ values, photos, draft, hidden }: ProductFormSubmission) {
     submit(buildCreateProductBody(draft, {
       id: productId, name: values.name, description: values.description === "" ? null : values.description,
-      photos, currency, hidden: false,
+      photos, currency, hidden,
     }), { method: "post", encType: "application/json" });
   }
 

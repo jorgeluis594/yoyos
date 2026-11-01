@@ -3,8 +3,9 @@ import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
-import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
+import { Switch } from "@core/app/components/ui/switch";
 import { Textarea } from "@core/app/components/ui/textarea";
 import { ProductPhotosField, useProductPhotos, type SavedPhoto } from "@core/src/features/products/presentation/product-photos-field";
 import { useClientReady } from "@core/app/use-client-ready";
@@ -23,7 +24,7 @@ import { VariantsCard } from "@core/src/features/products/presentation/variants-
 export type ProductFormValues = Readonly<{ name: string; description: string; sku: string; salePrice: string; purchasePrice: string; initialStock: string }>;
 export const emptyProductFormValues: ProductFormValues = { name: "", description: "", sku: "", salePrice: "", purchasePrice: "", initialStock: "" };
 
-export type ProductFormSubmission = Readonly<{ values: ProductFormValues; photos: PhotosToSave; draft: EditorDraft }>;
+export type ProductFormSubmission = Readonly<{ values: ProductFormValues; photos: PhotosToSave; draft: EditorDraft; hidden: boolean }>;
 
 const noFeedback: SaveFeedback = { errors: {}, issues: [] };
 const noTargets: FeedbackTargets = { rows: {}, options: {}, values: {}, blockedValues: new Set() };
@@ -57,25 +58,28 @@ export type ProductFormProps = {
   submitLabel?: string;
   /** The photos the product has, primary first. */
   photos?: readonly SavedPhoto[];
+  /** The stored visibility of the product; a new product starts visible. */
+  hidden?: boolean;
 };
 
-export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending, onSave, onReload, variantHref, values: initialValues = emptyProductFormValues, draft: initialDraft = emptyDraft, originalNames = {}, submitLabel, photos: savedPhotos = noPhotos }: ProductFormProps) {
+export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending, onSave, onReload, variantHref, values: initialValues = emptyProductFormValues, draft: initialDraft = emptyDraft, originalNames = {}, submitLabel, photos: savedPhotos = noPhotos, hidden: storedHidden = false }: ProductFormProps) {
   const { t } = useTranslation();
   const errors: FormErrors = feedback.errors;
   const [values, setValues] = useState<ProductFormValues>(initialValues);
   const [draft, setDraft] = useState<EditorDraft>(initialDraft);
+  const [hidden, setHidden] = useState(storedHidden);
   const photos = useProductPhotos(savedPhotos);
   const [photosUnusable, setPhotosUnusable] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [targets, setTargets] = useState<FeedbackTargets>(noTargets);
   const submitted = useRef<EditorDraft>(initialDraft);
-  const [opened] = useState(() => draftSnapshot([initialValues, initialDraft, "keep"]));
+  const [opened] = useState(() => draftSnapshot([initialValues, initialDraft, "keep", storedHidden]));
   // The form submits only through React, so a click before hydration would navigate with a native GET.
   const ready = useClientReady();
   const withOptions = hasOptions(draft);
   const saved = draft.saved;
   const fields: readonly (keyof ProductFormValues)[] = withOptions ? ["name", "description"] : ["name", "description", "sku", "salePrice", "purchasePrice"];
-  const dirty = draftSnapshot([values, draft, "keep"]) !== opened || photos.dirty;
+  const dirty = draftSnapshot([values, draft, "keep", hidden]) !== opened || photos.dirty;
   const guard = useDiscardGuard(dirty);
 
   useEffect(() => {
@@ -95,7 +99,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
     const final = withOptions ? draft : syncValues(draft, values);
     submitted.current = final;
     guard.allowLeaving();
-    onSave({ values, photos: toSave, draft: final });
+    onSave({ values, photos: toSave, draft: final, hidden });
   }
 
   const commitOption = (buffer: OptionBuffer): Edit => applyOptionBuffer(withOptions ? draft : syncValues(draft, values), buffer);
@@ -126,6 +130,13 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
         </Fragment>;
       })}
       </section>
+      <Field orientation="horizontal" data-disabled={pending || undefined}>
+        <Switch id="hidden" name="hidden" checked={hidden} disabled={pending} aria-describedby="hidden-description" onCheckedChange={setHidden} />
+        <div className="flex flex-col gap-1">
+          <FieldLabel htmlFor="hidden">{t("products.hideProduct")}</FieldLabel>
+          <FieldDescription id="hidden-description">{t("products.hideProductHint")}</FieldDescription>
+        </div>
+      </Field>
       <VariantsCard draft={draft} setDraft={setDraft} variantHref={variantHref} currency={currency} originalNames={originalNames} targets={targets} commitOption={commitOption}
         onClearOptions={() => setDraft((current) => clearOptions(current))} />
       </div>
