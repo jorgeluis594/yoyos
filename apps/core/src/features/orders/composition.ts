@@ -55,6 +55,10 @@ import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, fi
 import { findSellableVariants, findSellableVariantStock, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, restoreStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
+import { findRecentChatMessages } from "@core/src/features/chats/composition";
+import { loadReadingContext as loadReadingContextWith, type ReadingMessage } from "@core/src/features/orders/application/reader/load-reading-context";
+import { findMaskedTexts } from "@core/src/features/orders/infrastructure/message-masked-text-lookup";
+import { readReadingBudgets } from "@core/src/features/orders/infrastructure/reading-budgets-env";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
 import { createChatMessageDeadLetterHandler, createChatMessageHandler, type ChatMessageHandlerDependencies } from "@core/src/features/orders/application/chat-message-handler";
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
@@ -66,6 +70,7 @@ import { isOpenForMessageItems } from "@core/src/features/orders/domain/message-
 import type { OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
 import type { OrderReviewResponse } from "@shared/contracts/order-review";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
+import { readerStagesFromEnv } from "@core/src/features/orders/infrastructure/reader/runtime/reader-stages-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
 import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
@@ -828,6 +833,8 @@ export const orders = {
 
 // The products composition imports the event handlers that import this module, so `products` is only read when a message is applied.
 const readChatMessage = createChatReaderFromEnv(process.env);
+/** The staged reader's ports from the env; not used by `applyChatMessage` yet. A function, so nothing starts, or fails startup, before it is called. */
+export const createReaderStagePorts = () => readerStagesFromEnv(process.env);
 
 const chatMessageDependencies: ApplyChatMessageDependencies = {
   findOutcome,
@@ -870,6 +877,12 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   clock: () => new Date(),
   limits: readChatMessageLimits(process.env),
 };
+
+/** The input of the staged reader's three stages for a message: recent chat messages, masks, the latest photo outcome, order lines and pendings. */
+export const loadReadingContext = (message: ReadingMessage, target: Parameters<typeof loadReadingContextWith>[2], pendings: Parameters<typeof loadReadingContextWith>[3],
+  photoMemory: Parameters<typeof loadReadingContextWith>[4]) => loadReadingContextWith({ findRecentChatMessages, findMaskedTexts, findOutcome, findChatOrdersOpenedSince,
+  clock: chatMessageDependencies.clock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs, budgets: readingBudgets }, message, target, pendings, photoMemory);
+const readingBudgets = readReadingBudgets(process.env);
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 

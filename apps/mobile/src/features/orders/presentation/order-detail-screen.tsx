@@ -16,7 +16,8 @@ import { AccessibilityInfo, ActivityIndicator, KeyboardAvoidingView, Linking, Mo
 import { SymbolView } from "expo-symbols";
 import * as Crypto from "expo-crypto";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { usePreventRemove } from "expo-router/react-navigation";
 import { useTranslation } from "react-i18next";
 import { subtract } from "@shared/money";
 import { offersPartialStockDeduction } from "@shared/orders-payment";
@@ -39,6 +40,7 @@ import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useCopyLink } from "@mobile/features/catalog/presentation/use-copy-link";
 import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
+import { OrderItemsEditor, draftLines, isDraftDirty, reconcileLostSave, startItemsDraft, type ItemsDraft, type ItemsLine } from "@mobile/features/orders/presentation/order-items-editor";
 import { isWaitingDue, joinLabels, shortStockLines } from "@mobile/features/orders/presentation/order-stock";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
@@ -66,8 +68,14 @@ type CheckoutLinkState =
 const fulfillmentKey = (operation: "ship" | "deliver" | null, code: string) => operation === "ship" && code === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED"
   : operation === "deliver" && code === "INSUFFICIENT_STOCK" ? "DELIVER_INSUFFICIENT_STOCK" : code;
 
+/** What the item edit tells the seller: the bar shows the failures while editing, the products card shows how an edit ended. */
+type ItemsNotice = "saved" | "savedWaiting" | "saveShipped" | "saveDelivered" | "saveCancelled" | "conflict" | "offline" | "notFound" | "failed" | "doubt" | "checkFailed" | "deactivated";
+/** Answers that may have been lost after the request left: the order is read to know whether the edit went through. */
+const lostAnswerCodes = new Set<string>(["NETWORK_ERROR", "SERVER_ERROR", "INTERNAL_ERROR", "INVALID_RESPONSE"]);
+
 export default function OrderDetailScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const theme = useTheme();
   const { t, i18n } = useTranslation();
   const shippingSummary = useShippingSummary();
@@ -102,6 +110,11 @@ export default function OrderDetailScreen() {
   const [cancellation, setCancellation] = useState<CancellationUiState>({ kind: "idle" });
   const [detailRefreshFailed, setDetailRefreshFailed] = useState(false);
   const cancellationLock = useRef(false);
+  const [itemsDraft, setItemsDraft] = useState<ItemsDraft | null>(null);
+  const [itemsNotice, setItemsNotice] = useState<ItemsNotice | null>(null);
+  const [savingItems, setSavingItems] = useState(false);
+  const sentLines = useRef<ItemsLine[]>([]);
+  const itemsDirty = itemsDraft !== null && isDraftDirty(itemsDraft);
   const scope = `${state.status === "ready" ? state.user.id : ""}:${companyId}:${id}`;
   const currentScope = useRef(scope);
   useLayoutEffect(() => { currentScope.current = scope; }, [scope]);
@@ -110,7 +123,7 @@ export default function OrderDetailScreen() {
   // A result belongs to the order it was read for, so another order never shows this one's link while its own loads.
   const checkoutLink: CheckoutLinkState = linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" };
   const { copied, copy: copyLink, open: openLink } = useCopyLink(checkoutLink.kind === "ready" ? checkoutLink.url : null);
-  const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling;
+  const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling || savingItems;
   const reload = useCallback(async (silent = false) => {
     const generation = checkoutGeneration.current;
     const requestScope = scope;
@@ -122,6 +135,13 @@ export default function OrderDetailScreen() {
     else if (!silent) setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
   }, [id, scope]);
+  const confirmDiscardItems = (onConfirm: () => void) => showConfirmation({ title: t("itemsEdit.discardTitle"), confirmLabel: t("itemsEdit.discard"), cancelLabel: t("itemsEdit.keepEditing"), destructive: true, onConfirm });
+  const leaveAllowed = useRef(false);
+  // Swipe-back, the header button and the hardware back all ask before dropping unsaved product edits.
+  usePreventRemove(itemsDirty, ({ data }) => {
+    if (leaveAllowed.current) { navigation.dispatch(data.action); return; }
+    confirmDiscardItems(() => { leaveAllowed.current = true; navigation.dispatch(data.action); });
+  });
   // The status line belongs to the screen: it clears when the seller really leaves it, not when the order reloads.
   useFocusEffect(useCallback(() => () => setPaymentLine(null), []));
   // A notice tapped while this very order is open navigates to the same route; its `noticeAt` is the only change.
@@ -191,6 +211,46 @@ export default function OrderDetailScreen() {
     if (result.success) setOrder(result.data);
     else setPaymentError(t("paymentSaveError"));
     setSavingPayment(null);
+  }
+  const endItemsEdit = (notice: ItemsNotice | null) => { setItemsDraft(null); setItemsNotice(notice); };
+  /** A lost answer: reading the order tells whether the edit went through, nothing changed or somebody else changed the items. */
+  async function verifyLostSave(orderId: string, base: string, lines: readonly ItemsLine[]) {
+    setItemsNotice("doubt");
+    const fresh = await orders.loadOrderAggregate(orderId);
+    if (!fresh.success) { setItemsNotice("checkFailed"); return; }
+    setOrder(fresh.data);
+    const outcome = reconcileLostSave(lines, base, fresh.data);
+    if (outcome === "saved") endItemsEdit(isWaitingDue(fresh.data.stockDue) ? "savedWaiting" : "saved");
+    else setItemsNotice(outcome === "unchanged" ? "offline" : "conflict");
+  }
+  async function itemsRefused(code: string, orderId: string, base: string, lines: readonly ItemsLine[]) {
+    if (code === "ORDER_CHANGED") { setItemsNotice("conflict"); return; }
+    if (code === "VARIANT_NOT_FOUND") { setItemsNotice("deactivated"); return; }
+    if (code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED") {
+      const fresh = await orders.loadOrderAggregate(orderId);
+      if (!fresh.success) { setItemsNotice("checkFailed"); return; }
+      setOrder(fresh.data);
+      endItemsEdit(fresh.data.cancelled ? "saveCancelled" : fresh.data.deliveryStatus === "shipped" ? "saveShipped" : "saveDelivered");
+      return;
+    }
+    if (lostAnswerCodes.has(code)) await verifyLostSave(orderId, base, lines);
+    else setItemsNotice(code === "SERVICE_UNAVAILABLE" ? "offline" : code === "ORDER_NOT_FOUND" ? "notFound" : "failed");
+  }
+  async function saveItems() {
+    if (!order || !itemsDraft || savingItems || cancellationLock.current) return;
+    const lines = draftLines(itemsDraft);
+    if (!lines || !isDraftDirty(itemsDraft)) return;
+    sentLines.current = lines;
+    setSavingItems(true); setItemsNotice(null);
+    const result = await orders.editOrderItems(order.id, { base: itemsDraft.base, lines });
+    if (result.success) { setOrder(result.data.order); endItemsEdit(isWaitingDue(result.data.order.stockDue) ? "savedWaiting" : "saved"); }
+    else await itemsRefused(result.error.code, order.id, itemsDraft.base, lines);
+    setSavingItems(false);
+  }
+  async function reloadAfterConflict() {
+    if (!order) return;
+    const fresh = await orders.loadOrderAggregate(order.id);
+    if (fresh.success) { setOrder(fresh.data); endItemsEdit(null); } else setItemsNotice("checkFailed");
   }
   async function fulfill(operation: "ship" | "deliver") {
     if (!order || cancellationLock.current || writeBusy || orderFulfillmentBlock(order, operation)) return;
@@ -310,6 +370,8 @@ export default function OrderDetailScreen() {
   order.payments.flatMap(payment => payment.status === "confirmed" && payment.amount ? [{ id: payment.id, at: payment.data.confirmedAt, cents: Math.round(payment.amount.amount * 100) }] : [])
     .sort((a, b) => a.at.localeCompare(b.at))
     .reduce((running, payment) => { const next = running + payment.cents; if (next < Math.round(order.total.amount * 100)) advanceIds.add(payment.id); return next; }, 0);
+  const canEditItems = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
+  const itemsLockedText = order.cancelled || order.deliveryStatus === "pending" ? null : t(order.deliveryStatus === "shipped" ? "itemsEdit.lockedShipped" : "itemsEdit.lockedDelivered");
   const canEditDelivery = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
   const checkoutState = order.cancelled ? t("checkoutCancelled") : order.checkoutConfirmedAt ? t("checkoutConfirmed") : order.status === "active" ? t("checkoutPending") : null;
   const openPayments = () => {
@@ -378,8 +440,14 @@ export default function OrderDetailScreen() {
           <ThemedText type="small">{t('adjustCharge')}</ThemedText>
         </View> : null}
         <View style={[styles.card, cardStyle]}>
-          <ThemedText type="subtitle" accessibilityRole="header">{t('detailProducts', { count: order.items.reduce((sum, item) => sum + item.quantity, 0) })}</ThemedText>
-          {order.items.map((item, index) => {
+          <View style={styles.productsHeader}>
+            <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('detailProducts', { count: order.items.reduce((sum, item) => sum + item.quantity, 0) })}</ThemedText>
+            {canEditItems && !itemsDraft ? <Button variant="ghost" disabled={writeBusy} onPress={() => { setItemsNotice(null); setItemsDraft(startItemsDraft(order)); }}>{t("itemsEdit.edit")}</Button> : null}
+          </View>
+          {itemsLockedText ? <ThemedText type="small" themeColor="textSecondary">{itemsLockedText}</ThemedText> : null}
+          {!itemsDraft && itemsNotice && ["saved", "savedWaiting", "saveShipped", "saveDelivered", "saveCancelled"].includes(itemsNotice)
+            ? <ThemedText accessibilityLiveRegion="polite">{t(`itemsEdit.${itemsNotice}`)}</ThemedText> : null}
+          {itemsDraft ? <OrderItemsEditor draft={itemsDraft} onChange={setItemsDraft} disabled={savingItems} format={(amount, currency) => money(amount, currency, locale)} /> : order.items.map((item, index) => {
             const note = mentionedPriceNote(item);
             const noteText = note ? t('mentionedPrice', { count: note.units, amount: money(note.amount, item.unitPrice.currency, locale) }) : null;
             const variant = Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ");
@@ -490,9 +558,10 @@ export default function OrderDetailScreen() {
           </View> : null}
           {!order.cancelled && checkoutLink.kind === "ready" ? <>
             <ThemedText type="small" selectable>{checkoutLink.url}</ThemedText>
-            <Button variant="secondary" onPress={() => void copyLink()}>{t('copyCheckoutLink')}</Button>
-            <Button variant="secondary" onPress={() => void Share.share({ message: checkoutLink.url }).catch(() => undefined)}>{t('shareCheckoutLink')}</Button>
-            <Button variant="secondary" onPress={openLink}>{t('openCheckoutLink')}</Button>
+            <Button variant="secondary" disabled={!!itemsDraft} onPress={() => void copyLink()}>{t('copyCheckoutLink')}</Button>
+            <Button variant="secondary" disabled={!!itemsDraft} onPress={() => void Share.share({ message: checkoutLink.url }).catch(() => undefined)}>{t('shareCheckoutLink')}</Button>
+            <Button variant="secondary" disabled={!!itemsDraft} onPress={openLink}>{t('openCheckoutLink')}</Button>
+            {itemsDraft ? <ThemedText type="small" themeColor="textSecondary">{t("itemsEdit.saveFirst")}</ThemedText> : null}
             {copied ? <ThemedText accessibilityLiveRegion="polite">{t('checkoutCopied')}</ThemedText> : null}
             <ThemedText type="small" themeColor="textSecondary">{t('checkoutHelp')}</ThemedText>
           </> : null}
@@ -520,6 +589,18 @@ export default function OrderDetailScreen() {
         {order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled ?
           <Button variant="ghost" disabled={writeBusy} loading={cancellation.kind === "submitting"} onPress={confirmCancellation}>{t("orderCancellation.cancel")}</Button> : null}
       </ScrollView>
+      {itemsDraft ? <View style={[styles.editBar, cardStyle]}>
+        {itemsNotice && !["saved", "savedWaiting", "saveShipped", "saveDelivered", "saveCancelled"].includes(itemsNotice) ? <View style={styles.section}>
+          <ThemedText type="small" accessibilityRole="alert">{t(`itemsEdit.${itemsNotice === "doubt" ? "inDoubt" : itemsNotice}`)}</ThemedText>
+          {itemsNotice === "conflict" ? <Button variant="secondary" disabled={savingItems} onPress={() => showConfirmation({ title: t("itemsEdit.reloadTitle"), confirmLabel: t("itemsEdit.reloadConfirm"), cancelLabel: t("itemsEdit.reloadKeep"), destructive: true, onConfirm: () => void reloadAfterConflict() })}>{t("itemsEdit.reload")}</Button> : null}
+          {itemsNotice === "checkFailed" ? <Button variant="secondary" onPress={() => void verifyLostSave(order.id, itemsDraft.base, sentLines.current)}>{t("itemsEdit.checkAgain")}</Button> : null}
+        </View> : null}
+        <ThemedText style={styles.semibold}>{itemsDirty ? t("itemsEdit.unsaved") : t("itemsEdit.editing")}</ThemedText>
+        <View style={styles.editActions}>
+          <View style={styles.flex}><Button variant="secondary" disabled={savingItems} onPress={() => itemsDirty ? confirmDiscardItems(() => endItemsEdit(null)) : endItemsEdit(null)}>{t("itemsEdit.discard")}</Button></View>
+          <View style={styles.flex}><Button loading={savingItems} disabled={!itemsDirty || draftLines(itemsDraft) === null} onPress={() => void saveItems()}>{t("itemsEdit.save")}</Button></View>
+        </View>
+      </View> : null}
     </View>
     <Modal visible={review !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeEditor}>
       <SafeAreaView style={[styles.page, { backgroundColor: theme.background }]}>
@@ -588,6 +669,9 @@ function Disclosure({ label, description, open, onPress }: { label: string; desc
 }
 
 const styles = StyleSheet.create({
+  productsHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  editBar: { gap: 8, padding: 16, borderTopWidth: StyleSheet.hairlineWidth },
+  editActions: { flexDirection: "row", gap: 8 },
   page: { flex: 1 }, container: { flex: 1, width: "100%", maxWidth: 640, alignSelf: "center" }, flex: { flex: 1 },
   content: { gap: 12, padding: 16, paddingTop: 4, paddingBottom: 32, maxWidth: 640, width: "100%", alignSelf: "center" },
   header: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 4 },

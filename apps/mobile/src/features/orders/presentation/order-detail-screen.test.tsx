@@ -10,6 +10,8 @@ let mockNotice: { id: string; shownTotal: { amount: number; currency: string } }
 let mockCountry = "PE";
 const mockClear = jest.fn();
 const mockPush = jest.fn();
+const mockDispatch = jest.fn();
+const mockUsePreventRemove = jest.fn();
 let mockFocus: () => void;
 let mockLoadFailed = false;
 let mockLoads = 0;
@@ -24,10 +26,11 @@ const mockShip = jest.fn();
 const mockDeliver = jest.fn();
 const mockCancel = jest.fn();
 const mockUpdateShipping = jest.fn();
+const mockEditItems = jest.fn();
 const mockCheckCancellation = jest.fn();
 let mockUserId = "seller";
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
-const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
+const initialOrder: OrderAggregateResponse = { revisions: { items: "A".repeat(43) }, number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
   buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z", cancelledAt: null, stockDeductedAt: null,
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
@@ -39,13 +42,15 @@ const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, company
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
     unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" }, mentionedPrice: null }] };
 let mockOrder = initialOrder;
-beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockLoads = 0; mockNoticeAt = null; mockStopArrivals.mockReset(); mockEnableCheckout.mockReset(); mockEnableCheckout.mockResolvedValue({ success: true, data: { url: linkUrl } }); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockRejectPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
+beforeEach(() => { mockEditItems.mockReset(); mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockLoads = 0; mockNoticeAt = null; mockStopArrivals.mockReset(); mockEnableCheckout.mockReset(); mockEnableCheckout.mockResolvedValue({ success: true, data: { url: linkUrl } }); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockRejectPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
 
-jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }),
+jest.mock("expo-router/react-navigation", () => ({ usePreventRemove: (...args: unknown[]) => mockUsePreventRemove(...args) }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }), useNavigation: () => ({ dispatch: mockDispatch }),
   useLocalSearchParams: () => ({ id: mockId, ...(mockNoticeAt === null ? {} : { noticeAt: mockNoticeAt }) }),
   useFocusEffect: (callback: () => void) => { mockFocus = callback; jest.requireActual("react").useEffect(callback, [callback]); } }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   updateOrderShipping: (...args: unknown[]) => mockUpdateShipping(...args),
+  editOrderItems: (...args: unknown[]) => mockEditItems(...args),
   cancelOrder: (...args: unknown[]) => mockCancel(...args),
   checkCancellation: (...args: unknown[]) => mockCheckCancellation(...args),
   ship: (...args: unknown[]) => mockShip(...args),
@@ -1188,4 +1193,202 @@ test("labels the partial deduction box «Descontar stock con abono parcial» in 
   fireEvent.changeText(screen.getByLabelText(/Monto/), "4.50");
   expect(screen.getByLabelText("Descontar stock con abono parcial")).toBeTruthy();
   expect(screen.queryByLabelText("Descontar stock ahora")).toBeNull();
+});
+
+const poloItemId = "00000000-0000-4000-8000-0000000000a1";
+const gorraItemId = "00000000-0000-4000-8000-0000000000a2";
+const poloVariantId = "00000000-0000-4000-8000-0000000000b1";
+const gorraVariantId = "00000000-0000-4000-8000-0000000000b2";
+const loadedRevision = "L".repeat(43);
+const savedRevision = "S".repeat(43);
+const money = (amount: number) => ({ amount, currency: "PEN" as const });
+const line = (id: string, variantId: string, productName: string, quantity: number, price: number) => ({ id, variantId, productName, variantAttributes: {}, sku: null, quantity,
+  unitPrice: money(price), subtotal: money(price * quantity), mentionedPrice: null });
+/** An open WhatsApp order: «Polo básico» ×3 at 30 and «Gorra trucker» ×1 at 20. */
+function editableOrder(): OrderAggregateResponse {
+  return { ...initialOrder, source: "whatsapp", status: "active", paymentStatus: "pending", completedAt: null, deliveredAt: null, deliveryStatus: "pending", stockDeducted: false,
+    paidAmount: money(0), balanceDue: money(110), itemsTotal: money(110), total: money(110), payments: [], revisions: { items: loadedRevision },
+    items: [line(poloItemId, poloVariantId, "Polo básico", 3, 30), line(gorraItemId, gorraVariantId, "Gorra trucker", 1, 20)] };
+}
+const loweredOrder = (): OrderAggregateResponse => ({ ...editableOrder(), itemsTotal: money(60), total: money(60), balanceDue: money(60), revisions: { items: savedRevision },
+  items: [line(poloItemId, poloVariantId, "Polo básico", 2, 30)] });
+const savedItems = () => ({ success: true, data: { order: loweredOrder(), revisions: { items: savedRevision, customer: "C".repeat(43), delivery: "D".repeat(43) }, applied: ["items"], stockDue: null } });
+async function startEditing() {
+  mockOrder = editableOrder();
+  const screen = render(<OrderDetailScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Editar productos" }));
+  return screen;
+}
+const confirmAlert = (alert: jest.SpyInstance, index = 1) => act(() => { alert.mock.calls.at(-1)?.[2]?.[index]?.onPress?.(); });
+
+test("edit mode lowers a quantity and removes an item and saves them with the base revision", async () => {
+  mockEditItems.mockResolvedValue(savedItems());
+  const screen = await startEditing();
+  fireEvent.press(screen.getByRole("button", { name: "Disminuir cantidad de Polo básico" }));
+  expect(screen.getByLabelText("Cantidad de Polo básico").props.value).toBe("2");
+  fireEvent.press(screen.getByRole("button", { name: "Quitar Gorra trucker" }));
+  expect(screen.getByText("Cambios sin guardar")).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
+  await waitFor(() => expect(mockEditItems).toHaveBeenCalledWith(mockId, { base: loadedRevision, lines: [{ variantId: poloVariantId, quantity: 2 }] }));
+  expect(await screen.findByText("Cambios guardados.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Guardar cambios" })).toBeNull();
+  expect(screen.queryByText("Gorra trucker")).toBeNull();
+  expect(screen.getAllByText(/60\.00/).length).toBeGreaterThan(0);
+  expect(screen.getByRole("button", { name: "Editar productos" })).toBeTruthy();
+});
+
+test("edit mode refuses removing the last item with its message", async () => {
+  const screen = await startEditing();
+  fireEvent.press(screen.getByRole("button", { name: "Quitar Gorra trucker" }));
+  expect(screen.getByRole("button", { name: "Quitar Polo básico" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Quitar Polo básico" }).props.accessibilityHint).toBe("El pedido necesita al menos un producto. Si ya no va, cancélalo.");
+  expect(screen.getByText("El pedido necesita al menos un producto. Si ya no va, cancélalo.")).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Quitar Polo básico" }));
+  expect(screen.getByLabelText("Cantidad de Polo básico")).toBeTruthy();
+});
+
+test("a shipped order offers no Editar productos", async () => {
+  mockOrder = { ...editableOrder(), deliveryStatus: "shipped", shippedAt: "2026-09-29T13:00:00.000Z" };
+  const shipped = render(<OrderDetailScreen />);
+  await shipped.findByText("Polo básico");
+  expect(shipped.queryByRole("button", { name: "Editar productos" })).toBeNull();
+  expect(shipped.getByText("El pedido ya se envió; los productos ya no se pueden cambiar.")).toBeTruthy();
+  shipped.unmount();
+  mockOrder = initialOrder;
+  const completed = render(<OrderDetailScreen />);
+  await completed.findByText("Camisa");
+  expect(completed.queryByRole("button", { name: "Editar productos" })).toBeNull();
+  expect(completed.getByText("El pedido ya se entregó; los productos ya no se pueden cambiar.")).toBeTruthy();
+});
+
+test("leaving edit mode with changes asks to discard them", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  const screen = await startEditing();
+  fireEvent.press(screen.getByRole("button", { name: "Descartar cambios" }));
+  expect(alert).not.toHaveBeenCalled();
+  expect(screen.queryByText("Cambios sin guardar")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
+  fireEvent.press(screen.getByRole("button", { name: "Aumentar cantidad de Polo básico" }));
+  fireEvent.press(screen.getByRole("button", { name: "Descartar cambios" }));
+  expect(alert.mock.calls[0].slice(0, 2)).toEqual(["¿Descartar los cambios?", undefined]);
+  expect(alert.mock.calls[0][2]?.map((button) => button.text)).toEqual(["Seguir editando", "Descartar cambios"]);
+  act(() => alert.mock.calls[0][2]?.[0]?.onPress?.());
+  expect(screen.getByLabelText("Cantidad de Polo básico").props.value).toBe("4");
+  fireEvent.press(screen.getByRole("button", { name: "Descartar cambios" }));
+  confirmAlert(alert);
+  expect(screen.queryByLabelText("Cantidad de Polo básico")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
+  expect(screen.getByLabelText("Cantidad de Polo básico").props.value).toBe("3");
+  alert.mockRestore();
+});
+
+test("every way out of the screen asks before dropping unsaved edits", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  mockDispatch.mockReset();
+  const screen = await startEditing();
+  expect(mockUsePreventRemove).toHaveBeenLastCalledWith(false, expect.any(Function));
+  fireEvent.press(screen.getByRole("button", { name: "Aumentar cantidad de Polo básico" }));
+  expect(mockUsePreventRemove).toHaveBeenLastCalledWith(true, expect.any(Function));
+  const onLeave = mockUsePreventRemove.mock.lastCall?.[1];
+  act(() => onLeave({ data: { action: { type: "GO_BACK" } } }));
+  expect(alert.mock.calls[0].slice(0, 2)).toEqual(["¿Descartar los cambios?", undefined]);
+  expect(mockDispatch).not.toHaveBeenCalled();
+  confirmAlert(alert);
+  expect(mockDispatch).toHaveBeenCalledWith({ type: "GO_BACK" });
+  alert.mockRestore();
+});
+
+test("a refusal that is not about the connection does not blame it", async () => {
+  mockEditItems.mockResolvedValueOnce({ success: false, error: { code: "INVALID_INPUT", message: "bad" } });
+  const screen = await startEditing();
+  fireEvent.press(screen.getByRole("button", { name: "Disminuir cantidad de Polo básico" }));
+  fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
+  expect(await screen.findByText("No se pudieron guardar los cambios. Inténtalo de nuevo.")).toBeTruthy();
+  expect(screen.queryByText(/Revisa tu conexión/)).toBeNull();
+});
+
+test("link actions, Revisar pedido and Deshacer are disabled with their reason while editing", async () => {
+  const screen = await startEditing();
+  await screen.findByText(linkUrl);
+  for (const name of ["Copiar enlace", "Compartir enlace", "Abrir enlace"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+  expect(screen.getAllByText("Guarda o descarta los cambios primero.").length).toBeGreaterThan(0);
+  expect(screen.queryByRole("button", { name: "Revisar pedido" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Descartar cambios" }));
+  for (const name of ["Copiar enlace", "Compartir enlace", "Abrir enlace"]) expect(screen.getByRole("button", { name })).toBeEnabled();
+});
+
+test("a message that changed the items meanwhile answers the conflict and keeps the edits", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  mockEditItems.mockResolvedValue({ success: false, error: { code: "ORDER_CHANGED", message: "The order changed" } });
+  const screen = await startEditing();
+  fireEvent.press(screen.getByRole("button", { name: "Disminuir cantidad de Polo básico" }));
+  fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
+  expect(await screen.findByText("Este pedido cambió mientras lo editabas. Tus cambios siguen aquí; recarga para ver la versión actual.")).toBeTruthy();
+  expect(screen.getByLabelText("Cantidad de Polo básico").props.value).toBe("2");
+  mockOrder = { ...editableOrder(), revisions: { items: savedRevision }, items: [line(poloItemId, poloVariantId, "Polo básico", 3, 30), line(gorraItemId, gorraVariantId, "Gorra trucker", 2, 20)] };
+  await waitFor(() => expect(screen.getByRole("button", { name: "Recargar pedido" })).toBeEnabled());
+  fireEvent.press(screen.getByRole("button", { name: "Recargar pedido" }));
+  expect(alert.mock.calls.at(-1)?.[0]).toBe("¿Descartar tus cambios y ver la versión actual?");
+  confirmAlert(alert);
+  await waitFor(() => expect(screen.queryByText("Cambios sin guardar")).toBeNull());
+  expect(screen.queryByLabelText("Cantidad de Polo básico")).toBeNull();
+  expect(screen.getByText(/2 × /)).toBeTruthy();
+  alert.mockRestore();
+});
+
+test("a save without connection keeps the edits and a lost answer is checked by reading the order", async () => {
+  mockEditItems.mockResolvedValueOnce({ success: false, error: { code: "SERVICE_UNAVAILABLE", message: "down" } });
+  const screen = await startEditing();
+  fireEvent.press(screen.getByRole("button", { name: "Disminuir cantidad de Polo básico" }));
+  fireEvent.press(screen.getByRole("button", { name: "Quitar Gorra trucker" }));
+  fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
+  expect(await screen.findByText("No se pudieron guardar los cambios. Revisa tu conexión e inténtalo de nuevo.")).toBeTruthy();
+  expect(screen.getByLabelText("Cantidad de Polo básico").props.value).toBe("2");
+  // The answer is lost but the edit went through: reading the order shows the lines that were sent.
+  mockEditItems.mockResolvedValueOnce({ success: false, error: { code: "NETWORK_ERROR", message: "lost" } });
+  mockOrder = loweredOrder();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Guardar cambios" })).toBeEnabled());
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" })); });
+  expect(await screen.findByText("Cambios guardados.")).toBeTruthy();
+  expect(screen.queryByLabelText("Cantidad de Polo básico")).toBeNull();
+});
+
+test("a lost answer on an order that did not change keeps the edits", async () => {
+  mockEditItems.mockResolvedValue({ success: false, error: { code: "NETWORK_ERROR", message: "lost" } });
+  const screen = await startEditing();
+  fireEvent.press(screen.getByRole("button", { name: "Disminuir cantidad de Polo básico" }));
+  mockLoadFailed = false;
+  fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
+  expect(await screen.findByText("No se pudieron guardar los cambios. Revisa tu conexión e inténtalo de nuevo.")).toBeTruthy();
+  expect(screen.getByLabelText("Cantidad de Polo básico").props.value).toBe("2");
+});
+
+test("a save refused because the order shipped meanwhile reloads it and leaves edit mode", async () => {
+  mockEditItems.mockResolvedValue({ success: false, error: { code: "DELIVERY_LOCKED", message: "locked" } });
+  const screen = await startEditing();
+  fireEvent.press(screen.getByRole("button", { name: "Disminuir cantidad de Polo básico" }));
+  mockOrder = { ...editableOrder(), deliveryStatus: "shipped", shippedAt: "2026-09-29T13:00:00.000Z" };
+  fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
+  expect(await screen.findByText("El pedido ya se envió; no se guardaron los cambios.")).toBeTruthy();
+  expect(screen.queryByLabelText("Cantidad de Polo básico")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Editar productos" })).toBeNull();
+});
+
+test("a deactivated product keeps the edits and names the reason", async () => {
+  mockEditItems.mockResolvedValue({ success: false, error: { code: "VARIANT_NOT_FOUND", message: "gone", variantId: poloVariantId } });
+  const screen = await startEditing();
+  fireEvent.press(screen.getByRole("button", { name: "Disminuir cantidad de Polo básico" }));
+  fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
+  expect(await screen.findByText("Este producto ya no se vende; puedes bajar la cantidad o quitarlo.")).toBeTruthy();
+  expect(screen.getByLabelText("Cantidad de Polo básico").props.value).toBe("2");
+});
+
+test("an empty or invalid quantity blocks saving with its message", async () => {
+  const screen = await startEditing();
+  fireEvent.changeText(screen.getByLabelText("Cantidad de Polo básico"), "0");
+  expect(screen.getByText("Ingresa una cantidad de 1 a 9999.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
+  fireEvent.changeText(screen.getByLabelText("Cantidad de Polo básico"), "3");
+  expect(screen.queryByText("Ingresa una cantidad de 1 a 9999.")).toBeNull();
+  expect(screen.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
 });

@@ -159,7 +159,7 @@ test.each([
 
 const zero = { amount: 0, currency: "PEN" as const };
 const total = { amount: 12, currency: "PEN" as const };
-const completed = (): OrderAggregateResponse => ({ number: 1001, id: id(3), companyId, sellerId: "seller", buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
+const completed = (): OrderAggregateResponse => ({ revisions: { items: "A".repeat(43) }, number: 1001, id: id(3), companyId, sellerId: "seller", buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
   createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z", cancelledAt: null, stockDeductedAt: null,
   status: "completed", paymentStatus: "paid", paidAmount: total, balanceDue: zero, overpaidAmount: zero,
   cancelled: false, delivery: null, deliveryStatus: "delivered", stockDeducted: true, stockDue: null,

@@ -53,7 +53,7 @@ export type ProductResolution =
 
 /** What the three stages read: built by code from a bounded context, rendered into prompts by infrastructure. */
 export type ReadingContextMessage = Readonly<{ ref: ContextMessageRef; direction: "incoming" | "outgoing"; kind: string; text: string | null; sentAt: Date;
-  /** True while no stored mask exists for the message, so the intent stage reports its address spans. */
+  /** True once a mask is stored for the message; while it is false the intent stage reports the message's address spans. */
   masked: boolean }>;
 export type ReadingItem = Readonly<{ ref: ItemRef; itemId: OrderItemId; productId: ProductId | null; variantId: VariantId; productName: string;
   variantAttributes: Readonly<Record<string, string>>; quantity: PositiveInteger }>;
