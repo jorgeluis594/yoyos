@@ -81,6 +81,8 @@ beforeAll(async () => {
   rosa = await connect("Tienda Rosa");
   limited = await connect("Tienda con límite");
   await seedOctoberExample(rosa);
+  // The faked clock stamps the product on 05/11/2026; it must exist before October for the tool to check it.
+  await withTenantIsolation(rosa.companyId, async () => { await prisma.product.updateMany({ data: { createdAt: new Date("2026-09-01T15:00:00Z") } }); });
 });
 
 afterAll(async () => {
@@ -104,7 +106,9 @@ describe("the nine assistant tools through the MCP server", () => {
 
     const unsold = await callTool(rosa, "productos_sin_ventas", october);
     expect(unsold.isError).toBeFalsy();
-    expect(unsold.structuredContent).toMatchObject({ hoy: "Hoy es 05/11/2026", total: 0 });
+    expect(unsold.structuredContent).toMatchObject({
+      hoy: "Hoy es 05/11/2026", total: 0, mensaje: "Tu único producto con stock tuvo ventas del 01/10/2026 al 31/10/2026.",
+    });
   });
 
   test("the summary's productos and the best sellers' header agree on the example store", async () => {
