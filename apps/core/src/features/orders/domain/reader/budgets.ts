@@ -31,6 +31,10 @@ export function capContextText(text: string, maxChars: number): string {
 // Fixed characters each listed element costs for its label and separators; the stage renderers stay within them.
 const elementOverhead = 32;
 const idChars = 36;
+// A rendered context line also carries its ref, direction, mask flag and «(no text)» around the kind and the text.
+const contextOverhead = 48;
+// The fixed section headers, empty-section notes and photo facts every stage input carries.
+const frameChars = 360;
 
 function itemChars(item: ReadingItem): number {
   const attributes = Object.entries(item.variantAttributes).reduce((sum, [name, value]) => sum + name.length + value.length + 4, 0);
@@ -43,13 +47,13 @@ function pendingChars(pending: ReadingPending): number {
 }
 
 function baseChars(input: ReadingInput): number {
-  return input.current.text.length + input.current.kind.length + elementOverhead + (input.photoMemory ? elementOverhead : 0) + (input.photo ? elementOverhead : 0);
+  return frameChars + input.current.text.length + input.current.kind.length + elementOverhead + (input.photoMemory ? elementOverhead : 0) + (input.photo ? elementOverhead : 0);
 }
 
 /** The deterministic size of a reading input: the rendering accounts for each element with at most these characters. */
 export function readingInputChars(input: ReadingInput): number {
   return baseChars(input)
-    + input.context.reduce((sum, message) => sum + (message.text?.length ?? 0) + message.kind.length + elementOverhead, 0)
+    + input.context.reduce((sum, message) => sum + (message.text?.length ?? 0) + message.kind.length + contextOverhead, 0)
     + input.items.reduce((sum, item) => sum + itemChars(item), 0)
     + input.pendings.reduce((sum, pending) => sum + pendingChars(pending), 0);
 }
