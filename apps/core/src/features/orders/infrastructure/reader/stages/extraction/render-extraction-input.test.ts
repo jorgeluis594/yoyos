@@ -32,6 +32,11 @@ describe("extraction input rendering", () => {
     expect(render(readingInput())).toContain("text message");
   });
 
+  test("states the currency of the shop's prices when it is known", () => {
+    expect(render(readingInput({ currency: "PEN" }))).toContain("Prices of this shop are in PEN.");
+    expect(render(readingInput())).not.toContain("Prices of this shop");
+  });
+
   test("cuts a long quote of a request", () => {
     const text = renderExtractionInput(extractionInput(readingInput(), [intent(1, "add", "x".repeat(900))]));
 

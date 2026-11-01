@@ -86,7 +86,10 @@ function inputSummary(input: ReadingInput, extra: Partial<StageInputSummary> = {
  */
 export function mentionsOf(requests: readonly VerifiedRequest[], input: ReadingInput, photoProductIds: readonly ProductId[]): readonly ProductMention[] {
   return requests.flatMap(({ request }): ProductMention[] => {
-    if (request.target.kind === "named") return [{ request: request.request, words: request.target.words, values: request.values }];
+    if (request.target.kind === "named") {
+      return [{ request: request.request, words: request.target.words, values: request.values,
+        ...(request.price && request.price.currency === "order" ? { price: { amount: request.price.amount, units: request.quantity?.value ?? 1, basis: request.price.basis } } : {}) }];
+    }
     const [first] = request.values;
     const candidateIds = first ? productsOfTarget(request, input, photoProductIds) : [];
     return first && candidateIds.length > 0 ? [{ request: request.request, words: first.valueWords, values: request.values, candidateIds, valuesOnly: true }] : [];

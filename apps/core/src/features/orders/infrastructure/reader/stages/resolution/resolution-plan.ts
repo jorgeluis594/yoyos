@@ -1,4 +1,4 @@
-import type { ProductMention } from "@core/src/features/orders/domain/reader/readings";
+import type { MentionPrice, ProductMention } from "@core/src/features/orders/domain/reader/readings";
 import type { RequestRef } from "@core/src/features/orders/domain/reader/refs";
 import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 import type { ProductId } from "@core/src/features/products/domain/product";
@@ -42,19 +42,33 @@ function renderAttribute(name: string, values: readonly string[], full: boolean)
   return `${name} = ${shown}${values.length > maxValuesPerAttribute ? `, y ${values.length - maxValuesPerAttribute} más` : ""}`;
 }
 
+function priceText({ amount, units, basis }: MentionPrice): string {
+  if (basis === "unit" || units === 1) return `${amount} for each unit`;
+  return `${amount} for ${units} units${basis === "lot" ? ", the whole quantity" : ", each or the whole quantity (not said)"}`;
+}
+
+/** The lowest and highest unit price of a product's active variants, in its currency; null when it has no variant. */
+function priceRange(product: ProductForReading): string | null {
+  const amounts = product.variants.map(({ unitPrice }) => unitPrice.amount);
+  if (!amounts.length) return null;
+  const [low, high] = [Math.min(...amounts), Math.max(...amounts)];
+  return `${low === high ? low : `${low} to ${high}`} ${product.variants[0]!.unitPrice.currency}`;
+}
+
 function compose(entries: readonly Entry[], byId: ReadonlyMap<ProductId, ProductForReading>, withCandidateLines: boolean, valuesFor: (id: ProductId) => boolean) {
   const order = [...new Set(entries.flatMap(({ ids }) => ids))];
   const refs = new Map(order.map((id, index) => [id, `P${index + 1}`]));
   const lines = ["Mentions:", ...entries.flatMap(({ mention, ids }) => {
     const values = mention.values.map((value) => `${value.attributeWords ? `${value.attributeWords.text} ` : ""}«${value.valueWords.text}»`);
     const subject = mention.valuesOnly ? "(product already known)" : `«${mention.words.text}»`;
-    return [`${mention.request}: ${subject}${values.length ? ` — values: ${values.join("; ")}` : ""}`,
+    return [`${mention.request}: ${subject}${values.length ? ` — values: ${values.join("; ")}` : ""}${mention.price ? ` — stated price: ${priceText(mention.price)}` : ""}`,
       ...withCandidateLines ? [`${mention.request} may be: ${ids.map((id) => refs.get(id)).join(", ")}`] : []];
   }), "Products (answer with these labels):", ...order.map((id) => {
     const product = byId.get(id)!;
     const named = new Set(entries.filter(({ ids }) => ids.includes(id)).flatMap(({ mention }) => [...namedAttributes(product, mention)]));
     const attributes = product.attributes.map(({ name, values }) => renderAttribute(name, values, valuesFor(id) && named.has(name)));
-    return `${refs.get(id)} (${product.sellable ? "sellable" : "not sellable"}) ${product.name}${attributes.length ? ` — ${attributes.join("; ")}` : ""}`;
+    const range = entries.some(({ ids, mention }) => mention.price && ids.includes(id)) ? priceRange(product) : null;
+    return `${refs.get(id)} (${product.sellable ? "sellable" : "not sellable"}) ${product.name}${attributes.length ? ` — ${attributes.join("; ")}` : ""}${range ? ` — price: ${range}` : ""}`;
   })];
   return { text: lines.join("\n"), refs, order };
 }

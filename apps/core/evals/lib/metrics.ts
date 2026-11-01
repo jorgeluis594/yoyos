@@ -4,7 +4,7 @@ import { percentile } from "@core/evals/lib/stats";
 /** The metrics of a run (one pass over the selected set) and their aggregation over `EVAL_REPEATS` runs. Pure: unit-tested in metrics.test.ts. */
 
 export const metricNames = ["intentAccuracy", "fieldsAccuracy", "resolutionAccuracy", "decisionAccuracy", "silentWrongChanges", "ignoredRequests", "urgentShare",
-  "urgentPrecision", "urgentRecall", "changedNotices", "costIntentUsd", "costExtractionUsd", "costResolutionUsd", "costPhotoUsd", "costPerMessageUsd", "p95DecisionMs"] as const;
+  "falseUrgentShare", "urgentPrecision", "urgentRecall", "changedNotices", "costIntentUsd", "costExtractionUsd", "costResolutionUsd", "costPhotoUsd", "costPerMessageUsd", "p95DecisionMs"] as const;
 export type MetricName = (typeof metricNames)[number];
 export type RunMetrics = Readonly<Record<MetricName, number | null>>;
 /** Mean and range over the runs that measured the metric. */
@@ -12,7 +12,7 @@ export type MetricRange = Readonly<{ mean: number; min: number; max: number; run
 export type AggregatedMetrics = Readonly<Record<MetricName, MetricRange | null>>;
 
 /** Metrics where a smaller number is better; the others are better when larger, except `changedNotices`, which is only reported. */
-const lowerIsBetter: ReadonlySet<MetricName> = new Set(["silentWrongChanges", "ignoredRequests", "urgentShare", "costIntentUsd", "costExtractionUsd", "costResolutionUsd",
+const lowerIsBetter: ReadonlySet<MetricName> = new Set(["silentWrongChanges", "ignoredRequests", "urgentShare", "falseUrgentShare", "costIntentUsd", "costExtractionUsd", "costResolutionUsd",
   "costPhotoUsd", "costPerMessageUsd", "p95DecisionMs"]);
 const higherIsBetter: ReadonlySet<MetricName> = new Set(["intentAccuracy", "fieldsAccuracy", "resolutionAccuracy", "decisionAccuracy", "urgentPrecision", "urgentRecall"]);
 
@@ -54,6 +54,8 @@ export function metricsOfRun(records: readonly CaseRecord[]): RunMetrics {
     silentWrongChanges: messages.filter((record) => record.facts ? silentWrongChangeOf(record.facts) : record.wrongSilentChange).length,
     ignoredRequests: messages.filter((record) => record.facts ? ignoredRequestOf(record.facts) : record.ignoredActions > 0).length,
     urgentShare: decided.length ? urgentActual.length / decided.length : null,
+    // The seller is interrupted when the case did not need it: over the decided messages, so an adversarial set cannot hide it behind the share of expected urgents.
+    falseUrgentShare: decided.length ? urgentActual.filter(({ decisionExpected }) => decisionExpected !== "urgent").length / decided.length : null,
     urgentPrecision: urgentActual.length ? urgentActual.filter(({ decisionExpected }) => decisionExpected === "urgent").length / urgentActual.length : null,
     urgentRecall: urgentExpected.length ? urgentExpected.filter(({ decisionActual }) => decisionActual === "urgent").length / urgentExpected.length : null,
     changedNotices: withFacts.filter(({ changedNotice }) => changedNotice).length,

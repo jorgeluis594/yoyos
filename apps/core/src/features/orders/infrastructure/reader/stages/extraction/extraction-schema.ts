@@ -32,7 +32,7 @@ const quantity = z.strictObject({
 
 const price = z.strictObject({
   amount: z.number().describe("The amount the buyer states, copied as written. Never computed or divided."),
-  currency: z.enum(["order", "other"]).describe("order: the buyer names no currency. other: the buyer names a currency."),
+  currency: z.enum(["order", "other"]).describe("order: the buyer names no currency, or the shop's own. other: the buyer names a different currency."),
   basis: z.enum(["unit", "lot", "not_explicit"]).describe("unit: the amount is for each unit. lot: it is for the whole quantity. not_explicit: the buyer does not say."),
   quote: words,
 });

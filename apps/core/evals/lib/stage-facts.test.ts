@@ -14,6 +14,15 @@ test("derives the decision of a relabelled case from its notice and outcomes, an
   expect(decisionOf(expectation({ notice: null, outcomes: ["variant_changed"], decision: "doubtful" }))).toBe("doubtful");
 });
 
+test("a problem outcome with no notice still expects the seller to be interrupted, unless a pending carries it", () => {
+  for (const kind of ["unclear_item", "image_with_request", "variant_only", "no_open_order", "request_not_allowed", "reader_doubt", "invalid_action"] as const) {
+    expect(decisionOf(expectation({ outcomes: [kind] })), kind).toBe("urgent");
+  }
+  expect(decisionOf(expectation({ outcomes: ["added", "unclear_item"] }))).toBe("urgent");
+  expect(decisionOf(expectation({ outcomes: ["pending_created", "variant_missing"] }))).toBe("pending");
+  expect(decisionOf(expectation({ outcomes: ["unclear_item"], decision: "applied" }))).toBe("applied");
+});
+
 test("derives the intent of a case and takes fields and product only where it states them", () => {
   expect(expectedStagesOf(expectation({ notice: null, outcomes: ["no_intent"] }))).toMatchObject({ intent: "no_intent", requested: false, fields: null, product: null });
   expect(expectedStagesOf(expectation({ notice: null, outcomes: ["added"] }))).toMatchObject({ intent: "requests", requested: true });

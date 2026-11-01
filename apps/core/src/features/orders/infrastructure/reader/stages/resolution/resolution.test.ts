@@ -34,6 +34,20 @@ describe("resolution rendering", () => {
     expect(text).toContain("answer with these labels");
   });
 
+  test("renders the stated price of a mention and the price range of the candidates it may be", () => {
+    const priced = { ...product(3, "Polo premium"), variants: [{ variantId: "v1" as never, productName: "Polo premium", variantAttributes: {}, sku: null, unitPrice: { amount: 55, currency: "PEN" as const } },
+      { variantId: "v2" as never, productName: "Polo premium", variantAttributes: {}, sku: null, unitPrice: { amount: 60, currency: "PEN" as const } }] };
+    const stated = (units: number, basis: "unit" | "lot" | "not_explicit") => ({ ...mention(1, "polo"), price: { amount: 55, units, basis } });
+    const text = (m: ProductMention) => planResolution({ mentions: [m], candidates: [priced, gorra] }, budget).text;
+
+    expect(text(stated(1, "not_explicit"))).toContain("R1: «polo» — stated price: 55 for each unit");
+    expect(text(stated(1, "not_explicit"))).toContain("P1 (sellable) Polo premium — price: 55 to 60 PEN");
+    expect(text(stated(3, "unit"))).toContain("stated price: 55 for each unit");
+    expect(text(stated(3, "lot"))).toContain("stated price: 55 for 3 units, the whole quantity");
+    expect(text(stated(3, "not_explicit"))).toContain("55 for 3 units, each or the whole quantity (not said)");
+    expect(planResolution(input, budget).text).not.toContain("price");
+  });
+
   test("lists at most 30 values of an attribute and counts the rest", () => {
     const many = product(3, "Medias", [{ name: "Talla", values: Array.from({ length: 35 }, (_, index) => `T${index}`) }]);
     const { text } = planResolution({ mentions: [mention(1, "medias", [value("T1", "talla")])], candidates: [many] }, budget);

@@ -131,16 +131,10 @@ function valueChoices(request: ExtractedRequest, product: ProductForReading, res
 }
 const choicesFor = (request: ExtractedRequest, product: ProductForReading, env: Env): readonly AttributeChoice[] => valueChoices(request, product, resolutionOf(request, env));
 
-/** The choices of one request when they give two different values to one attribute: one list per value (the units then split among them), none when that cannot be told. Null without such a conflict. */
-function splitConflict(choices: readonly AttributeChoice[]): readonly (readonly AttributeChoice[])[] | null {
-  const distinct = (list: readonly AttributeChoice[]) => list.filter((choice, index) => list.findIndex((other) => folded(other.value) === folded(choice.value)) === index);
+/** Whether the choices of one request give two different values to one attribute: such a request is ambiguous and never resolves, because which value gets which unit is the buyer's to say. */
+function hasConflict(choices: readonly AttributeChoice[]): boolean {
   const named = choices.filter(({ name }) => name !== "");
-  const conflicted = [...new Set(named.map(({ name }) => folded(name)))].map((name) => distinct(named.filter((choice) => folded(choice.name) === name))).filter((list) => list.length > 1);
-  const [only, ...more] = conflicted;
-  if (!only) return null;
-  if (more.length > 0) return [];
-  const rest = choices.filter((choice) => folded(choice.name) !== folded(only[0]!.name));
-  return only.map((choice) => [...rest, choice]);
+  return named.some((choice) => named.some((other) => folded(other.name) === folded(choice.name) && folded(other.value) !== folded(choice.value)));
 }
 
 /** The order item a request points to: by reference, by the product it names, or the only item the order has. */
@@ -316,7 +310,7 @@ function checkVariant(said: Said, env: Env): CheckedAction {
   if (!product) return problem(said, { kind: "unclear_item", orderId: null, namedItem: found.named, namedProductId: item.productId }, "unclear_item", null);
   if (!product.sellable) return problem(said, { kind: "product_not_available", productId: product.productId }, "product_not_available", null);
   const choices = choicesOf(product);
-  if (splitConflict(choices)) return problem(said, { kind: "variant_only" }, "variant_only", null, named(found));
+  if (hasConflict(choices)) return problem(said, { kind: "variant_only" }, "variant_only", null, named(found));
   const resolution = resolveVariant(product, item.variantAttributes, choices);
   const signals = signalsOf(said, named(found), { variantChangeVerb: request.changeVerb ? "present" : "absent" });
   if (resolution.kind !== "resolved") {
@@ -389,7 +383,9 @@ function checkReferencedAdd(said: Said, env: Env, quantity: number, snapshot: Ch
   const raise = (item: CheckItem, over: CertaintySignals = signals) => [checked(said, { kind: "increase_quantity", target: variantTarget(item), quantity: quantity as PositiveInteger }, over, { doubt: added })];
   const fits = (item: CheckItem) => {
     const product = productOfItem(item, snapshot);
-    return !product || !conflictsWithKnown(item.variantAttributes, choicesFor(said.request, product, env));
+    if (!product) return true;
+    const choices = choicesFor(said.request, product, env);
+    return !choices.some(({ name }) => name === "") && !conflictsWithKnown(item.variantAttributes, choices);
   };
   let productIds: readonly ProductId[] = [];
   if (target.kind === "context" && target.basis === "mentioned_product") productIds = snapshot.contextProducts.get(target.ref as ContextMessageRef) ?? [];
@@ -458,16 +454,11 @@ function doubtfulDraft(request: ExtractedRequest, resolution: Extract<ProductRes
   return { kind: "draft_pending", draft: { subject: { kind: "product", candidates }, known, quantity, price: stated ? pendingPriceOf(stated, quantity, first) : null, problem: "not_clear", identification: null } };
 }
 
-/**
- * The actions for a product. Two values of one attribute in one request («una negra y una roja») split the units one each when they add up,
- * and otherwise never resolve: the seller is asked.
- */
+/** The actions for a product. Two values of one attribute in one request never resolve: the seller is asked, because the model gave no split into one request per value. */
 function withProduct(said: Said, env: Env, product: CheckProduct, choices: readonly AttributeChoice[], quantity: number, signals: CertaintySignals, doubt: DoubtReason,
   base: readonly AttributeChoice[] = []): readonly CheckedAction[] {
-  const groups = splitConflict(choices);
-  if (groups === null) return [withChoices(said, env, product, [...base, ...choices], quantity, signals, doubt)];
-  if (groups.length === 0 || groups.length !== quantity) return [problem(said, { kind: "variant_only" }, "variant_only", null, signals.targetNamed)];
-  return groups.map((group) => withChoices(said, env, product, [...base, ...group], 1, signals, { ...doubt, ...doubt.kind === "added_by_reference" ? { quantity: 1 as PositiveInteger } : {} } as DoubtReason));
+  if (hasConflict(choices)) return [problem(said, { kind: "variant_only" }, "variant_only", null, signals.targetNamed)];
+  return [withChoices(said, env, product, [...base, ...choices], quantity, signals, doubt)];
 }
 
 /** The action for a product: an item, a pending it advances, a new pending, or the reason it cannot be either. */
@@ -534,7 +525,7 @@ function checkComplete(said: Said, env: Env): CheckedAction {
   if (rest.length > 0) return problem(said, { kind: "variant_only" }, "variant_only", null, "named");
   const productId = product?.productId ?? (subject.kind === "variant" ? subject.productId : subject.candidates[0]);
   const values = product ? choicesFor(request, product, env) : [];
-  if (splitConflict(values)) return problem(said, { kind: "variant_only" }, "variant_only", null, "named");
+  if (hasConflict(values)) return problem(said, { kind: "variant_only" }, "variant_only", null, "named");
   const shared = (env.claims.get(pending.id) ?? 0) > 1;
   const advance: AdvanceRequest = { pendingId: pending.id, mode: "assign", product: product ?? null, productId, identification: product ? identificationOf(product) : textIdentification(productId),
     values, quantity: shared ? request.quantity?.value ?? 1 : request.quantity?.value ?? null, price: request.price ? statedOf(request.price) : null };

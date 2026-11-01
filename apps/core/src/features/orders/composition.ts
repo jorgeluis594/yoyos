@@ -64,6 +64,7 @@ import { findOrderSourceMessage } from "@core/src/features/chats";
 import { findRecentChatMessages } from "@core/src/features/chats/composition";
 import { loadReadingContext as loadReadingContextWith, type ReadingMessage } from "@core/src/features/orders/application/reader/load-reading-context";
 import { findMaskedTexts } from "@core/src/features/orders/infrastructure/message-masked-text-lookup";
+import { findShopCurrency } from "@core/src/features/orders/infrastructure/shop-currency-lookup";
 import { readReadingBudgets, readReadingLimits } from "@core/src/features/orders/infrastructure/reading-budgets-env";
 import { createReadingDeadline, withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
@@ -993,7 +994,7 @@ type ReadingContextLoader = (message: ReadingMessage, target: Parameters<typeof 
   photoMemory: Parameters<typeof loadReadingContextWith>[4]) => ReturnType<typeof loadReadingContextWith>;
 
 /** The loader of the reading input on a given clock (a test moves the clock; production uses the real one). */
-export const createReadingContextLoader = (clock: () => Date): ReadingContextLoader => (message, target, pendings, photoMemory) => loadReadingContextWith({ findRecentChatMessages, findMaskedTexts, findOutcome,
+export const createReadingContextLoader = (clock: () => Date): ReadingContextLoader => (message, target, pendings, photoMemory) => loadReadingContextWith({ findRecentChatMessages, findMaskedTexts, findOutcome, findShopCurrency,
   findChatOrdersOpenedSince, clock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs, budgets: readingBudgets }, message, target, pendings, photoMemory);
 
 /** The input of the staged reader's three stages for a message: recent chat messages, masks, the latest photo outcome, order lines and pendings. */

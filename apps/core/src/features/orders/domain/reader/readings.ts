@@ -1,3 +1,4 @@
+import type { Currency } from "@shared/money";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { LastIncomingPhoto } from "@core/src/features/orders/domain/chat-pendings";
@@ -44,11 +45,13 @@ export type ExtractedRequest = Readonly<{
   price: Readonly<{ amount: number; currency: "order" | "other"; basis: "unit" | "lot" | "not_explicit"; quote: Quote }> | null;
   changeVerb: Quote | null;
 }>;
+/** `price` is the price the request states, so that the resolution can tell products apart by it; `units` is the quantity the request states (1 when none). */
+export type MentionPrice = Readonly<{ amount: number; units: number; basis: "unit" | "lot" | "not_explicit" }>;
 /**
  * `candidateIds` are the products the mention may be resolved to (from `assembleCandidates`); absent means any candidate listed with it.
  * `valuesOnly` marks a request that names no product by words but carries values: its target already fixes the candidates, and `words` repeats its first value words.
  */
-export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[]; valuesOnly?: boolean }>;
+export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[]; valuesOnly?: boolean; price?: MentionPrice }>;
 /** A buyer's value words mapped to a catalog value. */
 export type ResolvedValue = Readonly<{ attribute: string; value: string; quote: Quote }>;
 export type ProductResolution =
@@ -74,4 +77,6 @@ export type ReadingInput = Readonly<{
   photoMemory: LastIncomingPhoto | null;
   /** The photo of this message and the product it was identified as, if any. */
   photo: Readonly<{ productId: ProductId | null }> | null;
+  /** The currency of the shop's prices (from the company's country); the extraction names it to the model so that a price in it counts as the order's. */
+  currency?: Currency;
 }>;

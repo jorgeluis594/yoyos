@@ -11,15 +11,21 @@ import type { StageFacts } from "@core/evals/lib/case-record";
 const urgentNotices: ReadonlySet<string> = new Set(["not_identified", "not_clear", "variant_missing", "variant_not_available", "quantity_above_limit", "unclear_item", "unnamed_add",
   "variant_only", "image_with_request", "no_open_order", "failed", "order_closed", "several_problems", "not_applied", "caption_not_applied", "product_not_available",
   "variant_for_several_pendings", "payment_request"]);
+/** Outcomes that are problems for the seller: a case that states one of them with no notice still expects an interruption, never a silent change. */
+const urgentOutcomes: ReadonlySet<string> = new Set(["unnamed_add", "variant_only", "image_with_request", "no_open_order", "not_identified", "not_clear", "variant_missing",
+  "variant_not_available", "quantity_above_limit", "unclear_item", "failed", "order_closed", "product_not_available", "variant_for_several_pendings", "payment_requested",
+  "invalid_action", "reader_doubt", "request_not_allowed"]);
 const pendingOutcomes: ReadonlySet<string> = new Set(["pending_created", "pending_updated", "pending_split"]);
 const noticeOutcomes: ReadonlySet<string> = new Set(["ready", "ready_with_pendings", "only_item_kept"]);
 const noChangeOutcomes: ReadonlySet<string> = new Set(["no_intent", "questions", "caption_not_applied"]);
 
-/** The decision a case expects: its own `decision`, else derived from the notice (urgent or informative) and the outcomes (pending, applied or silent). */
+/** The decision a case expects: its own `decision`, else derived from the notice (urgent or informative) and the outcomes (urgent, informative, pending, applied or silent). */
 export function decisionOf(expectation: MessageExpectation): DecisionKind {
   if (expectation.decision) return expectation.decision;
   if (expectation.notice) return urgentNotices.has(expectation.notice) ? "urgent" : "notice";
   const outcomes = expectation.outcomes ?? [];
+  // A problem outcome beside a pending is the pending's own «Por resolver» point, not an interruption.
+  if (!outcomes.some((kind) => pendingOutcomes.has(kind)) && outcomes.some((kind) => urgentOutcomes.has(kind))) return "urgent";
   if (outcomes.some((kind) => noticeOutcomes.has(kind))) return "notice";
   if (outcomes.some((kind) => pendingOutcomes.has(kind))) return "pending";
   const changes = outcomes.some((kind) => !noChangeOutcomes.has(kind)) || (outcomes.length === 0 && expectation.order !== undefined);
