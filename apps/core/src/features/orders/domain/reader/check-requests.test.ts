@@ -1,12 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { catalog, pendingOf, productId, variantOf, type ProductKey } from "@core/src/features/orders/domain/chat-reading-fixtures";
+import type { OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { ChatPending } from "@core/src/features/orders/domain/chat-pendings";
-import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import { checkRequests, type CheckItem, type CheckSnapshot, type CheckedAction } from "@core/src/features/orders/domain/reader/check-requests";
 import { agreementOf, decideChange, riskOf } from "@core/src/features/orders/domain/reader/decide";
 import type { ContextMessageRef, ExtractedRequest, ItemRef, PendingRef, ProductResolution, Quote, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 import type { VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
-import type { VariantId } from "@core/src/features/products/domain/product";
 
 const say = (text: string): Quote => ({ source: "current", text });
 const item = (ref: string, key: ProductKey, attributes: Record<string, string>, quantity = 1): CheckItem => {
@@ -158,8 +157,8 @@ describe("checkRequests: the photo just sent", () => {
     expect(checked.signals.targetNamed).toBe("photo_just_sent_set");
     expect(decision(checked)).toEqual({ kind: "pending" });
     const onItem = item("I1", "gorra", { Color: "Rojo" });
-    const photoItem = { kind: "item", orderId: "00000000-0000-4000-8000-000000000001", variantId: onItem.variantId, quantity: 1 } as const;
-    const checkedItem = only(checkRequests([request({ kind: "change_quantity", target: { kind: "photo_just_sent" }, quantity: quantity(3, "set") })], [], snapshot({ items: [onItem], photoJustSent: photoItem as never })));
+    const photoItem = { kind: "item", orderId: "00000000-0000-4000-8000-000000000001" as OrderId, variantId: onItem.variantId, quantity: 1 as PositiveInteger } as const;
+    const checkedItem = only(checkRequests([request({ kind: "change_quantity", target: { kind: "photo_just_sent" }, quantity: quantity(3, "set") })], [], snapshot({ items: [onItem], photoJustSent: photoItem })));
     expect(checkedItem.action).toMatchObject({ kind: "set_photo_item_quantity", variantId: onItem.variantId, expectedQuantity: 1, quantity: 3 });
     expect(decision(checkedItem, "agree")).toEqual({ kind: "applied" });
     expect(decision(checkedItem, "not_run")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
@@ -177,6 +176,52 @@ describe("checkRequests: the photo just sent", () => {
     expect(checked.action).toMatchObject({ kind: "set_quantity", quantity: 3 });
     expect(decision(checked, "agree")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
     expect(decision(only(checkRequests([set], [], snapshot({ photoJustSent: null }))))).toMatchObject({ kind: "urgent", problem: "unnamed_add" });
+  });
+
+  test("leaves the pending ×3 «Con duda» when a buyer text came between the photo and «pásame 3»", () => {
+    const checked = only(checkRequests([set], [], snapshot({ pendings: [pendingRef(1, gorraPending)], photoJustSent: null })));
+    expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: gorraPending.id, mode: "set", quantity: 3 });
+    expect(checked.signals.targetNamed).toBe("context");
+    for (const agreement of ["agree", "not_run"] as const) expect(decision(checked, agreement)).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
+  });
+
+  test("grows the pending «Con duda» on «otro igual» right after the photo just sent, without a quantity", () => {
+    const again = request({ kind: "add", target: { kind: "photo_just_sent" } });
+    const checked = only(checkRequests([again], [], snapshot({ pendings: [pendingRef(1, gorraPending)], photoJustSent: left })));
+    expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: gorraPending.id, mode: "increase", quantity: 1 });
+    expect(decision(checked, "agree")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: gorraPending.quantity + 1 } });
+  });
+});
+
+describe("checkRequests: targets that are a pending", () => {
+  const polera = item("I1", "polera", { Talla: "L" });
+  const gorraPending = pendingOf("gorra");
+  const target = { kind: "pending", ref: "Q1" as PendingRef, named: say("la gorra") } as const;
+  const state = snapshot({ items: [polera], pendings: [pendingRef(1, gorraPending)] });
+
+  test("changes the quantity of the pending, never of the only item of the order", () => {
+    const checked = only(checkRequests([request({ kind: "change_quantity", target, quantity: quantity(2, "set") })], [], state));
+    expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: gorraPending.id, mode: "set", quantity: 2 });
+    expect(decision(checked, "agree")).toEqual({ kind: "pending" });
+    expect(decision(only(checkRequests([request({ kind: "change_quantity", target: { ...target, named: null }, quantity: quantity(2, "set") })], [], state)), "agree"))
+      .toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 2 } });
+  });
+
+  test("declines the pending on a remove, never removes the only item of the order", () => {
+    const checked = only(checkRequests([request({ kind: "remove", target })], [], state));
+    expect(checked.action).toEqual({ kind: "decline_pending", pendingId: gorraPending.id });
+  });
+
+  test("never points another item change at the only item when the target is a pending", () => {
+    const checked = only(checkRequests([request({ kind: "change_variant", target, values: [value("M")] })], [], state));
+    expect(checked.action.kind).not.toBe("change_variant");
+    expect(decision(checked, "agree").kind).toBe("urgent");
+  });
+
+  test("makes a named item the order does not hold urgent whatever the agreement", () => {
+    const checked = only(checkRequests([request({ kind: "remove", target: { kind: "named", words: say("la gorra") } })], [chosen("gorra")], snapshot({ items: [polera] })));
+    expect(checked.action).toMatchObject({ kind: "change_unfound_item" });
+    for (const agreement of ["agree", "not_run"] as const) expect(decision(checked, agreement)).toEqual({ kind: "urgent", problem: "unclear_item", question: null });
   });
 });
 
@@ -218,10 +263,17 @@ describe("checkRequests: pendings and other kinds", () => {
     expect(decision(checked)).toEqual({ kind: "applied" });
   });
 
+  test("notes a mentioned price on a context-only item «Con duda» with its own reason", () => {
+    const polera = item("I1", "polera", { Talla: "L" });
+    const price = { amount: 70, currency: "order", basis: "unit", quote: say("70") } as const;
+    const checked = only(checkRequests([request({ kind: "mention_price", target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, price })], [], snapshot({ items: [polera] })));
+    expect(decision(checked, "agree")).toEqual({ kind: "doubtful", reason: { kind: "price_noted", amount: 70, units: 1 } });
+  });
+
   test("carries the signals of a request whose quotes were dropped as incomplete", () => {
     const checked = only(checkRequests([{ ...request({ target: { kind: "named", words: say("gorra") }, values: [value("rojo")] }), complete: false }], [chosen("gorra", [{ attribute: "Color", value: "Rojo" }])], snapshot()));
     expect(checked.signals.quotesComplete).toBe(false);
-    expect(decision(checked).kind).toBe("applied" === decision(checked).kind ? "applied" : "doubtful");
+    expect(decision(checked, "agree")).toEqual({ kind: "doubtful", reason: { kind: "added_by_reference", quantity: 1, quote: null } });
   });
 
   test("agrees only when the confirming chain resolves the same action", () => {
@@ -229,7 +281,5 @@ describe("checkRequests: pendings and other kinds", () => {
     const other = only(checkRequests([request({ target: { kind: "named", words: say("gorra") }, values: [value("negro")] })], [chosen("gorra", [{ attribute: "Color", value: "Negro" }])], snapshot()));
     expect(agreementOf(first.action, first.action)).toBe("agree");
     expect(agreementOf(first.action, other.action)).toBe("disagree");
-    expect(variantOf("gorra", { Color: "Rojo" }).variantId as VariantId).toBeDefined();
-    expect(first.action.kind === "add" && (first.action.quantity as PositiveInteger)).toBe(1);
   });
 });

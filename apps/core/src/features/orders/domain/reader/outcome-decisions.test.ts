@@ -68,6 +68,16 @@ const rows: readonly Row[] = [
     state: { pendings: [{ ref: "Q1" as PendingRef, pending: pendingOf("gorra") }], photoJustSent: { kind: "pending", pendingId: pendingOf("gorra").id } }, expected: { kind: "pending" } },
   { outcome: "quantity for the photo just sent, add wording", requests: [request({ kind: "change_quantity", target: { kind: "photo_just_sent" }, quantity: { value: 2, mode: "add", quote: say("2 más") } })],
     state: { pendings: [{ ref: "Q1" as PendingRef, pending: pendingOf("gorra") }], photoJustSent: { kind: "pending", pendingId: pendingOf("gorra").id } }, agreement: "agree", expected: { kind: "doubtful" } },
+  { outcome: "variant_only, completing the pending it fits", requests: [request({ kind: "complete_pending", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, values: [value("L")] })],
+    state: { pendings: [{ ref: "Q1" as PendingRef, pending: pendingOf("polera") }] }, expected: { kind: "pending" } },
+  { outcome: "variant_only, a value the item's product does not sell", requests: [request({ kind: "change_variant", target: onlyItem, values: [value("XL")] })], state: { items: [polera] }, agreement: "agree",
+    expected: { kind: "urgent", problem: "variant_not_available" } },
+  { outcome: "quantity for the photo just sent, set wording on the item the photo left", requests: [request({ kind: "change_quantity", target: { kind: "photo_just_sent" }, quantity: { value: 3, mode: "set", quote: say("3") } })],
+    state: { items: [polera], photoJustSent: { kind: "item", orderId: id(1) as OrderId, variantId: polera.variantId, quantity: 1 as PositiveInteger } }, agreement: "agree", expected: { kind: "applied" } },
+  { outcome: "invalid_action, quantity below zero", requests: [request({ kind: "change_quantity", target: onlyItem, quantity: { value: -1, mode: "set", quote: say("-1") } })], state: { items: [polera] }, expected: { kind: "urgent", problem: "invalid_action" } },
+  { outcome: "invalid_action, not the shown product", requests: [request({ target: named("gorra") })], resolutions: [chosen("gorra")], state: { messageKind: "photo_product" }, expected: { kind: "urgent", problem: "invalid_action" } },
+  { outcome: "unclear_item, a named item the order does not hold", requests: [request({ kind: "remove", target: named("gorra") })], resolutions: [chosen("gorra")], state: { items: [polera] }, agreement: "agree",
+    expected: { kind: "urgent", problem: "unclear_item" } },
   { outcome: "unclear_item, a single best reading", requests: [request({ kind: "remove", target: onlyItem })], state: { items: [polera] }, agreement: "agree", expected: { kind: "doubtful" } },
   { outcome: "unclear_item, two items", requests: [request({ kind: "remove" })], state: { items: [polera, item("gorra", { Color: "Rojo" })] }, expected: { kind: "urgent", problem: "unclear_item" } },
   { outcome: "not_identified", requests: [request({ target: named("zapatos") })], resolutions: [{ request: "R1" as RequestRef, kind: "none" }], expected: { kind: "urgent", problem: "not_identified" } },
@@ -92,6 +102,12 @@ describe("every current outcome under the new decisions", () => {
   test("decides caption_not_applied as a doubtful mark on the added item, with no notice", () => {
     const [entry] = checkRequests([request({ target: named("gorra"), values: [value("rojo")] })], [chosen("gorra", [{ attribute: "Color", value: "Rojo" }])], snapshot());
     expect(decideChange(entry!, "low", "not_run", { captionUnread: true })).toEqual({ kind: "doubtful", reason: { kind: "caption_unread" } });
+  });
+
+  test("decides not_identified as silent while the catalog is not ready", () => {
+    const entry = { request: "R1" as RequestRef, action: { kind: "report", outcome: { kind: "not_identified", source: "text", identification: null, silent: true } } satisfies ResolvedChatAction,
+      signals: { quotesComplete: true, targetNamed: "named", variantChangeVerb: "not_applicable", candidates: "single" } as const, doubt: null, urgent: null, blocked: null };
+    expect(decideChange(entry, "low", "not_run", { captionUnread: false })).toEqual({ kind: "silent" });
   });
 
   test("decides reader_doubt as urgent", () => {

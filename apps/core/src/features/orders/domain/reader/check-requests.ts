@@ -126,6 +126,7 @@ function findItem(request: ExtractedRequest, env: Env): FoundItem {
     if (only) return more.length === 0 ? { kind: "found", item: only, named: true } : { kind: "many", productId, named: true };
     return { kind: "none", productId, named: true };
   }
+  if (target.kind === "pending") return { kind: "none", productId: null, named: false };
   const [only, ...more] = items;
   if (only && more.length === 0) return { kind: "found", item: only, named: false };
   return more.length > 0 ? { kind: "many", productId: null, named: false } : { kind: "none", productId: null, named: false };
@@ -141,7 +142,17 @@ function unfoundItem(said: Said, found: Exclude<FoundItem, { kind: "found" }>, e
   return problem(said, { kind: "unclear_item", orderId: null, namedItem: false, namedProductId: null }, "unclear_item", items.length > 1 ? question(items) : null);
 }
 
+/** The pending a request points to: by reference, or the only one there is when the photo just sent no longer counts. */
+function pendingOfRequest(request: ExtractedRequest, snapshot: CheckSnapshot): ChatPending | undefined {
+  const { target } = request;
+  if (target.kind === "pending") return snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending;
+  const [only, ...more] = snapshot.pendings;
+  return target.kind === "photo_just_sent" && snapshot.photoJustSent === null && only && more.length === 0 ? only.pending : undefined;
+}
+
 function checkRemove(said: Said, env: Env): CheckedAction {
+  const pending = said.request.target.kind === "pending" ? pendingOfRequest(said.request, env.snapshot) : undefined;
+  if (pending) return checked(said, { kind: "decline_pending", pendingId: pending.id }, signalsOf(said, "named"));
   const found = findItem(said.request, env);
   const { quantity } = said.request;
   if (found.kind !== "found") {
@@ -165,6 +176,8 @@ function checkQuantity(said: Said, env: Env): CheckedAction {
   if (!whole(quantity.value, quantity.mode === "set" ? 0 : 1)) return checked(said, invalid("quantity_not_whole"), signalsOf(said, "context"), { urgent: { problem: "invalid_action", question: null } });
   const justSent = request.target.kind === "photo_just_sent" ? photoQuantity(said, env, quantity) : null;
   if (justSent) return justSent;
+  const pending = pendingOfRequest(request, env.snapshot);
+  if (pending) return pendingQuantity(said, pending, quantity, request.target.kind === "pending" && request.target.named !== null ? "named" : "context");
   const found = findItem(request, env);
   if (found.kind !== "found") {
     if (found.kind === "none" && !found.named && env.snapshot.items.length === 0) return problem(said, { kind: "unnamed_add" }, "unnamed_add", { language: env.snapshot.language, kind: "another_of_which" });
@@ -180,24 +193,29 @@ function checkQuantity(said: Said, env: Env): CheckedAction {
   }
 }
 
-/** A quantity for what the photo just sent left: set wording counts as named, add and decrease wording stay context. Null when nothing is left or it is gone. */
-function photoQuantity(said: Said, env: Env, quantity: NonNullable<ExtractedRequest["quantity"]>): CheckedAction | null {
-  const { photoJustSent: left, pendings, items } = env.snapshot;
+/** A quantity change on a pending: low risk, and never better than «Con duda» unless it is high certainty. */
+function pendingQuantity(said: Said, pending: ChatPending, quantity: Pick<NonNullable<ExtractedRequest["quantity"]>, "value" | "mode">, targetNamed: Named, over: Partial<CertaintySignals> = {}): CheckedAction {
   const otherwise = report({ kind: "unclear_item", orderId: null, namedItem: false, namedProductId: null });
+  const mode = quantity.mode === "add" ? "increase" : quantity.mode;
+  const next = mode === "set" ? quantity.value : mode === "increase" ? pending.quantity + quantity.value : pending.quantity - quantity.value;
+  const doubt: DoubtReason | null = next >= 1 ? { kind: "quantity_set", quantity: next as PositiveInteger } : null;
+  return checked(said, { kind: "change_pending_quantity", pendingId: pending.id, mode, quantity: quantity.value, price: null, otherwise }, signalsOf(said, targetNamed, over), { doubt });
+}
+
+/** A quantity for what the photo just sent left: set wording counts as named, add and decrease wording stay context. Null when nothing is left or it is gone. */
+function photoQuantity(said: Said, env: Env, quantity: Pick<NonNullable<ExtractedRequest["quantity"]>, "value" | "mode">): CheckedAction | null {
+  const { photoJustSent: left, pendings, items } = env.snapshot;
   const signals = signalsOf(said, quantity.mode === "set" ? "photo_just_sent_set" : "context");
   if (left?.kind === "pending") {
     const pending = pendings.find((entry) => entry.pending.id === left.pendingId)?.pending;
     if (!pending) return null;
-    const mode = quantity.mode === "add" ? "increase" : quantity.mode;
-    const next = mode === "set" ? quantity.value : mode === "increase" ? pending.quantity + quantity.value : pending.quantity - quantity.value;
-    const doubt: DoubtReason | null = next >= 1 ? { kind: "quantity_set", quantity: next as PositiveInteger } : null;
-    return checked(said, { kind: "change_pending_quantity", pendingId: pending.id, mode, quantity: quantity.value, price: null, otherwise }, signals, { doubt });
+    return pendingQuantity(said, pending, quantity, quantity.mode === "set" ? "photo_just_sent_set" : "context");
   }
   if (left?.kind === "item") {
     const item = items.find((line) => line.variantId === left.variantId);
     if (!item) return null;
     if (quantity.mode === "set") {
-      return checked(said, { kind: "set_photo_item_quantity", orderId: left.orderId, variantId: left.variantId, expectedQuantity: left.quantity, quantity: quantity.value, otherwise }, signals,
+      return checked(said, { kind: "set_photo_item_quantity", orderId: left.orderId, variantId: left.variantId, expectedQuantity: left.quantity, quantity: quantity.value, otherwise: report({ kind: "unclear_item", orderId: null, namedItem: false, namedProductId: null }) }, signals,
         { doubt: quantity.value >= 1 ? { kind: "quantity_set", quantity: quantity.value as PositiveInteger } : { kind: "removed", product: item.productName } });
     }
     const target = variantTarget(item);
@@ -213,7 +231,8 @@ function checkPrice(said: Said, env: Env): CheckedAction {
   if (found.kind !== "found") return unfoundItem(said, found, env);
   const { price } = said.request;
   const mentioned = price ? mentionedPriceOf(statedOf(price), found.item.quantity, found.item.unitPrice) : null;
-  return checked(said, { kind: "set_mentioned_price", target: variantTarget(found.item), price: mentioned }, signalsOf(said, named(found)));
+  const doubt: DoubtReason | null = mentioned ? { kind: "price_noted", amount: mentioned.amount.amount, units: mentioned.units as PositiveInteger } : null;
+  return checked(said, { kind: "set_mentioned_price", target: variantTarget(found.item), price: mentioned }, signalsOf(said, named(found)), { doubt });
 }
 
 // ---- variants ----
@@ -301,8 +320,8 @@ function checkAdd(said: Said, env: Env): readonly CheckedAction[] {
   const { target } = request;
   if (target.kind === "photo_same_message") return checkShown(said, env, quantity);
   if (target.kind === "named") return [checkNamedAdd(said, env, quantity)];
-  if (target.kind === "photo_just_sent" && request.quantity) {
-    const grown = photoQuantity(said, env, { ...request.quantity, mode: "add" });
+  if (target.kind === "photo_just_sent") {
+    const grown = photoQuantity(said, env, { value: quantity, mode: "add" });
     if (grown) return [grown];
   }
   return [checkReferencedAdd(said, env, quantity, snapshot)];
@@ -439,12 +458,13 @@ function checkComplete(said: Said, env: Env): CheckedAction {
   const pending = target.kind === "pending" ? snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending : undefined;
   if (!pending) return checked(said, invalid("unknown_reference"), signals, { urgent: { problem: "invalid_action", question: null } });
   if (!whole(request.quantity?.value, 1)) return checked(said, invalid("quantity_not_whole"), signals, { urgent: { problem: "invalid_action", question: null } });
-  const present = pending.subject.kind === "variant"
-    ? snapshot.products.filter((product) => product.productId === (pending.subject as { productId: ProductId }).productId)
-    : snapshot.products.filter((product) => (pending.subject as { candidates: readonly ProductId[] }).candidates.includes(product.productId));
+  const { subject } = pending;
+  const present = subject.kind === "variant"
+    ? snapshot.products.filter((product) => product.productId === subject.productId)
+    : snapshot.products.filter((product) => subject.candidates.includes(product.productId));
   const [product, ...rest] = present;
   if (rest.length > 0) return problem(said, { kind: "variant_only" }, "variant_only", null, "named");
-  const productId = product?.productId ?? (pending.subject.kind === "variant" ? pending.subject.productId : pending.subject.candidates[0]);
+  const productId = product?.productId ?? (subject.kind === "variant" ? subject.productId : subject.candidates[0]);
   const values = product ? choicesFromWords(product, request.values) : [];
   const shared = (env.claims.get(pending.id) ?? 0) > 1;
   const advance: AdvanceRequest = { pendingId: pending.id, mode: "assign", product: product ?? null, productId, identification: product ? identificationOf(product) : textIdentification(productId),
@@ -457,8 +477,9 @@ function checkDecline(said: Said, env: Env): CheckedAction {
   const { target } = said.request;
   const { snapshot } = env;
   const signals = signalsOf(said, "named");
+  const { photoJustSent: left } = snapshot;
   const pending = target.kind === "pending" ? snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending
-    : snapshot.photoJustSent?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === (snapshot.photoJustSent as { pendingId: string }).pendingId)?.pending : undefined;
+    : left?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === left.pendingId)?.pending : undefined;
   if (!pending) return checked(said, report({ kind: "no_intent" }), signals);
   return checked(said, { kind: "decline_pending", pendingId: pending.id }, signals);
 }

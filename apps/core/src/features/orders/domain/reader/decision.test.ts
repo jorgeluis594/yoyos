@@ -7,6 +7,7 @@ const reasons = [
   { kind: "added_by_reference", quantity: 1, quote: 2 },
   { kind: "added_by_reference", quantity: 1, quote: null },
   { kind: "removed", product: "Polera" },
+  { kind: "price_noted", amount: 70, units: 1 },
   { kind: "caption_unread" },
   { kind: "inherited", from: { kind: "quantity_set", quantity: 3 } },
 ];

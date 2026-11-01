@@ -27,6 +27,8 @@ export type OriginalDoubtReason =
   | Readonly<{ kind: "quantity_set"; quantity: PositiveInteger }>
   | Readonly<{ kind: "added_by_reference"; quantity: PositiveInteger; quote: QuoteId | null }>
   | Readonly<{ kind: "removed"; product: string }>
+  /** A price the buyer mentioned on an item the message did not name: kept as a note, in the order's currency. */
+  | Readonly<{ kind: "price_noted"; amount: number; units: PositiveInteger }>
   | Readonly<{ kind: "caption_unread" }>;
 /** An inherited reason never nests: it carries the original, non-inherited reason of the pending's doubt. */
 export type DoubtReason = OriginalDoubtReason | Readonly<{ kind: "inherited"; from: OriginalDoubtReason }>;
@@ -47,6 +49,7 @@ const originalDoubtReasonSchema: z.ZodType<OriginalDoubtReason> = z.discriminate
   z.strictObject({ kind: z.literal("quantity_set"), quantity }),
   z.strictObject({ kind: z.literal("added_by_reference"), quantity, quote: quoteId.nullable() }),
   z.strictObject({ kind: z.literal("removed"), product: text }),
+  z.strictObject({ kind: z.literal("price_noted"), amount: z.number().positive(), units: quantity }),
   z.strictObject({ kind: z.literal("caption_unread") }),
 ]);
 

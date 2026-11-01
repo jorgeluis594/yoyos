@@ -68,6 +68,7 @@ export function decideChange(checked: CheckedAction, risk: ChangeRisk, agreement
   if (action.kind === "ready") return { kind: "applied" };
   if (action.kind === "caption_doubt") return { kind: "silent" };
   if (action.kind === "draft_pending") return { kind: "pending" };
+  if (action.kind === "change_unfound_item" && !checked.blocked) return { kind: "urgent", ...(checked.urgent ?? { problem: "unclear_item", question: null }) };
   if (checked.blocked) return { kind: "urgent", problem: checked.blocked, question: null };
   if (action.kind === "add" && guards.captionUnread) return { kind: "doubtful", reason: { kind: "caption_unread" } };
   const high = isHighCertainty(signals) && (risk === "low" || agreement === "agree");
