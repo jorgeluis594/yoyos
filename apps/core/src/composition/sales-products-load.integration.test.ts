@@ -63,6 +63,11 @@ async function record(name: string, companyId: string, statement: Prisma.Sql): P
 const stockedFor = (companyId: string, before: Date) => withTenantIsolation(companyId, () => orders.readSalesForAssistant(async () => products.listStockedForAssistant({ createdBefore: before })));
 
 describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixture", () => {
+  /** Sets the visibility map right before a measurement: rows other test files insert meanwhile share the last pages of OrderItem and Order and would make the index-only probes fetch those heap pages. */
+  const settleVisibility = async () => {
+    for (const table of ["OrderItem", "Order"]) await admin.query(`VACUUM "${table}"`);
+  };
+
   beforeAll(async () => {
     admin = new pg.Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });
     await admin.connect();
@@ -155,6 +160,7 @@ describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixtu
 
   test("the item-dates statement for 12,000 checked variants costs the same at one year and at four (within 1.5 times plus 50 ms) and its probes are index-only scans of the item date index", async () => {
     const window = windowOf({ from: "2027-12-03", through: "2028-01-01" });
+    await settleVisibility();
     const timesOf = async (companyId: string) => {
       const stocked = await stockedFor(companyId, window.before);
       const variantIds = stocked.success ? stocked.data.checked.flatMap((product) => product.variantIds) : [];
@@ -184,6 +190,7 @@ describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixtu
       }
     };
     for (const needFirstAfter of [false, true] as const) {
+      await settleVisibility();
       await evict();
       const cold = await explain(store.companyId, saleDatesSql(store.companyId, { window, variantIds, needFirstAfter }));
       const warm = await explain(store.companyId, saleDatesSql(store.companyId, { window, variantIds, needFirstAfter }));
