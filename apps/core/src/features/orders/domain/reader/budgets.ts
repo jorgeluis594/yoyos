@@ -57,7 +57,8 @@ export function readingInputChars(input: ReadingInput): number {
   return baseChars(input)
     + input.context.reduce((sum, message) => sum + (message.text?.length ?? 0) + message.kind.length + contextOverhead, 0)
     + input.items.reduce((sum, item) => sum + itemChars(item), 0)
-    + input.pendings.reduce((sum, pending) => sum + pendingChars(pending), 0);
+    + input.pendings.reduce((sum, pending) => sum + pendingChars(pending), 0)
+    + (input.endedPendings ?? []).reduce((sum, pending) => sum + pendingChars({ ...pending, doubtful: false }), 0);
 }
 
 /**

@@ -20,7 +20,7 @@ export function parseExtractionAnswer(answer: unknown, { input, intents }: Extra
 
   const contextRefs = new Set<string>(input.context.map(({ ref }) => ref));
   const itemRefs = new Set<string>(input.items.map(({ ref }) => ref));
-  const pendingRefs = new Set<string>(input.pendings.map(({ ref }) => ref));
+  const pendingRefs = new Set<string>([...input.pendings, ...(input.endedPendings ?? [])].map(({ ref }) => ref));
 
   const quoteOf = (value: ParsedQuote): Quote | null =>
     value.message === "current" ? { source: "current", text: value.text }

@@ -1,6 +1,6 @@
 import { defaultReadingBudgets } from "@core/src/features/orders/domain/reader/budgets";
 import type { ExtractionInput } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
-import { photoLeftText, pendingLine } from "@core/src/features/orders/infrastructure/reader/stages/render-pending";
+import { photoLeftText, pendingLines } from "@core/src/features/orders/infrastructure/reader/stages/render-pending";
 import type { ReadingContextMessage, ReadingInput, ReadingItem, RequestIntent } from "@core/src/features/orders/domain/reader/readings";
 
 /** The quote of an intent is shown up to this long: it only points at where the request is. */
@@ -53,7 +53,7 @@ export function renderExtractionInput({ input, intents }: ExtractionInput, maxCh
   ].join("\n");
 
   const items = input.items.map(itemLine);
-  const pendings = input.pendings.map((pending) => pendingLine(pending));
+  const pendings = pendingLines(input);
   let context = input.context.map(contextLine);
   while (context.length > 0 && assemble(context, items, pendings).length > maxChars) context = context.slice(1);
   if (assemble(context, items, pendings).length <= maxChars) return assemble(context, items, pendings);

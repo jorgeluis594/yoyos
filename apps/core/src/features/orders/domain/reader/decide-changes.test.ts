@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ChatOrderCatalogItem, ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
+import type { ChatPendingId } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import { decideChanges } from "@core/src/features/orders/domain/reader/decide-changes";
 import type { CheckedAction } from "@core/src/features/orders/domain/reader/decide";
@@ -75,5 +76,36 @@ describe("decideChanges", () => {
 
     expect(result.decided[0]!.decision).toEqual({ kind: "doubtful", reason: { kind: "caption_unread" } });
     expect(result.doubtful.get(variantL)).toEqual({ kind: "doubtful", reason: { kind: "caption_unread" } });
+  });
+
+  describe("a quantity on a pending", () => {
+    const pendingId = "00000000-0000-4000-8000-0000000000b1" as ChatPendingId;
+    const set3: ResolvedChatAction = { kind: "change_pending_quantity", pendingId, mode: "set", quantity: 3, price: null, otherwise: { kind: "report", outcome: { kind: "no_intent" } } };
+    const add3: ResolvedChatAction = { ...set3, mode: "increase" };
+    const quantityDoubt: DoubtReason = { kind: "quantity_set", quantity: 3 as PositiveInteger };
+
+    test("stays silent when the confirming reading says the same or did not run", () => {
+      expect(decideChanges([checked(set3, sure, { doubt: quantityDoubt })], null, guards).decided[0]!.decision).toEqual({ kind: "pending" });
+      expect(decideChanges([checked(set3, sure, { doubt: quantityDoubt })], [checked(set3)], guards).decided[0]!.decision).toEqual({ kind: "pending" });
+    });
+
+    test("becomes «Con duda» on the pending when the confirming reading reads another mode, and the pending keeps the doubt", () => {
+      const result = decideChanges([checked(add3, sure, { doubt: quantityDoubt })], [checked(set3)], guards);
+
+      expect(result.decided[0]!.decision).toEqual({ kind: "doubtful", reason: quantityDoubt });
+      expect(result.pendingDoubts.get(pendingId)).toEqual({ kind: "doubtful", reason: quantityDoubt });
+    });
+
+    test("becomes «Con duda» when the confirming reading has no action for the request", () => {
+      expect(decideChanges([checked(set3, sure, { doubt: quantityDoubt })], [], guards).decided[0]!.decision).toEqual({ kind: "doubtful", reason: quantityDoubt });
+    });
+
+    test("compares the quantity of an answer with a number, and ignores an answer with none", () => {
+      const answer = (quantity: number | null): ResolvedChatAction => ({ kind: "advance_pending", request: { pendingId, mode: "assign", product: null, productId: "00000000-0000-4000-8000-000000000021" as ProductId,
+        identification: { method: "text", productId: "00000000-0000-4000-8000-000000000021" as ProductId, confidence: null }, values: [], quantity, price: null }, otherwise: { kind: "report", outcome: { kind: "no_intent" } } } as unknown as ResolvedChatAction);
+      expect(decideChanges([checked(answer(2), sure, { doubt: quantityDoubt })], [checked(answer(3))], guards).decided[0]!.decision.kind).toBe("doubtful");
+      expect(decideChanges([checked(answer(2), sure, { doubt: quantityDoubt })], [checked(answer(2))], guards).decided[0]!.decision.kind).toBe("pending");
+      expect(decideChanges([checked(answer(null))], [checked(answer(3))], guards).decided[0]!.decision.kind).toBe("pending");
+    });
   });
 });

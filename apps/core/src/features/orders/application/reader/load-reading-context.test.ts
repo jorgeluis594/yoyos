@@ -147,6 +147,28 @@ describe("loadReadingContext", () => {
     expect(loaded.data.input.pendings[1]).not.toHaveProperty("missing");
   });
 
+  test("lists the pendings that ended after the alive ones, with the reason and the products the catalog names", async () => {
+    const order = orderWith(1);
+    const closedOrder = id(77) as OrderId;
+    const polo = { productId: id(410) as ProductId, name: "Polo", sellable: true, attributes: [], variants: [] } as unknown as ProductForReading;
+    const base = { price: null, lastChangedAt: ago(2), sourceMessageId: id(2) as ChatMessageId, doubt: null, pointSince: ago(2), acknowledgedAt: null, quantity: 2 as PositiveInteger, known: {} };
+    const alive: ChatPending = { ...base, id: id(501) as ChatPendingId, requestId: id(501) as ChatPendingId, subject: { kind: "variant", productId: id(410) as ProductId }, order: null };
+    const closed: ChatPending = { ...base, id: id(502) as ChatPendingId, requestId: id(502) as ChatPendingId, subject: { kind: "variant", productId: id(410) as ProductId }, order: { orderId: closedOrder, attachedAt: ago(3) } };
+    const target: ChatOrderTarget = { kind: "open", order, productIds: new Map() };
+    const { deps } = fakes({ findProductsForReading: async () => ok([polo]) });
+    const loaded = await loadReadingContext(deps, message(), target, { pendings: [alive, closed], readyRemembered: false }, null);
+    if (!loaded.success) throw new Error("expected context");
+    expect(loaded.data.input.pendings.map(({ ref }) => ref)).toEqual(["Q1"]);
+    expect(loaded.data.input.endedPendings).toEqual([{ ref: "Q2", pendingId: id(502), productIds: [id(410)], known: {}, quantity: 2, productNames: ["Polo"], ended: "order_closed" }]);
+  });
+
+  test("lists no ended pendings when every pending is alive", async () => {
+    const { deps } = fakes();
+    const loaded = await loadReadingContext(deps, message(), noTarget, noPendings, null);
+    if (!loaded.success) throw new Error("expected context");
+    expect(loaded.data.input).not.toHaveProperty("endedPendings");
+  });
+
   test("does not read the catalog when there are no pendings", async () => {
     let reads = 0;
     const { deps } = fakes({ findProductsForReading: async () => { reads += 1; return ok([]); } });

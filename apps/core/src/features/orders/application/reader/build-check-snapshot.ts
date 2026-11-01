@@ -51,11 +51,12 @@ export function buildCheckSnapshot(input: SnapshotInput): CheckSnapshot {
   });
   const refOf = new Map(input.reading.pendings.map(({ pendingId, ref }) => [pendingId as string, ref]));
   // A pending the stages never saw (created since) has no ref the model could have used; it still counts for the checks.
-  let extra = input.reading.pendings.length;
+  let extra = input.reading.pendings.length + (input.reading.endedPendings?.length ?? 0);
   const pendings = input.alive.map((pending) => ({ ref: (refOf.get(pending.id) ?? `Q${(extra += 1)}`) as PendingRef, pending }));
   const photoProductIds = input.photo?.outcome.outcomes.map(identifiedBy).filter((id): id is ProductId => id !== null) ?? [];
   const contextProducts = new Map<ContextMessageRef, readonly ProductId[]>(input.photo && photoProductIds.length ? [[input.photo.ref, photoProductIds]] : []);
-  return { messageKind: input.kind, language: input.language, products, items, pendings,
+  const endedPendings = (input.reading.endedPendings ?? []).map(({ ref }) => ref);
+  return { messageKind: input.kind, language: input.language, products, items, pendings, ...(endedPendings.length ? { endedPendings } : {}),
     order: input.target.kind === "open" ? "open" : input.target.kind === "closed" ? "closed" : "none",
     photoJustSent: photoJustSentOf(input.kind === "text" ? "text" : "photo", input.memory, input.target, input.alive),
     lastPhoto: lastPhotoOf(input.photo), contextProducts };
