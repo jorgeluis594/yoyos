@@ -6,6 +6,7 @@ import type { ProductId } from "@core/src/features/products/domain/product";
 import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 import type { ReadingContextData } from "@core/src/features/orders/application/reader/load-reading-context";
 import type { ReaderStages, StageError, StageResult } from "@core/src/features/orders/application/reader/stages";
+import { maxReaderActions } from "@core/src/features/orders/domain/chat-reading";
 import { assembleCandidates, type MentionSearch } from "@core/src/features/orders/domain/reader/candidates";
 import { maskStageOutput, type StoredStageOutput } from "@core/src/features/orders/domain/reader/masking";
 import { verifyIntentQuotes, verifyQuotes, type VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
@@ -42,6 +43,8 @@ export type PrimaryReading = Readonly<{
   intent: IntentReading;
   /** The intents whose quote was found; the others were dropped. */
   intents: readonly RequestIntent[];
+  /** The first request beyond `maxReaderActions`, which is cut: the message then reports `too_many_actions`. */
+  overflow: RequestRef | null;
   droppedIntents: number;
   chain: ChainResult | null;
   catalog: ReadingCatalog;
@@ -127,10 +130,11 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   if (!intentResult.success) return err(intentResult.error);
   const intent = intentResult.data.value;
   const empty: ReadingCatalog = { products: [], searchMs: null, matchCount: null, timedOut: false };
-  if (intent.kind !== "requests") return ok({ primary: { intent, intents: [], droppedIntents: 0, chain: null, catalog: empty }, confirming: null, records });
+  if (intent.kind !== "requests") return ok({ primary: { intent, intents: [], overflow: null, droppedIntents: 0, chain: null, catalog: empty }, confirming: null, records });
 
-  const { kept: intents, dropped } = verifyIntentQuotes(intent.requests.slice(0, 10), input);
-  if (intents.length === 0) return ok({ primary: { intent, intents, droppedIntents: dropped.length, chain: null, catalog: empty }, confirming: null, records });
+  const overflow = intent.requests[maxReaderActions]?.id ?? null;
+  const { kept: intents, dropped } = verifyIntentQuotes(intent.requests.slice(0, maxReaderActions), input);
+  if (intents.length === 0) return ok({ primary: { intent, intents, overflow, droppedIntents: dropped.length, chain: null, catalog: empty }, confirming: null, records });
 
   const extract = (reading: Reading, extractSignal: AbortSignal) => stages.extractRequests(input, intents, reading, extractSignal);
   const primaryExtraction = extract("primary", signal);
@@ -159,7 +163,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   if (resolved && !resolved.success) { abort.abort(); return err(resolved.error); }
   const resolutions = resolved?.success ? resolved.data.value : [];
   const chain: ChainResult = { requests, resolutions };
-  const primary: PrimaryReading = { intent, intents, droppedIntents: dropped.length, chain, catalog: { products: searched.data.products, ...searched.data.catalog } };
+  const primary: PrimaryReading = { intent, intents, overflow, droppedIntents: dropped.length, chain, catalog: { products: searched.data.products, ...searched.data.catalog } };
 
   const confirming: ConfirmingChain | null = confirmingExtraction ? {
     abort: () => abort.abort(),

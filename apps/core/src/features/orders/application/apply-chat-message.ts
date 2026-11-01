@@ -18,7 +18,7 @@ import { decideChanges, type DecidedChanges } from "@core/src/features/orders/do
 import { isHighCertainty, riskOf } from "@core/src/features/orders/domain/reader/decide";
 import type { DoubtReason } from "@core/src/features/orders/domain/reader/decision";
 import { inheritedMark, withDecisionOnPending } from "@core/src/features/orders/domain/reader/pending-doubt";
-import type { ContextMessageRef, QuoteId, StageCall } from "@core/src/features/orders/domain/reader/readings";
+import type { ContextMessageRef, QuoteId, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
 import type { MaskedText, MessageTrace, TracePhoto, TraceShadow } from "@core/src/features/orders/domain/reader/trace";
 import type { ReadChatMessage } from "@core/src/features/orders/application/read-chat-message";
 import { buildCheckSnapshot, type SnapshotInput } from "@core/src/features/orders/application/reader/build-check-snapshot";
@@ -337,11 +337,16 @@ async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>>
       const snapshot = snapshotOf(locked);
       const checks = checkRequests(chain.requests, chain.resolutions, snapshot);
       const confirmed = confirming ? checkRequests(confirming.requests, confirming.resolutions, snapshot) : null;
-      const decided = decideChanges(checks, confirmed, { captionUnread: false });
+      const decided = decideChanges([...checks, ...tooManyActions(primary.overflow)], confirmed, { captionUnread: false });
       return { actions: nonEmpty(decided.actions, { kind: "report", outcome: { kind: "no_intent" } }), decided };
     } };
   return ok({ plan, data: { ...data, confirmingRun, answer: "actions", actionKinds: chain.requests.map(({ request }) => request.kind) } });
 }
+
+/** The requests beyond `maxReaderActions` are cut; the message reports `too_many_actions` for them, urgent like any invalid action. */
+const tooManyActions = (overflow: RequestRef | null): readonly CheckedAction[] => overflow === null ? [] : [{ request: overflow,
+  action: { kind: "report", outcome: { kind: "invalid_action", orderId: null, reason: "too_many_actions" } },
+  signals: { quotesComplete: true, targetNamed: "named", variantChangeVerb: "not_applicable", candidates: "single" }, doubt: null, urgent: { problem: "invalid_action", question: null }, blocked: null }];
 
 const nonEmpty = (actions: readonly ResolvedChatAction[], fallback: ResolvedChatAction): readonly [ResolvedChatAction, ...ResolvedChatAction[]] => {
   const [first, ...rest] = actions;

@@ -360,6 +360,18 @@ describe("applyChatMessage: decisions", () => {
   });
 });
 
+describe("applyChatMessage: too many requests", () => {
+  test("cuts the requests beyond the tenth and reports too_many_actions as urgent", async () => {
+    const ids = Array.from({ length: 11 }, (_, index) => `R${index + 1}`);
+    const h = harness({ message: textMessage("cómo te pago"), target: poloTarget(), script: { intent: requestsOf(...ids.map((request) => intent(request, "payment_request", "cómo te pago"))),
+      extraction: ids.slice(0, 10).map((request) => extracted(request, "payment_request")) } });
+    const applied = await succeeded(h.run());
+
+    expect(applied).toMatchObject({ kind: "applied", noticeDue: true, outcomes: expect.arrayContaining([expect.objectContaining({ kind: "invalid_action", reason: "too_many_actions" })]) });
+    expect(applied.kind === "applied" && applied.trace.actionKinds).toHaveLength(10);
+  });
+});
+
 describe("applyChatMessage: link notice", () => {
   const sureAdd = () => ({ message: textMessage("dame una gorra"), target: poloTarget(), script: { intent: requestsOf(intent("R1", "add", "una gorra")),
     extraction: [extracted("R1", "add", { target: { kind: "named", words: current("una gorra") } })], resolutions: [chosen("R1", productCap)] } });
