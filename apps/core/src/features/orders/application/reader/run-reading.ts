@@ -12,7 +12,7 @@ import { verifyIntentQuotes, verifyQuotes, type VerifiedRequest } from "@core/sr
 import type { AddressSpan, ExtractedRequest, IntentReading, ProductMention, ProductResolution, ReaderStage, Reading, ReadingInput, RequestIntent, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
 import type { StageInputSummary, TraceStage } from "@core/src/features/orders/domain/reader/trace";
 
-type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
+type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
 export type RunReadingError = StageError | PersistenceError;
 
 /** What the reading needs besides the stages: the catalog reads the resolution stage depends on. */
@@ -82,17 +82,23 @@ export function mentionsOf(requests: readonly VerifiedRequest[]): readonly Produ
 const sameMention = (a: ProductMention, b: ProductMention) => a.request === b.request && a.words.text.toLowerCase() === b.words.text.toLowerCase()
   && JSON.stringify(a.values.map(({ valueWords }) => valueWords.text.toLowerCase())) === JSON.stringify(b.values.map(({ valueWords }) => valueWords.text.toLowerCase()));
 
+/** The products the checks read: loaded once, whatever the message mentions, because a photo's shown product and the order's lines are read without a mention. */
+async function loadProducts(deps: RunReadingDependencies, ids: readonly ProductId[]): Promise<Result<readonly ProductForReading[], PersistenceError>> {
+  const unique = [...new Set(ids)];
+  return unique.length ? deps.findProductsForReading(unique) : ok([]);
+}
+
 type Searched = Readonly<{ mentions: readonly ProductMention[]; products: readonly ProductForReading[]; catalog: Omit<ReadingCatalog, "products"> }>;
 
 /** Searches the mentions in one statement and loads the candidate products, then gives each mention the ids it may be resolved to. */
-async function searchMentions(deps: RunReadingDependencies, mentions: readonly ProductMention[], input: ReadingInput, photoProductId: ProductId | null): Promise<Result<Searched, PersistenceError>> {
+async function searchMentions(deps: RunReadingDependencies, mentions: readonly ProductMention[], input: ReadingInput, photoProductIds: readonly ProductId[]): Promise<Result<Searched, PersistenceError>> {
   const found = await deps.findMentionCandidates(mentions.map(({ words }) => words.text));
   if (!found.success) return found;
   const searched: MentionSearch[] = mentions.map(({ request }, index) => ({ request, productIds: found.data.mentions[index]?.productIds ?? [], unavailableProductIds: found.data.mentions[index]?.unavailableProductIds ?? [] }));
   const itemProductIds = input.items.flatMap(({ productId }) => (productId ? [productId] : []));
   const pendingProductIds = input.pendings.flatMap(({ productIds }) => productIds);
-  const assembled = assembleCandidates({ searched, photoProductId, itemProductIds, pendingProductIds, perMention: deps.candidatesPerMention });
-  const loaded = assembled.productIds.length ? await deps.findProductsForReading(assembled.productIds) : ok<readonly ProductForReading[]>([]);
+  const assembled = assembleCandidates({ searched, photoProductId: photoProductIds[0] ?? null, itemProductIds, pendingProductIds, perMention: deps.candidatesPerMention });
+  const loaded = await loadProducts(deps, [...assembled.productIds, ...photoProductIds]);
   if (!loaded.success) return loaded;
   return ok({ mentions: mentions.map((mention) => ({ ...mention, candidateIds: assembled.byMention.get(mention.request) ?? [] })), products: loaded.data,
     catalog: { searchMs: found.data.durationMs, matchCount: found.data.mentions.reduce((sum, entry) => sum + entry.matchCount, 0), timedOut: found.data.timedOut } });
@@ -105,10 +111,10 @@ type Recorder = (stage: ReaderStage, result: Result<StageResult<unknown>, StageE
  * primary extraction when an intent is high-risk. Model calls and the mention search are outside the transaction. A stage that fails is an error
  * (a retry decided by the handler); the confirming chain never fails the message: it only leaves its actions without a second opinion.
  */
-export async function runReading(deps: RunReadingDependencies, context: ReadingContextData, photoProductId: ProductId | null, signal: AbortSignal,
+export async function runReading(deps: RunReadingDependencies, context: ReadingContextData, photoProductIds: readonly ProductId[], signal: AbortSignal,
   started: Readonly<{ intent?: Promise<Result<StageResult<IntentReading>, StageError>> }> = {}): Promise<Result<StartedReading, RunReadingError>> {
   const { stages } = deps;
-  const input: ReadingInput = { ...context.input, photo: photoProductId === null && context.input.current.kind !== "image" ? null : { productId: photoProductId } };
+  const input: ReadingInput = { ...context.input, photo: context.input.current.kind === "image" ? { productId: photoProductIds[0] ?? null } : null };
   const records: StageRecord[] = [];
   const record: Recorder = (stage, result, summary, output) => {
     const call = result.success ? result.data.call : result.error.call;
@@ -141,7 +147,12 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
 
   const requests = verifyQuotes(extracted.data.value as readonly ExtractedRequest[], input);
   const mentions = mentionsOf(requests);
-  const searched = mentions.length ? await searchMentions(deps, mentions, input, photoProductId) : ok<Searched>({ mentions: [], products: [], catalog: { searchMs: null, matchCount: null, timedOut: false } });
+  const known = [...photoProductIds, ...input.items.flatMap(({ productId }) => (productId ? [productId] : [])), ...input.pendings.flatMap(({ productIds }) => productIds)];
+  const noSearch = async (): Promise<Result<Searched, PersistenceError>> => {
+    const loaded = await loadProducts(deps, known);
+    return loaded.success ? ok({ mentions: [], products: loaded.data, catalog: { searchMs: null, matchCount: null, timedOut: false } }) : loaded;
+  };
+  const searched = mentions.length ? await searchMentions(deps, mentions, input, photoProductIds) : await noSearch();
   if (!searched.success) { abort.abort(); return searched; }
   const resolved = searched.data.mentions.length ? await stages.chooseProducts(searched.data.mentions, searched.data.products, "primary", signal) : null;
   if (resolved) record("resolution", resolved, resolutionSummary(input, searched.data), resolved.success ? maskStageOutput("resolution", resolved.data.value, addresses) : null);
@@ -152,7 +163,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
 
   const confirming: ConfirmingChain | null = confirmingExtraction ? {
     abort: () => abort.abort(),
-    result: confirmChain(deps, stages, input, confirmingExtraction, chain, searched.data, photoProductId, confirmSignal, addresses, record),
+    result: confirmChain(deps, stages, input, confirmingExtraction, chain, searched.data, photoProductIds, confirmSignal, addresses, record),
   } : null;
   return ok({ primary, confirming, records });
 }
@@ -167,7 +178,7 @@ function resolutionSummary(input: ReadingInput, searched: Searched): StageInputS
  * primary did not search, one more search and resolution. A mention the primary already resolved the same way reuses the primary resolution.
  */
 async function confirmChain(deps: RunReadingDependencies, stages: ReaderStages, input: ReadingInput, extraction: Promise<Result<StageResult<readonly ExtractedRequest[]>, StageError>>,
-  primary: ChainResult, primarySearch: Searched, photoProductId: ProductId | null, signal: AbortSignal, addresses: readonly AddressSpan[], record: Recorder): Promise<ChainResult | null> {
+  primary: ChainResult, primarySearch: Searched, photoProductIds: readonly ProductId[], signal: AbortSignal, addresses: readonly AddressSpan[], record: Recorder): Promise<ChainResult | null> {
   try {
     const extracted = await extraction;
     if (extracted.success && extracted.data.call.reading === "confirming") record("extraction", extracted, inputSummary(input), maskStageOutput("extraction", extracted.data.value, addresses));
@@ -177,7 +188,7 @@ async function confirmChain(deps: RunReadingDependencies, stages: ReaderStages, 
     const fresh = mentions.filter((mention) => !primarySearch.mentions.some((known) => sameMention(known, mention)));
     const reused = primary.resolutions.filter((resolution) => mentions.some((mention) => mention.request === resolution.request && !fresh.includes(mention)));
     if (fresh.length === 0) return { requests, resolutions: reused };
-    const searched = await searchMentions(deps, fresh, input, photoProductId);
+    const searched = await searchMentions(deps, fresh, input, photoProductIds);
     if (!searched.success || signal.aborted) return null;
     const resolved = await stages.chooseProducts(searched.data.mentions, [...searched.data.products, ...primarySearch.products], "confirming", signal);
     record("resolution", resolved, resolutionSummary(input, searched.data), resolved.success ? maskStageOutput("resolution", resolved.data.value, addresses) : null);

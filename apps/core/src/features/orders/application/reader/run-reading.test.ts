@@ -40,7 +40,7 @@ const signal = () => new AbortController().signal;
 describe("runReading", () => {
   test("skips extraction and resolution when the intent is no intent", async () => {
     const { deps, log } = fakes({ intent: { kind: "no_intent", reason: "greeting", language: "es", addresses: [] } });
-    const run = await runReading(deps, context, null, signal());
+    const run = await runReading(deps, context, [], signal());
 
     expect(run.success && run.data.primary.chain).toBeNull();
     expect(log.calls).toEqual(["intent:primary"]);
@@ -48,7 +48,7 @@ describe("runReading", () => {
 
   test("starts the confirming extraction with the primary one for a high-risk intent and returns both chains", async () => {
     const { deps, log } = fakes();
-    const run = await runReading(deps, context, null, signal());
+    const run = await runReading(deps, context, [], signal());
 
     expect(run.success).toBe(true);
     if (!run.success) return;
@@ -61,7 +61,7 @@ describe("runReading", () => {
 
   test("reuses the primary extraction instead of calling the port when the stage has no confirming configuration", async () => {
     const { deps, log } = fakes({ confirms: false });
-    const run = await runReading(deps, context, null, signal());
+    const run = await runReading(deps, context, [], signal());
 
     if (!run.success) throw new Error("expected a reading");
     const confirmed = await run.data.confirming!.result;
@@ -73,14 +73,14 @@ describe("runReading", () => {
 
   test("starts no confirming chain for an add", async () => {
     const { deps } = fakes({ intent: { kind: "requests", requests: [intent("R1", "add")], language: "es", addresses: [] }, extraction: [request("R1", "add")] });
-    const run = await runReading(deps, context, null, signal());
+    const run = await runReading(deps, context, [], signal());
 
     expect(run.success && run.data.confirming).toBeNull();
   });
 
   test("aborts the confirming chain's signal while keeping the reading's deadline, and never the primary's", async () => {
     const { deps, log } = fakes();
-    const run = await runReading(deps, context, null, signal());
+    const run = await runReading(deps, context, [], signal());
 
     if (!run.success) throw new Error("expected a reading");
     run.data.confirming!.abort();
@@ -91,14 +91,14 @@ describe("runReading", () => {
 
   test("searches every mention of the message in one statement", async () => {
     const { deps, log } = fakes({ intent: { kind: "requests", requests: [intent("R1", "add"), intent("R2", "add", "la polera gris")], language: "es", addresses: [] }, extraction: [request("R1", "add"), request("R2", "add")] });
-    await runReading(deps, context, null, signal());
+    await runReading(deps, context, [], signal());
 
     expect(log.searches).toBe(1);
   });
 
   test("drops an intent whose quote is not in the message and reads nothing more when none is left", async () => {
     const { deps, log } = fakes({ intent: { kind: "requests", requests: [intent("R1", "add", "una casaca roja")], language: "es", addresses: [] } });
-    const run = await runReading(deps, context, null, signal());
+    const run = await runReading(deps, context, [], signal());
 
     expect(run.success && run.data.primary).toMatchObject({ droppedIntents: 1, chain: null });
     expect(log.calls).toEqual(["intent:primary"]);
@@ -107,7 +107,7 @@ describe("runReading", () => {
   test("fails with the stage error when the intent stage fails", async () => {
     const { deps } = fakes();
     const failing: ReaderStages = { ...deps.stages, readIntent: async () => err({ code: "AI_PROVIDER_UNAVAILABLE", stage: "intent", call: null, message: "down" }) };
-    const run = await runReading({ ...deps, stages: failing }, context, null, signal());
+    const run = await runReading({ ...deps, stages: failing }, context, [], signal());
 
     expect(run).toEqual({ success: false, error: expect.objectContaining({ code: "AI_PROVIDER_UNAVAILABLE", stage: "intent" }) });
   });

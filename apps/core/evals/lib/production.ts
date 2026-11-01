@@ -22,15 +22,19 @@ import { registerPayment } from "@core/src/features/orders/application/register-
 import { voidPayment } from "@core/src/features/orders/application/void-payment";
 import type { ImageId as PaymentImageId } from "@core/src/features/orders/domain/payment";
 import { findVariantStock } from "@core/src/features/products";
-import { publishStockEvent, saveChatItemChanges } from "@core/src/features/orders/composition";
+import { createReaderStagePorts, loadReadingContext, publishStockEvent, saveChatItemChanges } from "@core/src/features/orders/composition";
+import { createReadingDeadline, withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
+import { readReadingLimits } from "@core/src/features/orders/infrastructure/reading-budgets-env";
+import { findLinkNoticeArming } from "@core/src/features/orders/infrastructure/order-review-repository";
+import { saveMessageTrace } from "@core/src/features/orders/infrastructure/message-trace-repository";
 import { minShowsProduct, type ImageBytes, type MatchConfidence, type VariantQrCode } from "@core/src/features/products/domain/image-identification";
-import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
+import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ChatMessageLimits, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
 import { chatMessageDeadlineMs } from "@core/src/features/orders/application/chat-message-policy";
 import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, findOrderAggregate, findOrderForUpdate, recordProcessedMessage, saveCancellation, saveCompletion, savePayment, savePendingOrder, updatePayment } from "@core/src/features/orders/infrastructure/order-repository";
 import { settleUnreviewedChanges } from "@core/src/features/orders/infrastructure/order-review-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
-import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { findChatMemory, findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPending, ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
@@ -145,10 +149,16 @@ type Wiring = Readonly<{
   readChatMessage: NonNullable<ApplyChatMessageDependencies["readChatMessage"]>;
   readiness: Parameters<typeof catalogSearchReadiness>[0];
   imageIdentification: IdentifyProductsDependencies;
-  limits: ApplyChatMessageDependencies["limits"];
+  limits: ChatMessageLimits;
 }>;
 
 /** What seeding a start needs of the wiring: label photos pass through `applyChatMessage` with no reader, so no model is called. */
+const evalReadingLimits = (() => {
+  const limits = readReadingLimits(process.env);
+  if (!limits.success) throw new Error(limits.error.message);
+  return limits.data;
+})();
+
 type SeedWiring = Pick<Wiring, "readChatMessage" | "readiness" | "limits">;
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -169,11 +179,21 @@ function dependencies(wiring: SeedWiring, identify: ApplyChatMessageDependencies
     findChatOrdersOpenedSince,
     findChatPendings,
     findChatPendingsForUpdate,
+    findChatMemory,
     saveChatPendings,
     readImage: (imageId) => readRegisteredImage(imageId),
     identifyProductsInImage: identify,
+    loadReadingContext: (message, target, pendings, photoMemory) => loadReadingContext(message, target, pendings, photoMemory),
+    findMentionCandidates: (mentions) => products.findMentionCandidates(mentions),
     findProductsForReading: (productIds) => products.findProductsForReading(productIds),
-    findMessageCandidates: (text) => products.findMessageCandidates(text),
+    // The eval path reads through the staged stages; T16 wires the fake mode and the compare command on top of it.
+    get stages() { return createReaderStagePorts(); },
+    createDeadline: (budgetMs, meta, jobSignal) => createReadingDeadline(budgetMs, meta, Date.now, jobSignal).signal,
+    withAbort,
+    findLinkNoticeArming,
+    buildMessageTrace: () => { throw new Error("Evals save no message trace"); },
+    saveMessageTrace,
+    shadowReader: null,
     catalogSearchReadiness: () => catalogSearchReadiness(readiness),
     readChatMessage: wiring.readChatMessage,
     transaction: (_companyId, work) => withinTransaction(work),
@@ -195,7 +215,7 @@ function dependencies(wiring: SeedWiring, identify: ApplyChatMessageDependencies
     newItemId: () => randomUUID() as OrderItemId,
     newPendingId: () => randomUUID() as ChatPendingId,
     clock,
-    limits: wiring.limits,
+    limits: { ...wiring.limits, ...evalReadingLimits },
   };
 }
 
