@@ -71,7 +71,8 @@ export async function loadOrderReview(input: LoadOrderReviewInput, access: Order
   const restored = changes.rows.flatMap((row) => row.changes.flatMap((change) => (change.before ? [change.before.variantId] : [])));
   const sellable = restored.length === 0 ? ok<readonly SellableVariant[]>([]) : await deps.findSellableVariants([...new Set(restored)]);
   if (!sellable.success) return sellable;
-  const names = await deps.findProductNames([...new Set(pendings.flatMap(pendingProductIds))]);
+  const rowPendings = changes.rows.flatMap((row) => [...row.pendingsBefore, ...row.pendingsAfter]);
+  const names = await deps.findProductNames([...new Set([...pendings, ...rowPendings].flatMap(pendingProductIds))]);
   if (!names.success) return names;
   const quotes = await findQuotes(changes.unreviewed, order, deps);
 

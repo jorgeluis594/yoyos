@@ -1,6 +1,7 @@
 import { err, ok } from "@shared/functional";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import type { TransportError } from "@mobile/shared/application/transport-error";
+import { emptyReview, reviewChange } from "@mobile/features/orders/testing/order-review-fixtures";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -364,4 +365,69 @@ test("order API sends the items edit with its base revision and keeps the refusa
   expect(await invalid.editOrderItems(id(1), edit)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   expect(await invalid.editOrderItems(id(1), { base: "x", lines: [] })).toMatchObject({ error: { code: "INVALID_INPUT" } });
   expect(await invalid.editOrderItems("not-an-id", edit)).toMatchObject({ error: { code: "INVALID_INPUT" } });
+});
+
+describe("order review requests", () => {
+  const confirmation = { id: id(10), origin: "link" as const, linkAction: { id: id(11), action: "copy" as const },
+    loaded: emptyReview().loaded, corrections: [{ itemId: id(3), quantity: 0 }] };
+  const failing = (status: number, body: unknown, calls: [string, RequestInit | undefined][] = []) =>
+    createOrderApi(async (path, init) => { calls.push([path, init]); return err({ code: "API_ERROR", message: "API error", http: { status, body } }); });
+
+  test("loads the review of an order, optionally every row, and validates the reply", async () => {
+    const calls: [string, RequestInit | undefined][] = [];
+    const api = createOrderApi(async (path, init) => { calls.push([path, init]); return ok(emptyReview()); });
+    expect(await api.loadOrderReview(id(1))).toMatchObject({ success: true, data: { version: 1 } });
+    expect(await api.loadOrderReview(id(1), { allRows: true })).toMatchObject({ success: true });
+    expect(calls.map(([path]) => path)).toEqual([`/api/orders/${id(1)}/review`, `/api/orders/${id(1)}/review?rows=all`]);
+    expect(await createOrderApi(async () => ok({ unexpected: true })).loadOrderReview(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+    expect(await api.loadOrderReview("nope")).toMatchObject({ error: { code: "INVALID_INPUT" } });
+    expect(await failing(404, { code: "ORDER_NOT_FOUND", error: "missing" }).loadOrderReview(id(1))).toMatchObject({ error: { code: "ORDER_NOT_FOUND" } });
+  });
+
+  test("reads a price noted on a doubtful change", async () => {
+    const reason = { kind: "price_noted" as const, amount: 70, units: 1 };
+    const change = { ...reviewChange(1), decision: { kind: "doubtful" as const, reason } };
+    const result = await createOrderApi(async () => ok(emptyReview({ doubtful: [{ change, quote: null }] }))).loadOrderReview(id(1));
+    expect(result.success && result.data.doubtful[0].change.decision).toEqual({ kind: "doubtful", reason });
+  });
+
+  test("confirms a review with the client id and keeps the refusal codes with their payloads", async () => {
+    const calls: [string, RequestInit | undefined][] = [];
+    const reply = { version: 1, review: { id: id(10), origin: "link", correctedItems: 1, confirmedAt: "2026-10-31T16:00:00.000Z" }, changedMeanwhile: [], total: { amount: 59, currency: "PEN" }, stockDue: null };
+    expect(await failing(409, { code: "REVIEW_OUTDATED", error: "outdated", affectedItemIds: [id(3)], newPoints: 1 }, calls).confirmOrderReview(id(1), confirmation))
+      .toMatchObject({ success: false, error: { code: "REVIEW_OUTDATED", affectedItemIds: [id(3)], newPoints: 1 } });
+    expect(calls[0][0]).toBe(`/api/orders/${id(1)}/reviews`);
+    expect(calls[0][1]?.method).toBe("POST");
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ version: 1, ...confirmation });
+    for (const [status, code] of [[409, "ORDER_CHANGED"], [409, "DELIVERY_LOCKED"], [409, "ORDER_CANCELLED"], [422, "LAST_ITEM"], [400, "INVALID_INPUT"]] as const)
+      expect(await failing(status, { code, error: "x" }).confirmOrderReview(id(1), confirmation)).toMatchObject({ error: { code } });
+    expect(await failing(422, { code: "VARIANT_NOT_FOUND", error: "gone", variantId: id(2) }).confirmOrderReview(id(1), confirmation)).toMatchObject({ error: { code: "VARIANT_NOT_FOUND", variantId: id(2) } });
+    // A code with the wrong status is not trusted.
+    expect(await failing(200, { code: "ORDER_CHANGED", error: "x" }).confirmOrderReview(id(1), confirmation)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+    expect(await failing(503, { code: "SERVICE_UNAVAILABLE", error: "down" }).confirmOrderReview(id(1), confirmation)).toMatchObject({ error: { code: "SERVICE_UNAVAILABLE" } });
+    expect(await createOrderApi(async () => ok(reply)).confirmOrderReview(id(1), confirmation)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+    expect(await createOrderApi(async () => ok(reply)).confirmOrderReview(id(1), { ...confirmation, corrections: [{ itemId: id(3), quantity: -1 }] })).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  });
+
+  test("undoes a message and keeps the refusal reason", async () => {
+    const calls: [string, RequestInit | undefined][] = [];
+    expect(await failing(409, { code: "UNDO_REFUSED", error: "later", reason: "later_change" }, calls).undoMessage(id(1), id(5)))
+      .toMatchObject({ success: false, error: { code: "UNDO_REFUSED", reason: "later_change" } });
+    expect(calls[0][0]).toBe(`/api/orders/${id(1)}/messages/${id(5)}/undo`);
+    expect(calls[0][1]?.method).toBe("POST");
+    expect(await failing(409, { code: "UNDO_REFUSED", error: "x", reason: "not_sold", variantId: id(2) }).undoMessage(id(1), id(5))).toMatchObject({ error: { reason: "not_sold" } });
+    expect(await failing(404, { code: "ORDER_NOT_FOUND", error: "x" }).undoMessage(id(1), id(5))).toMatchObject({ error: { code: "ORDER_NOT_FOUND" } });
+    expect(await createOrderApi(async () => ok({ unexpected: true })).undoMessage(id(1), id(5))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+    expect(await createOrderApi(async () => ok(null)).undoMessage("nope", id(5))).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  });
+
+  test("records a link action by its client id and accepts the empty answer", async () => {
+    const calls: [string, RequestInit | undefined][] = [];
+    const api = createOrderApi(async (path, init) => { calls.push([path, init]); return ok(null); });
+    expect(await api.recordLinkAction(id(1), { id: id(11), action: "share" })).toMatchObject({ success: true });
+    expect(calls[0][0]).toBe(`/api/orders/${id(1)}/link-actions`);
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ version: 1, id: id(11), action: "share" });
+    expect(await failing(404, { code: "ORDER_NOT_FOUND", error: "x" }).recordLinkAction(id(1), { id: id(11), action: "copy" })).toMatchObject({ error: { code: "ORDER_NOT_FOUND" } });
+    expect(await api.recordLinkAction("nope", { id: id(11), action: "copy" })).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  });
 });
