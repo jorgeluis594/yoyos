@@ -410,6 +410,13 @@ describe("checkRequests: pendings and other kinds", () => {
       expect(decision(checked, "agree")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
     });
 
+    test("marks set wording with values on a context pending «Con duda» and lets a named pending go", () => {
+      const set = (target: typeof context | typeof named) => only(checkRequests([request({ kind: "add", target, values: [value("rojo")], quantity: quantity(2, "set") })], [chosen("gorra")], pendings()));
+      expect(set(context).signals.targetNamed).toBe("context");
+      expect(decision(set(context), "agree")).toMatchObject({ kind: "doubtful" });
+      expect(set(named).signals.targetNamed).toBe("named");
+    });
+
     test("never adds a unit when the request states no units", () => {
       const checked = only(checkRequests([request({ kind: "add", target: named })], [], pendings()));
       expect(checked.action.kind).not.toBe("change_pending_quantity");

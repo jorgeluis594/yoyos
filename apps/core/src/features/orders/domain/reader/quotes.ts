@@ -29,7 +29,7 @@ export function verifyQuotes(requests: readonly ExtractedRequest[], input: Readi
       return false;
     };
     const target = verifiedTarget(request.target, keep);
-    const otherData = [request.price?.quote, request.quantity?.quote, namedQuoteOf(request.target)].filter((quote): quote is Quote => quote != null);
+    const otherData = [request.price?.quote, request.quantity?.quote, request.target.kind === "named" ? request.target.words : null].filter((quote): quote is Quote => quote != null);
     const values: readonly ExtractedValue[] = request.values
       .filter((value) => keep(value.valueWords) && !insideAny(value.valueWords, otherData, input))
       .map((value) => ({ ...value, attributeWords: value.attributeWords !== null && isFound(value.attributeWords, input, false) ? value.attributeWords : null }));
@@ -51,7 +51,8 @@ const textOf = (of: Quote, input: ReadingInput): string =>
 
 /**
  * A value whose every occurrence in the message lies inside the words of another datum of the request (the price, the quantity or the target's name)
- * is that datum's words and not a value: span arithmetic, no reading of the words.
+ * is that datum's words and not a value: span arithmetic, no reading of the words. Only the name of a `named` target (the product the buyer calls) counts: the
+ * words that point at an order line or a pending («la de talla M») may carry the value themselves.
  */
 function insideAny(value: Quote, others: readonly Quote[], input: ReadingInput): boolean {
   const inValue = positionsOf(value, input);

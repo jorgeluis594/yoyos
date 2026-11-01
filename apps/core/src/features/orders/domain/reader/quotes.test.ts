@@ -76,6 +76,18 @@ describe("verifyQuotes", () => {
     expect(only(verifyQuotes([request({ quantity, values: [{ attributeWords: null, valueWords: current("2") }] })], input("quiero 2 polos"))).request.values).toEqual([]);
   });
 
+  test("keeps a value inside the words that point at an order line or a pending, also when both quotes have the same span", () => {
+    const values = [{ attributeWords: null, valueWords: current("la de talla M") }];
+    for (const target of [{ kind: "item", ref: "I1", named: current("la de talla M") }, { kind: "pending", ref: "Q1", named: current("la de talla M") }] as const) {
+      expect(only(verifyQuotes([request({ target, values })], input("cambia la de talla M"))).request.values).toEqual(values);
+    }
+    const inner = [{ attributeWords: null, valueWords: current("talla M") }];
+    const item = { kind: "item", ref: "I1", named: current("la de talla M") } as const;
+    expect(only(verifyQuotes([request({ target: item, values: inner })], input("cambia la de talla M"))).request.values).toEqual(inner);
+    const named = { kind: "named", words: current("la de talla M") } as const;
+    expect(only(verifyQuotes([request({ target: named, values })], input("dame la de talla M"))).request.values).toEqual([]);
+  });
+
   test("keeps a value that also appears outside the words of the other datum", () => {
     const quantity = { value: 2, mode: "add", quote: current("2 polos") } as const;
     const values = [{ attributeWords: null, valueWords: current("l") }];
