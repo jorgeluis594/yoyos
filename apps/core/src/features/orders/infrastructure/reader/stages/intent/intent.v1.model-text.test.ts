@@ -4,9 +4,9 @@ import type { ProductId } from "@core/src/features/products/domain/product";
 import type { ReadingInput } from "@core/src/features/orders/domain/reader/readings";
 import { modelTextOf } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 import { contextMessage, item, pending, readingInput } from "@core/src/features/orders/infrastructure/reader/stages/intent/intent-test-support";
-import { intentVersions } from "@core/src/features/orders/infrastructure/reader/stages/intent/versions";
+import { promptRegistry } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 
-const version = intentVersions["intent-v1"]!;
+const version = promptRegistry.intent["intent-v1"]!;
 /** No tokenizer is published for gpt-6-luna; o200k_base is the closest encoding gpt-tokenizer lists. */
 const tokenizer = "o200k_base (gpt-tokenizer, as for gpt-5.6-luna; no tokenizer is published for gpt-6-luna)";
 const tokensOf = (text: string) => encode(text).length;

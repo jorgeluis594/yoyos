@@ -5,7 +5,7 @@ import { createFakeStructuredModel } from "@core/src/features/orders/infrastruct
 import { modelTextOf, pinnedModelTextPath } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 import { createStageAdapter } from "@core/src/features/orders/infrastructure/reader/runtime/stage-adapter";
 import { answerEntry, contextMessage, extractionInput, intent, item, pending, readingInput } from "@core/src/features/orders/infrastructure/reader/stages/extraction/extraction-test-support";
-import { extractionVersions } from "@core/src/features/orders/infrastructure/reader/stages/extraction/versions";
+import { promptRegistry } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 
 /** No tokenizer is published for gpt-6-luna; o200k_base is the closest encoding gpt-tokenizer lists. */
 const tokenizer = "o200k_base (gpt-tokenizer, as for gpt-5.6-luna; no tokenizer is published for gpt-6-luna)";
@@ -28,7 +28,7 @@ const usual = extractionInput(readingInput({
 }), intents);
 
 describe.each(["extraction-v1", "extraction_confirm-v1"])("%s", (key) => {
-  const version = extractionVersions[key]!;
+  const version = promptRegistry.extraction[key]!;
   const sizeOf = (input: typeof usual) => { const rendered = version.renderInput(input); return { characters: rendered.length, tokens: tokensOf(rendered) }; };
 
   test("pins the instructions, schema, settings and reference input sizes", async () => {
@@ -58,7 +58,7 @@ describe.each(["extraction-v1", "extraction_confirm-v1"])("%s", (key) => {
 });
 
 test("says the same rules with different words in the two versions, over one schema", () => {
-  const [primary, confirming] = [extractionVersions["extraction-v1"]!, extractionVersions["extraction_confirm-v1"]!];
+  const [primary, confirming] = [promptRegistry.extraction["extraction-v1"]!, promptRegistry.extraction["extraction_confirm-v1"]!];
 
   expect(confirming.instructions).not.toBe(primary.instructions);
   expect(confirming.jsonSchema).toBe(primary.jsonSchema);

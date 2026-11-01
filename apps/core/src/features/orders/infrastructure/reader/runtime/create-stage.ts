@@ -1,6 +1,5 @@
 import type { ReaderStage, Reading } from "@core/src/features/orders/domain/reader/readings";
 import type { ReaderStages } from "@core/src/features/orders/application/reader/stages";
-import { log } from "@core/src/shared/infrastructure/logger";
 import type { PromptRegistry, StageIO } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 import { createStageAdapter, type StageRunner } from "@core/src/features/orders/infrastructure/reader/runtime/stage-adapter";
 import { readStageConfig, type ReaderStageConfig } from "@core/src/features/orders/infrastructure/reader/runtime/stage-config-env";
@@ -36,7 +35,6 @@ export function createReaderStages(env: Env, registry: PromptRegistry, clients: 
     runners[stage] = { primary: primary && (createStage(primary, registry, clients) as StageRunner<never, unknown> | null), confirming: confirming && (createStage(confirming, registry, clients) as StageRunner<never, unknown> | null) };
     confirms[stage] = confirming !== null;
     if (!runners[stage].primary || (confirming && !runners[stage].confirming)) {
-      log.info({ event: "reader_stages_disabled", stage, reason: "missing_provider_client" }, "reader_stages_disabled");
       return null;
     }
   }

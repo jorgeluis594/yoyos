@@ -10,7 +10,7 @@ import type { ProductForReading } from "@core/src/features/products/domain/readi
 import type { ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 import { parseResolution, resolutionFallback } from "@core/src/features/orders/infrastructure/reader/stages/resolution/resolution-parser";
 import { planResolution } from "@core/src/features/orders/infrastructure/reader/stages/resolution/resolution-plan";
-import { resolutionVersions } from "@core/src/features/orders/infrastructure/reader/stages/resolution/versions";
+import { promptRegistry } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 
 const quote = (text: string): Quote => ({ source: "current", text });
 const request = (n: number) => `R${n}` as RequestRef;
@@ -126,7 +126,7 @@ describe("resolution fallback", () => {
 
 describe("resolution-v1", () => {
   test("is registered with the parser and fallback bound to the stage budget", () => {
-    const version = resolutionVersions["resolution-v1"]!;
+    const version = promptRegistry.resolution["resolution-v1"]!;
 
     expect(version).toMatchObject({ stage: "resolution", version: "resolution-v1" });
     expect(version.renderInput(input)).toBe(planResolution(input, budget).text);
@@ -139,7 +139,7 @@ describe("resolution stage", () => {
   const run = async (answers: unknown[]) => {
     const model = createFakeStructuredModel({ resolution: answers.map((json) => ({ json })) });
     const stage = createStageAdapter({ config: { stage: "resolution", reading: "primary", provider: "fake", model: "scripted", promptVersion: "resolution-v1" as ReaderStageConfig["promptVersion"], timeoutMs: 10_000 },
-      version: resolutionVersions["resolution-v1"]!, model });
+      version: promptRegistry.resolution["resolution-v1"]!, model });
     return { model, result: await stage(input, createReadingDeadline(60_000, {}).signal) };
   };
   const outside = { results: [{ request: "R1", kind: "chosen", products: ["P9"], values: [] }, { request: "R2", kind: "none", products: [], values: [] }] };

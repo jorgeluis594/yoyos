@@ -898,7 +898,7 @@ export const orders = {
 // The products composition imports the event handlers that import this module, so `products` is only read when a message is applied.
 const readChatMessage = createChatReaderFromEnv(process.env);
 /** The staged reader's ports from the env; not used by `applyChatMessage` yet. A function, so nothing starts, or fails startup, before it is called. */
-export const createReaderStagePorts = () => readerStagesFromEnv(process.env);
+export const createReaderStagePorts = () => readerStagesFromEnv(process.env, readingBudgets.stageInputMaxChars);
 
 const chatMessageDependencies: ApplyChatMessageDependencies = {
   findOutcome,
