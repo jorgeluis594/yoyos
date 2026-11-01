@@ -53,10 +53,12 @@ export function createStageAdapter<Input, Output>({ config, version, model, now 
     };
 
     let lastInvalid = "The AI answer was invalid";
+    let lastAnswer: unknown;
     while (attempts < 2) {
       const remaining = remainingMsOf(signal, now);
       if (signal.aborted || remaining < MIN_STAGE_START_MS) return fail("DEADLINE_EXCEEDED", "Not enough of the reading budget is left to start the stage");
       attempts += 1;
+      lastAnswer = undefined;
       const stageSignal = AbortSignal.any([signal, AbortSignal.timeout(Math.min(config.timeoutMs, remaining))]);
       const answer = await model({
         stage: config.stage, model: config.model, instructions: version.instructions, input: version.renderInput(input),
@@ -68,6 +70,7 @@ export function createStageAdapter<Input, Output>({ config, version, model, now 
         lastInvalid = answer.error.message;
       } else {
         usage = addUsage(usage, answer.data.usage);
+        lastAnswer = answer.data.json;
         const parsed = version.parse(answer.data.json, input);
         if (parsed.success) {
           const finished = call();
@@ -79,7 +82,7 @@ export function createStageAdapter<Input, Output>({ config, version, model, now 
       }
       if (attempts < 2) log.warn({ event: "reader_stage_retried_invalid_answer", ...fields }, "reader_stage_retried_invalid_answer");
     }
-    const fallback = version.fallback?.(input);
+    const fallback = version.fallback?.(input, lastAnswer);
     if (fallback !== undefined && fallback !== null) {
       const finished = call();
       log.info({ event: "reader_stage_completed", ...fields, costUsd: finished.costUsd, durationMs: finished.durationMs, attempts }, "reader_stage_completed");
