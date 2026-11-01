@@ -96,6 +96,16 @@ export async function deductStockBulk(lines: readonly Readonly<{ variantId: Vari
   } catch (cause) { return err(persistenceFailureResult(cause, "Unable to deduct stock")); }
 }
 
+/** One statement that adds units back to rows the caller already locked; returns the updated row count (the number of lines, fewer when a row is missing). */
+export async function restoreStockBulk(lines: readonly Readonly<{ variantId: VariantId; quantity: number }>[]): Promise<Result<number, TransactionEndingError | ContainedFailure>> {
+  requireActiveTransaction(getCompanyId());
+  try {
+    const back = Prisma.join(lines.map((line) => Prisma.sql`(${line.variantId}::uuid, ${BigInt(line.quantity)}::bigint)`));
+    const count = await prisma.$executeRaw`WITH back(v, q) AS (VALUES ${back}) UPDATE "ProductStock" s SET quantity = s.quantity + back.q FROM back WHERE s."variantId" = back.v`;
+    return ok(count);
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to restore stock")); }
+}
+
 /** Current stock without lock and without a status filter: inactive variants count. Raw quantities: the caller validates them. */
 export async function findVariantStock(variantIds: readonly VariantId[]): Promise<Result<StockQuantities, TransactionEndingError>> {
   try {

@@ -28,7 +28,7 @@ function readyOrder(): OrderAggregate {
   if (!payment.success) throw new Error("Invalid test payment");
   const paid = orderStateMachine.registerPayment(order, payment.data);
   if (!paid.success) throw new Error("Invalid test payment");
-  return { ...paid.data, stockDeducted: true, stockDeductedAt: new Date("2026-10-01T00:00:00Z") };
+  return { ...paid.data, stockDeducted: true, stockDeductedAt: new Date("2026-10-01T00:00:00Z"), items: paid.data.items.map((item) => ({ ...item, stockDeductedQuantity: item.quantity })) as unknown as OrderAggregate["items"] };
 }
 
 function setup(order: OrderAggregate, failFulfillment = false) {

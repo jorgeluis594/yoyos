@@ -258,7 +258,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await page.reload();
     await browserExpect(page.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("region", { name: "Cliente" }).getByLabel("Nombre", { exact: true })).toHaveValue("Ana");
-    await browserExpect(page.getByText("Sin pagos · necesario para despachar")).toBeVisible();
+    await browserExpect(page.getByText("Sin pagos · necesario para enviar")).toBeVisible();
     await browserExpect(orderTotal(page)).toHaveText("S/ 10.00");
     await page.goto("/es-PE/orders");
     const table = page.getByRole("table", { name: "Órdenes" });

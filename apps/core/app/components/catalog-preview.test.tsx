@@ -13,6 +13,13 @@ await i18n.use(initReactI18next).init({ lng: "es", resources });
 const html = (catalog: Parameters<typeof CatalogPreview>[0]["catalog"]) => renderToStaticMarkup(<I18nextProvider i18n={i18n}><CatalogPreview appearance={appearance} storeName="Lima Studio" catalog={catalog} /></I18nextProvider>);
 
 describe("CatalogPreview", () => {
+  test("the store name in the preview header is not a link: the preview stays inert", () => {
+    const markup = html({ kind: "loading" });
+    expect(markup).toContain("Lima Studio");
+    expect(markup).not.toContain("<a ");
+    expect(markup).not.toContain("brand-link");
+  });
+
   test("the catalog preview shows three placeholders while cards load, then the real cards", () => {
     const loading = html({ kind: "loading" });
     expect(loading.match(/data-slot="card-placeholder"/g)).toHaveLength(3);

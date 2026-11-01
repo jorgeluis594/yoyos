@@ -30,8 +30,8 @@ test("asks to choose another rate when the quoted one is gone", () => {
   }
 });
 
-test("marks the deliver-on-save box when the payments do not cover the total and says short stock apart", () => {
-  expect(saleOutcome(refuse("PAYMENT_REQUIRED"), context)).toMatchObject({ coverRequired: true, notice: { text: "Para marcarlo entregado, los pagos deben cubrir el total." } });
+test("marks the deliver-on-save box when there is no payment and says short stock apart", () => {
+  expect(saleOutcome(refuse("PAYMENT_REQUIRED"), context)).toMatchObject({ coverRequired: true, notice: { text: "Para marcarlo entregado, registra al menos un pago. Puede ser un pago parcial." } });
   expect(saleOutcome(refuse("INSUFFICIENT_STOCK"), context)).toMatchObject({ coverRequired: false, notice: { text: "No hay stock suficiente para uno de los productos." } });
 });
 

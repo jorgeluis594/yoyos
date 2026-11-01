@@ -1429,8 +1429,8 @@ test.each(["payment", "stock", "delivery", "fulfillment"] as const)("complete cr
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
       const input: CreateCompleteOrderInput = { id: randomUUID() as OrderId, 
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: (failure === "stock" ? 4 : 2) as PositiveInteger }],
-        payments: [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" as const },
-          method: "digital_wallet" as const, deductStockIfPartial: true },
+        payments: [...(failure === "fulfillment" ? [] : [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" as const },
+          method: "digital_wallet" as const, deductStockIfPartial: true }]),
         ...(failure === "payment" ? [{ paymentId: randomUUID() as PaymentId, amount: { amount: -1, currency: "PEN" as const },
           method: "bank_transfer" as const, deductStockIfPartial: false }] : [])],
         deliverImmediately: failure === "fulfillment" || failure === "stock",

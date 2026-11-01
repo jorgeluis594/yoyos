@@ -7,7 +7,7 @@ import type { TransactionEndingError } from "@core/src/shared/application/contai
 import type { ProductStockIncreased } from "@core/src/features/products/application/events";
 
 type RestorationError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_ORDER"; message: string }>;
-type StockOrder = Readonly<{ cancelled: boolean; stockDeducted: boolean; items: readonly Readonly<{ variantId: VariantId; quantity: number }>[] }>;
+type StockOrder = Readonly<{ cancelled: boolean; stockDeducted: boolean; items: readonly Readonly<{ variantId: VariantId; quantity: number; stockDeductedQuantity: number }>[] }>;
 export type RestoreCancelledOrderStockDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, RestorationError>>) => Promise<Result<T, RestorationError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<StockOrder | null, RestorationError>>;
@@ -23,11 +23,13 @@ export async function restoreCancelledOrderStock(payload: OrderCancelled, deps: 
     if (!found.data?.cancelled) return err({ code: "INVALID_ORDER", message: "Cancelled order is not available" });
     if (!found.data.stockDeducted) return ok(null);
     const items = [...found.data.items].sort((a, b) => a.variantId.localeCompare(b.variantId));
+    // Exactly what was taken out: a line with units still pending (short edit) gives back less than its quantity.
     for (const item of items) {
-      const restored = await deps.restoreProductStock(item.variantId, item.quantity);
+      if (item.stockDeductedQuantity === 0) continue;
+      const restored = await deps.restoreProductStock(item.variantId, item.stockDeductedQuantity);
       if (!restored.success) return restored;
     }
-    const [first, ...rest] = items;
+    const [first, ...rest] = items.filter((item) => item.stockDeductedQuantity > 0);
     if (first) {
       const published = await deps.publishStockIncreased({ companyId: payload.companyId, variantIds: [first.variantId, ...rest.map((item) => item.variantId)] });
       if (!published.success) return err({ code: "PERSISTENCE_UNAVAILABLE", message: published.error.message });

@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, test } from "vitest";
+import { MemoryRouter } from "react-router";
 import { storeThemeIds } from "@shared/store-themes";
 import { CatalogGallery, lightboxColors } from "@core/app/components/catalog-gallery";
 import { CatalogShell } from "@core/app/components/catalog-sections";
@@ -16,9 +17,9 @@ afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove
 async function mount(photoUrls: string[], theme: (typeof storeThemeIds)[number] = "classic") {
   container = document.body.appendChild(document.createElement("div"));
   root = createRoot(container);
-  await act(async () => root!.render(<CatalogShell appearance={{ logoUrl: null, theme }} storeName="Moda Lucía">
+  await act(async () => root!.render(<MemoryRouter><CatalogShell appearance={{ logoUrl: null, theme }} storeName="Moda Lucía">
     <CatalogGallery name="Polo básico" photoUrls={photoUrls} />
-  </CatalogShell>));
+  </CatalogShell></MemoryRouter>));
 }
 const part = (name: string) => container.querySelector<HTMLElement>(`[data-store-part="${name}"]`);
 const parts = (name: string) => [...container.querySelectorAll<HTMLElement>(`[data-store-part="${name}"]`)];

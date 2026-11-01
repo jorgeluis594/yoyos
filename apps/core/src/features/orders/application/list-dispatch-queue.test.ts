@@ -16,7 +16,7 @@ const access = { companyId: "company-1" as CompanyId, userId: "user-1" as UserId
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const candidate = (number: number, date: string, overrides: Partial<DispatchCandidate> = {}): DispatchCandidate => ({ id: uuid(number) as OrderId,
   createdAt: new Date("2026-10-20T10:00:00Z"), cancelled: false, stockDeducted: false, deliveryStatus: "pending", total: money(80),
-  items: [{ variantId: camisaM, quantity: 1 as never }], confirmedPayments: [{ amount: money(80), deductStockIfPartial: false }],
+  items: [{ variantId: camisaM, quantity: 1 as never, deducted: 0 as never }], confirmedPayments: [{ amount: money(80), deductStockIfPartial: false }],
   number: number as OrderNumber, scheduledDispatchDate: date as DispatchDate, deliveryMethod: "home", hasReportedPayment: false, ...overrides });
 const aggregateOf = (id: OrderId) => ({ id, number: Number(id.slice(-12)) }) as unknown as OrderAggregate;
 

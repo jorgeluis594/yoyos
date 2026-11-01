@@ -172,13 +172,13 @@ test("products stay read-only on the form and returning preserves entered data",
   expect(screen.getByRole("button", { name: "Estado de entrega: Entregado" })).toBeTruthy();
 });
 
-test("delivered status explains missing payment and allows saving once covered", async () => {
+test("delivered status explains missing payment and allows saving with a payment, even a partial one", async () => {
   const screen = await review();
   markDelivered(screen);
-  expect(screen.getByText(/Completa el pago/)).toHaveProp("accessibilityRole", "alert");
+  expect(screen.getByText(/Registra al menos un pago/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   advance(screen, "10");
-  expect(screen.queryByText(/Completa el pago/)).toBeNull();
+  expect(screen.queryByText(/Registra al menos un pago/)).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
 });
 beforeEach(() => { jest.clearAllMocks(); mockQuotation.mockReset(); mockSettingsGet.mockReset();
@@ -199,7 +199,7 @@ const stockWarning = /disponibles?\. Puedes guardarlo y cobrarlo/;
 
 test("line warning says how many units are available and what happens, only above the shown stock", async () => {
   const screen = await reviewWithQuantity(0, 4);
-  expect(screen.getByText("Solo hay 0 disponibles. Puedes guardarlo y cobrarlo; si lo cobras, quedará esperando stock y no podrás despacharlo hasta que se descuente.")).toBeTruthy();
+  expect(screen.getByText("Solo hay 0 disponibles. Puedes guardarlo y cobrarlo; si lo cobras, quedará esperando stock y no podrás enviarlo hasta que se descuente.")).toBeTruthy();
   screen.unmount();
   const single = await reviewWithQuantity(1, 2);
   expect(single.getByText(/^Solo hay 1 disponible\. Puedes guardar/)).toBeTruthy();
@@ -218,7 +218,7 @@ test("line warning is in Portuguese with the available count", async () => {
   try {
     const screen = await reviewWithQuantity(2, 3);
     await act(async () => { await i18n.changeLanguage("pt-BR"); });
-    expect(screen.getByText("Só há 2 disponíveis. Você pode salvá-lo e cobrá-lo; se cobrar, ficará aguardando estoque e você não poderá despachá-lo até que seja descontado.")).toBeTruthy();
+    expect(screen.getByText("Só há 2 disponíveis. Você pode salvá-lo e cobrá-lo; se cobrar, ficará aguardando estoque e você não poderá enviá-lo até que seja descontado.")).toBeTruthy();
   } finally { await i18n.changeLanguage("es"); }
 });
 

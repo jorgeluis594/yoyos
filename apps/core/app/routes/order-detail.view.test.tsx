@@ -186,27 +186,14 @@ describe("saved order route", () => {
   test("tells a shipped or delivered order that the step already happened instead of the transition rule", async () => {
     current = loaderData({ order: order1042({ deliveryStatus: "shipped", shippedAt: "2026-10-30T12:00:00.000Z" }), lineCatalog: null });
     await mount();
-    expect(container.textContent).toContain("El pedido ya está marcado como enviado.");
+    expect(container.textContent).toContain("Marcar entregado");
     expect(container.textContent).not.toContain("Solo se puede enviar desde pendiente");
     act(() => root!.unmount());
     current = loaderData({ order: order1042({ deliveryStatus: "delivered", status: "completed", paymentStatus: "paid" }), lineCatalog: null });
     await mount();
-    expect(container.textContent).toContain("El pedido ya está marcado como entregado.");
+    expect(container.textContent).toContain("Entregado");
+    expect(container.textContent).not.toContain("Marcar entregado");
     expect(container.textContent).not.toContain("Solo se puede enviar desde pendiente");
-  });
-
-  test("resets the products and keeps the customer edit after ITEMS_LOCKED", async () => {
-    await mount();
-    refuse("ITEMS_LOCKED");
-    await raiseDeadpool();
-    await type(container.querySelector<HTMLInputElement>("#customer-name")!, "Ana Pérez");
-    current = loaderData({ order: order1042({ stockDeducted: true }), lineCatalog: null });
-    await click(button("Guardar cambios"));
-    await vi.waitFor(() => expect(container.textContent).toContain("Tus cambios de cliente y entrega siguen aquí."));
-    expect(quantityInputs()[2]!.value).toBe("1");
-    expect(container.querySelector<HTMLInputElement>("#customer-name")!.value).toBe("Ana Pérez");
-    expect(button("Guardar cambios")!.disabled).toBe(false);
-    expect(container.textContent).toContain("El stock de este pedido ya se descontó");
   });
 
   test("saves a customer name change without touching the recipient of another person", async () => {

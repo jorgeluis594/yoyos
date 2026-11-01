@@ -270,7 +270,7 @@ function appendItems(order: OrderAggregate, variants: readonly AppendedVariant[]
       continue;
     }
     const { variantId, productName, variantAttributes, sku, unitPrice } = variant;
-    items.push({ id: newItemId(), variantId, productName, variantAttributes, sku, quantity, unitPrice, subtotal: unitPrice, mentionedPrice: variant.mentionedPrice ?? null });
+    items.push({ id: newItemId(), variantId, productName, variantAttributes, sku, quantity, unitPrice, subtotal: unitPrice, mentionedPrice: variant.mentionedPrice ?? null, stockDeductedQuantity: 0 });
   }
   return withItems(order, items);
 }
@@ -310,7 +310,7 @@ function replaceItemVariant(order: OrderAggregate, itemId: OrderItemId, variant:
     return withItems(order, order.items.filter((item) => item.id !== itemId).map((item) => item.id === existing.id ? merged : item));
   }
   const { variantId, productName, variantAttributes, sku, unitPrice } = variant;
-  const replacement: OrderItem = { id: newItemId(), variantId, productName, variantAttributes, sku, quantity: old.quantity, unitPrice, subtotal: unitPrice, mentionedPrice };
+  const replacement: OrderItem = { id: newItemId(), variantId, productName, variantAttributes, sku, quantity: old.quantity, unitPrice, subtotal: unitPrice, mentionedPrice, stockDeductedQuantity: 0 };
   return withItems(order, order.items.map((item) => item.id === itemId ? replacement : item));
 }
 
@@ -429,20 +429,20 @@ function planStockDeduction(order: OrderAggregate, requestedIfPartial: boolean, 
   return ok({ kind: "deduct", nextOrder: { ...order, stockDeducted: true, stockDeductedAt: new Date(now) } });
 }
 
-function requireFulfillment(order: OrderAggregate, requirePaid: boolean): Result<null, OrderDomainError> {
+function requireFulfillment(order: OrderAggregate): Result<null, OrderDomainError> {
   const state = lifecycle(order);
   if (!state.success) return state;
   if (state.data.status === "cancelled") return failure("ORDER_CANCELLED", "Order is cancelled");
   const summary = paymentSummary(order);
   if (!summary.success) return summary;
-  if (requirePaid ? summary.data.status !== "paid" : summary.data.paidAmount.amount === 0) return failure("PAYMENT_REQUIRED", "Order payment is not covered");
+  if (summary.data.paidAmount.amount === 0) return failure("PAYMENT_REQUIRED", "Order has no confirmed payment");
   if (!order.stockDeducted) return failure("STOCK_NOT_DEDUCTED", "Order stock is not deducted");
   return ok(null);
 }
 
-/** Shipping needs a confirmed payment, partial or full, and deducted stock; the caller deducts stock first. */
+/** Shipping and delivering need a confirmed payment, partial or full, and deducted stock; the caller deducts stock first. */
 function registerShipment(order: OrderAggregate, shippedAt: Date): Result<OrderAggregate, OrderDomainError> {
-  const allowed = requireFulfillment(order, false);
+  const allowed = requireFulfillment(order);
   if (!allowed.success) return allowed;
   if (!validDate(shippedAt)) return failure("INVALID_TRANSITION", "Invalid shipment date");
   return order.deliveryStatus === "pending" ? ok({ ...order, deliveryStatus: "shipped", shippedAt: new Date(shippedAt) }) : failure("INVALID_TRANSITION", "Delivery is not pending");
@@ -455,11 +455,13 @@ function scheduleDispatch(order: OrderAggregate, scheduledDispatchDate: Dispatch
 }
 
 function registerDelivery(order: OrderAggregate, completedAt: Date): Result<OrderAggregate, OrderDomainError> {
-  const allowed = requireFulfillment(order, true);
+  const allowed = requireFulfillment(order);
   if (!allowed.success) return allowed;
   if (!validDate(completedAt)) return failure("INVALID_TRANSITION", "Invalid completion date");
+  const summary = paymentSummary(order);
+  if (!summary.success) return summary;
   return order.deliveryStatus === "pending" || order.deliveryStatus === "shipped"
-    ? ok({ ...order, deliveryStatus: "delivered", deliveredAt: new Date(completedAt), completedAt: new Date(completedAt) })
+    ? ok({ ...order, deliveryStatus: "delivered", deliveredAt: new Date(completedAt), completedAt: summary.data.status === "paid" ? new Date(completedAt) : null })
     : failure("INVALID_TRANSITION", "Delivery is already completed");
 }
 

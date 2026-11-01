@@ -9,10 +9,15 @@ export const stockItemLabel = (item: Pick<Item, "productName" | "variantAttribut
   return variant ? `${item.productName} (${variant})` : item.productName;
 };
 
+/** An order waiting for stock: not deducted yet, or deducted with units an edit added that did not fit. */
+type StockDue = NonNullable<OrderAggregateResponse["stockDue"]>;
+export const isWaitingDue = (stockDue: OrderAggregateResponse["stockDue"]): stockDue is Exclude<StockDue, { kind: "deducting" }> => stockDue?.kind === "waiting" || stockDue?.kind === "partial_waiting";
+
 /** The short items of a waiting order, in the order of the products card; each variant appears once. */
 export function shortStockLines(order: Pick<OrderAggregateResponse, "items" | "stockDue">): readonly ShortStockLine[] {
-  if (order.stockDue?.kind !== "waiting") return [];
-  const available = new Map(order.stockDue.shortItems.map(item => [item.variantId, item.available]));
+  const due = order.stockDue;
+  if (!isWaitingDue(due)) return [];
+  const available = new Map(due.shortItems.map(item => [item.variantId, item.available]));
   return order.items.flatMap(item => available.has(item.variantId)
     ? [{ variantId: item.variantId, label: stockItemLabel(item), quantity: item.quantity, available: available.get(item.variantId)! }] : []);
 }

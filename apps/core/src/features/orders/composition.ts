@@ -23,7 +23,7 @@ import { readDispatchQueueMax } from "@core/src/features/orders/infrastructure/d
 import { describeDispatchReadiness, toReadinessSubject, type DispatchStock } from "@core/src/features/orders/domain/dispatch-readiness";
 import { describeOrderStockDue } from "@core/src/features/orders/application/describe-order-stock-due";
 import { parseStockQuantity, type NonNegativeInteger, type StockDue, type VariantStock } from "@core/src/features/orders/domain/stock-deduction";
-import { countUndatedPendingOrders, existsOrder, findDispatchCandidates, findOrderAggregateByNumber as findAnyOrderAggregateByNumber, summarizeUnpaidOrders as summarizeUnpaidInDatabase, listCompaniesWithOverdueStockDeductions, listOverdueOrderIds, listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
+import { countUndatedPendingOrders, existsOrder, findDispatchCandidates, findOrderAggregateByNumber as findAnyOrderAggregateByNumber, summarizeUnpaidOrders as summarizeUnpaidInDatabase, listCompaniesWithOverdueStockDeductions, listOverdueOrderIds, listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveLineDeductions, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
 import { err, map, ok } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireActiveTransaction, requireNoActiveTransaction, setLocalTimeouts, withinReadSnapshot, withinSavepoint, withinTransaction, withTenantIsolation, type TransactionOptions } from "@core/src/shared/infrastructure/persistance";
@@ -55,7 +55,7 @@ import { listOrderAggregates } from "@core/src/features/orders/application/list-
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
 import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, findChatOrderTarget, findChatOrdersOpenedSince, saveItemChanges as saveOrderItemChanges, saveOrderCustomer, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariants, findSellableVariantStock, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
+import { findSellableVariants, findSellableVariantStock, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, restoreStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
@@ -120,12 +120,14 @@ function emitStockEvent(event: StockEvent) {
       itemCount: event.itemCount, durationMs: event.durationMs }, "order_stock_deducted"));
     case "waiting": return afterTransactionCommit(() => log.info({ event: "order_stock_waiting", companyId: event.companyId, orderId: event.orderId, trigger: event.trigger,
       shortItemCount: event.shortItemCount }, "order_stock_waiting"));
+    case "adjusted": return event.returnedUnits + event.deductedUnits + event.pendingLines === 0 ? undefined : afterTransactionCommit(() => log.info({ event: "order_stock_adjusted", companyId: event.companyId, orderId: event.orderId, trigger: event.trigger,
+      returnedUnits: event.returnedUnits, deductedUnits: event.deductedUnits, pendingLines: event.pendingLines, durationMs: event.durationMs }, "order_stock_adjusted"));
     case "skipped_invalid": return log.error({ event: "stock_deduction_failed", companyId: event.companyId, orderId: event.orderId, trigger: "product_stock_increased",
       stage: "load_order", errorCode: "INVALID_STORED_DATA" }, "stock_deduction_failed");
   }
 }
 
-export const deductDueStockDependencies: DeductDueStockDependencies = { loadStockOrders, lockOrdersSkipLocked, lockVariantStock, deductStockBulk, saveStockDeductions, listWaitingOrderIds,
+export const deductDueStockDependencies: DeductDueStockDependencies = { loadStockOrders, lockOrdersSkipLocked, lockVariantStock, deductStockBulk, restoreStock: restoreStockBulk, saveLineDeductions, saveStockDeductions, listWaitingOrderIds,
   limitStatementsToMs: (ms) => setLocalTimeouts({ statementTimeout: `${ms}ms`, lockTimeout: `${ms}ms` }),
   emit: emitStockEvent, waitingOrdersBatchSize: WAITING_ORDERS_BATCH_SIZE, waitingOrdersBudgetMs: WAITING_ORDERS_BUDGET_MS, clock: () => new Date() };
 
@@ -287,23 +289,24 @@ const rejectTransaction: RejectPaymentDependencies["transaction"] = scopedOrderT
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = producerTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
-/** Shipping runs outside any savepoint, so a failed statement there simply ends its transaction: it answers like any other persistence failure. */
-function forShip<A extends unknown[], T>(call: (...args: A) => Promise<Result<T, TransactionEndingError | ContainedFailure>>, stage: string) {
+type FulfillmentOperation = "ship_order" | "deliver_order" | "update_order_shipping";
+/** Shipping and delivering run outside any savepoint, so a failed statement there simply ends its transaction: it answers like any other persistence failure. */
+function forFulfillment<A extends unknown[], T>(operation: FulfillmentOperation, call: (...args: A) => Promise<Result<T, TransactionEndingError | ContainedFailure>>, stage: string) {
   return async (...args: A): Promise<Result<T, Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> => {
     const result = await call(...args);
     if (result.success) return result;
     const failure = result.error;
     if (failure.code === "PERSISTENCE_UNAVAILABLE") return err(failure);
-    log.error({ event: "unable_to_deduct_product_stock", operation: "ship_order", stage, errorCode: failure.errorCode, err: failure.cause }, "unable_to_deduct_product_stock");
+    log.error({ event: "unable_to_deduct_product_stock", operation, stage, errorCode: failure.errorCode, err: failure.cause }, "unable_to_deduct_product_stock");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: failure.message });
   };
 }
 
-// Shipping deducts pending stock, so the deduction logs under its own operation like set_order_delivery does.
-const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
+// Shipping and delivering deduct pending stock, so each deduction logs under the operation that asked for it, like set_order_delivery does.
+const fulfillmentDependenciesFor = (operation: FulfillmentOperation): FulfillOrderDependencies => ({ transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date(),
-  lockVariantStock: forShip(lockVariantStock, "lock_stock"), deductStockBulk: forShip(deductStockBulk, "deduct_stock"),
-  saveStockDeduction: (id, companyId, at) => saveStockDeduction(id, companyId, at, "ship_order") };
+  lockVariantStock: forFulfillment(operation, lockVariantStock, "lock_stock"), deductStockBulk: forFulfillment(operation, deductStockBulk, "deduct_stock"),
+  saveStockDeduction: (id, companyId, at) => saveStockDeduction(id, companyId, at, operation) });
 
 export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess) {
   const started = performance.now();
@@ -524,13 +527,14 @@ export const saveChatItemChanges = async (order: OrderAggregate, changes: OrderI
   return err({ code: "PERSISTENCE_UNAVAILABLE", message: saved.error.message });
 };
 
-const conflictCodes = ["ORDER_CHANGED", "ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED"];
+const conflictCodes = ["ORDER_CHANGED", "DELIVERY_LOCKED", "ORDER_CANCELLED"];
 const failureCodes = ["PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "SERVICE_UNAVAILABLE"];
 
 /** The stage an edit stopped at: the use case's own checks are told apart by their error code, the others by the last capability the composition saw. */
 function editStage(code: string, observed: string): string {
   if (code === "ORDER_CHANGED") return "check_revisions";
-  if (code === "ITEMS_LOCKED" || code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED") return "check_locks";
+  if (code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED") return "check_locks";
+  if (code === "CUSTOMER_REQUIRED") return "check_customer";
   if (code === "VARIANT_NOT_FOUND") return "resolve_variants";
   if (code === "INVALID_ORDER" || code === "CURRENCY_MISMATCH") return "check_applied"; // refused while applying the parts in memory, whatever capability ran before
   if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"].includes(code)) return "resolve_delivery";
@@ -571,6 +575,7 @@ export async function editConfiguredOrder(input: EditOrderInput, access: OrderAc
     saveOrderCustomer: (id, companyId, buyer) => { observed.stage = "save_customer"; return saveOrderCustomer(id, companyId, buyer); },
     saveDelivery: (id, companyId, change) => { observed.stage = "save_delivery"; return saveDelivery(id, companyId, change); },
     publishStockEvent: (payload) => { observed.stage = "deduct_stock"; return timed(() => publishStockEvent("order_edited", payload), (ms) => { observed.deductStockMs = ms; }); },
+    publishStockIncreased: (variantIds) => { observed.stage = "restock"; return publishStockEvent("product_stock_increased", { companyId: access.companyId, variantIds }); },
     findVariantStock,
     newItemId: () => randomUUID() as OrderItemId,
   });
@@ -603,7 +608,7 @@ export async function editConfiguredOrder(input: EditOrderInput, access: OrderAc
 }
 
 /** Whether the stored order already locks its products: the card shows no stock warning then, so the stock is not read. */
-const productsLocked = (order: Pick<OrderAggregate, "cancelled" | "deliveryStatus" | "stockDeducted">) => order.cancelled || order.deliveryStatus !== "pending" || order.stockDeducted;
+const productsLocked = (order: Pick<OrderAggregate, "cancelled" | "deliveryStatus">) => order.cancelled || order.deliveryStatus !== "pending";
 
 /**
  * Stock of the order's sellable variants, for the «sin stock» warnings. `null` means "unknown" (the read failed or the products are locked);
@@ -699,11 +704,11 @@ export const orders = {
   /** Pure: the readiness of a full order given its `describeDispatchStock` entry; `null` when it is cancelled or no longer pending. */
   describeDispatchReadiness: (order: OrderAggregate, stock: DispatchStock) => describeDispatchReadiness(toReadinessSubject(order), stock),
   ship: (id: Parameters<typeof registerShipment>[0], context: Parameters<typeof registerShipment>[1]) =>
-    registerShipment(id, context, fulfillmentDependencies),
+    registerShipment(id, context, fulfillmentDependenciesFor("ship_order")),
   updateShipping: (input: Parameters<typeof updateOrderShipping>[0], context: Parameters<typeof updateOrderShipping>[1]) =>
-    updateOrderShipping(input, context, { ...fulfillmentDependencies, saveDispatchSchedule } satisfies UpdateOrderShippingDependencies),
+    updateOrderShipping(input, context, { ...fulfillmentDependenciesFor("update_order_shipping"), saveDispatchSchedule } satisfies UpdateOrderShippingDependencies),
   deliver: (id: Parameters<typeof registerDelivery>[0], context: Parameters<typeof registerDelivery>[1]) =>
-    registerDelivery(id, context, fulfillmentDependencies),
+    registerDelivery(id, context, fulfillmentDependenciesFor("deliver_order")),
   cancel: async (id: Parameters<typeof cancelOrder>[0], context: Parameters<typeof cancelOrder>[1]) => {
     requireNoActiveTransaction();
     let failure: EventBusError | undefined;

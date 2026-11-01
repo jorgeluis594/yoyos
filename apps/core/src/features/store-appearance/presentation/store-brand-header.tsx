@@ -1,6 +1,8 @@
+import { Link } from "react-router";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
-type StoreBrandHeaderProps = Readonly<{ companyName: string; logoUrl: string | null }>;
+/** With `to` the logo and the name are one link to that path; without it they are plain, as in the editor preview. */
+type StoreBrandHeaderProps = Readonly<{ companyName: string; logoUrl: string | null; to?: string }>;
 
 /** The plate is always white; a theme sets its size and shape through variables, and the fallbacks are the default Yoyos look. */
 const plate: CSSProperties = {
@@ -31,9 +33,14 @@ function BrandLogo({ url }: Readonly<{ url: string }>) {
   </span>;
 }
 
-export function StoreBrandHeader({ companyName, logoUrl }: StoreBrandHeaderProps) {
-  return <div data-store-part="header-brand" className="flex min-w-0 items-center gap-3">
+/** The element that holds the logo and the name is the one the theme lays out (`header-brand`), so a theme's logo direction reaches them with or without a link. */
+export function StoreBrandHeader({ companyName, logoUrl, to }: StoreBrandHeaderProps) {
+  const content = <>
     {logoUrl && <BrandLogo key={logoUrl} url={logoUrl} />}
     <p style={storeName} className="min-w-0 break-words">{companyName}</p>
-  </div>;
+  </>;
+  const className = "flex min-w-0 items-center gap-3";
+  return to
+    ? <Link data-store-part="header-brand" data-slot="brand-link" to={to} className={className}>{content}</Link>
+    : <div data-store-part="header-brand" className={className}>{content}</div>;
 }

@@ -96,7 +96,7 @@ The server instructions, shown to the agent once, say: Yoyos is the store's sale
 | Amounts | In the order's currency, or the store currency for products, as the web formats them: «S/ 120.00». |
 | Date inputs | `AAAA-MM-DD`, whole inclusive days in America/Lima; any other format is refused with the remedy. |
 | Dates shown | «30/10/2026», times «30/10/2026 10:42», in America/Lima. «Hoy» is today in Lima whatever the agent's zone; every list states «Hoy es 30/10/2026». |
-| States | The web's words: «Pagado» or «Pago pendiente» with what is owed; «Pendiente», «Despachada», «Entregada»; «Cancelado», «Completado»; «Pago por revisar» while a buyer report awaits review. The checkout confirmation label is not returned. |
+| States | The web's words: «Pagado» or «Pago pendiente» with what is owed; «Pendiente», «Enviada», «Entregada»; «Cancelado», «Completado»; «Pago por revisar» while a buyer report awaits review. The checkout confirmation label is not returned. |
 | Source | «Desde el catálogo», «WhatsApp», or «Venta manual» for an order the seller created (the web shows no label for it, and the agent needs a word). |
 | Unconfirmed catalog orders | Do not exist for any tool, as in every Yoyos screen ([Public catalog · Rules](public-catalog.md#rules)); **Ver pedido** answers them like a nonexistent number. Reason: the agent must not see what the owner cannot. |
 | Link | Each order carries its Yoyos web link, `${BETTER_AUTH_URL}/orders/<id>`. |
@@ -105,7 +105,7 @@ The server instructions, shown to the agent once, say: Yoyos is the store's sale
 
 ### Buscar pedidos
 
-- Optional inputs: `texto` (up to 120 characters), `pago` («por cobrar» or «pagado»), `entrega` («pendiente», «despachada» or «entregada»), `incluir_cancelados` (false by default), `courier`, created from and to, scheduled dispatch from and to or `sin_fecha_de_despacho`, dispatched from and to, `pagina`.
+- Optional inputs: `texto` (up to 120 characters), `pago` («por cobrar» or «pagado»), `entrega` («pendiente», «enviada» or «entregada»), `incluir_cancelados` (false by default), `courier`, created from and to, scheduled dispatch from and to or `sin_fecha_de_despacho`, dispatched from and to, `pagina`.
 - `texto` never searches by phone. A query containing any digit (any Unicode numeric character, after NFKC) searches the order number only; a query without digits searches the customer name. Reason: digits must never match names, so a masked phone cannot be rebuilt by probing. The description tells the agent that a nameless buyer, or one with a number in their name, is found only by order number or by the other filters. Web and mobile search are unchanged ([Orders · Other operations](orders.md#other-operations)).
 - «Por cobrar» and «pagado» never include cancelled orders, so `incluir_cancelados` is ignored with `pago`, and the description says so.
 - `courier` matches accent- and case-insensitively against every courier the store has, disabled ones included: an exact name first, else a single partial match. No match answers «Tu tienda no tiene el courier "Olba". Couriers: Olva Courier, Shalom.»; several answer «El courier "Ol" coincide con varios: … Indica el nombre completo.».
@@ -126,7 +126,7 @@ The server instructions, shown to the agent once, say: Yoyos is the store's sale
 
 ### Pedidos por despachar hoy
 
-- Orders not cancelled, delivery «Pendiente», scheduled for today or earlier in Lima. Input: `pagina`. It differs from the «Por entregar» view, which also includes «Despachada» orders, because what the owner prepares in the morning is what has not left yet.
+- Orders not cancelled, delivery «Pendiente», scheduled for today or earlier in Lima. Input: `pagina`. It differs from the «Por entregar» view, which also includes «Enviada» orders, because what the owner prepares in the morning is what has not left yet.
 - Summary («Atrasados: 2, 1 listo. Para hoy: 6, 4 listos.»), then «Atrasados» (scheduled before today, with their date) and «Para hoy». Within each group, ready orders first, then blocked; within each part, oldest scheduled date, then lowest number. The 20 per page follow that single sequence, so overdue orders are never pushed off page 1. Summary and the line «Además hay 5 pedidos pendientes sin fecha de despacho.» repeat on every page. Reason: nothing scheduled is forgotten, undated orders are mentioned without flooding stores that do not schedule, and blocked orders are never presented as ready (rejected: only today, which hides overdue orders; every pending order).
 - Each order: number, customer, modality, courier or pickup point, destination district, payment state and balance, readiness, link. Empty: «No tienes pedidos para despachar hoy.» plus the undated line when there are any.
 - The read classifies light candidate rows and loads full orders only for the page. Above `ASSISTANT_DISPATCH_QUEUE_MAX` candidates the tool answers the reading-failure text instead of a partial queue.
@@ -168,17 +168,16 @@ Readiness follows the rules of the web's «Marcar enviado» and «Marcar entrega
 
 | Order | Readiness |
 | --- | --- |
-| Home or agency, at least one confirmed payment, enough stock (deducted, deducting, or available for every item) | «Listo para despachar» |
-| Home or agency, no confirmed payment | «Se requiere al menos un pago para despachar.» |
-| Store pickup, paid in full, stock deducted | «Listo para entregar» |
-| Store pickup, balance pending | «Se requiere el pago completo antes de entregar. Por cobrar: S/ 40.00.» |
-| Home or agency waiting for stock, or partially paid with an item's current stock below its quantity | «Para despachar falta stock de Camisa (M · Azul).», naming only the short items |
+| Home or agency, at least one confirmed payment, enough stock (deducted, deducting, or available for every item) | «Listo para enviar» |
+| Home or agency, no confirmed payment | «Se requiere al menos un pago para enviar.» |
+| Store pickup, at least one confirmed payment (partial or full), enough stock | «Listo para entregar» |
+| Store pickup, no confirmed payment | «Registra al menos un pago para entregar. Puede ser un pago parcial. Por cobrar: S/ 40.00.» |
+| Home or agency waiting for stock, or partially paid with an item's current stock below its quantity | «Para enviar falta stock de Camisa (M · Azul).», naming only the short items |
 | Store pickup waiting for stock | «Para entregar falta stock de Camisa (M · Azul).» |
-| Store pickup, stock being deducted | «El stock se está descontando; podrás entregarlo en menos de un minuto.» |
 | No delivery assigned | «Entrega por definir: falta asignar la entrega.» |
 
 - A payment reason adds «Tiene un pago por revisar.» when the buyer has a report awaiting review, so the owner reviews it instead of registering a duplicate payment.
-- A partially paid order with short stock is not «Esperando stock» in Yoyos and its button stays enabled until the tap fails; the tool marks it with the stock sentence anyway. Reason: the owner must not prepare an order Yoyos will refuse to ship.
+- A partially paid order with short stock is not «Esperando stock» in Yoyos and its button stays enabled until the tap fails; the tool marks it with the stock sentence anyway. Reason: the owner must not prepare an order Yoyos will refuse to ship or deliver.
 - A cancelled order shows only «Cancelado», with no readiness.
 - Readiness is computed per order at the moment of the call and reserves no stock among the listed orders: two orders each needing 3 of a variant with 4 in stock both show ready, and only the first shipped succeeds. The description tells the agent to warn about this when ready orders share a product.
 

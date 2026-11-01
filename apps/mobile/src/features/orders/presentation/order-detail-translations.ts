@@ -15,9 +15,9 @@ export const orderDetailTranslations = {
     },
 
     detailCourier: 'Courier', detailAgency: 'Agencia de destino',
- shippedOn: 'Despachado el {{date}}', noScheduledDispatch: 'Sin programar', scheduledSaveError: 'No se pudo guardar la fecha programada.',
+ shippedOn: 'Enviado el {{date}}', noScheduledDispatch: 'Sin programar', scheduledSaveError: 'No se pudo guardar la fecha programada.',
     stockWaitingTitle: 'Esperando stock', stockWaitingLine: '{{name}}: {{quantity}} en el pedido, hay {{available}}.',
-    stockWaitingHelp: 'Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede despachar ni entregar.',
+    stockWaitingHelp: 'Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede enviar ni entregar.',
     stockDeductingTitle: 'Descontando stock', stockDeductingHelp: 'Ya hay stock para este pedido; se descontará en menos de un minuto.',
     stockWaiting: 'Esperando stock', stockDeducting: 'Descontando stock', listAnd: 'y',
     paymentRecorded: 'Pago registrado.', paymentRecordedWaiting: 'Pago registrado. El pedido queda esperando stock.',
@@ -53,9 +53,9 @@ export const orderDetailTranslations = {
     },
 
     detailCourier: 'Transportadora', detailAgency: 'Agência de destino',
- shippedOn: 'Despachado em {{date}}', noScheduledDispatch: 'Sem programação', scheduledSaveError: 'Não foi possível salvar a data programada.',
+ shippedOn: 'Enviado em {{date}}', noScheduledDispatch: 'Sem programação', scheduledSaveError: 'Não foi possível salvar a data programada.',
     stockWaitingTitle: 'Aguardando estoque', stockWaitingLine: '{{name}}: {{quantity}} no pedido, há {{available}}.',
-    stockWaitingHelp: 'Será descontado automaticamente quando houver estoque suficiente. Até lá, não é possível despachar nem entregar.',
+    stockWaitingHelp: 'Será descontado automaticamente quando houver estoque suficiente. Até lá, não é possível enviar nem entregar.',
     stockDeductingTitle: 'Descontando estoque', stockDeductingHelp: 'O estoque deste pedido já está disponível; será descontado em menos de um minuto.',
     stockWaiting: 'Aguardando estoque', stockDeducting: 'Descontando estoque', listAnd: 'e',
     paymentRecorded: 'Pagamento registrado.', paymentRecordedWaiting: 'Pagamento registrado. O pedido fica aguardando estoque.',
