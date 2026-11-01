@@ -2,7 +2,7 @@
 
 Every incoming photo or text of an individual chat updates that chat's open order the way the seller would: it adds the product named or shown, with the variant and quantity the buyer stated, removes or changes the item the buyer refers to, and finishes what an earlier message left unfinished. Each change ends in exactly one decision: applied, applied marked «Con duda», kept «Por resolver», escalated to the seller with a notice, or silent. A doubt with a single best reading becomes a mark the seller resolves in the order review ([order-review](order-review.md)); a doubt without one becomes a notice on the phone that received the message ([notifications](notifications.md)). The seller still closes the sale: they review the order and send the checkout link themselves.
 
-The goal is zero silent wrong changes: a wrong change applied without a mark or a notice. Urgent notices stay at or under 10 % of the messages read (target 5–10 %).
+The goal is zero silent wrong changes: a wrong change applied without a mark or a notice. Urgent notices stay at or under 10 % of the messages read in production (target 5–10 %, checked in real use); the evals gate false urgent notices instead (see «Cap»).
 
 Sources of truth:
 
@@ -329,7 +329,7 @@ Reason for the order: a problem needs the chat before the seller charges, and th
 - Lists in the texts name up to three distinct products joined with «y» / «e», then the rest counted as «y N más» / «e mais N». A doubtful-product pending and a pending whose product was deleted have no name: they are counted.
 - Order numbers are resolved from the order the message was applied to; a deleted order or product falls back to a text without its number or name.
 - **Silent misses:** a photo miss in a company whose catalog search readiness is not `ready`, and a text miss in a company with no active products, send no notice. The mobile WhatsApp screen shows the catalog hint instead. Reason: in that state visual search never answers, so every photo would notify.
-- **Cap:** urgent notices stay at or under 10 % of the messages read in the seed bank and the holdout (target 5–10 %), measured with precision (of the urgent notices, how many were expected) and recall (of the expected urgent cases, how many notified; 100 % required). «Pedido #N cambió», «listo», «Pedido nuevo» and «Revisa el pedido» are counted apart.
+- **Cap:** in production urgent notices stay at or under 10 % of the messages read (target 5–10 %), checked in real use. The eval case sets are built from hard cases and expect about 30 % urgent messages, so their gate is the false urgent share: urgent notices that were not expected stay at or under 10 % of the decided messages, with recall (of the expected urgent cases, how many notified) at 100 %. Precision (of the urgent notices, how many were expected) and the total urgent share are reported, not gated (founder, 2026-11-01). «Pedido #N cambió», «listo», «Pedido nuevo» and «Revisa el pedido» are counted apart.
 
 ## Order of processing and failures
 
@@ -389,7 +389,7 @@ WHERE name = 'apply-chat-message' AND state = 'failed';
 | --- | --- |
 | Sources | A committed seed bank (the failure families: confirmations and payment questions read as no intent, quantities after a photo, mentioned prices not noted, «la quiero en M» changing the variant silently), people playing buyers with loose scripts, and seller verdicts as labels (without text). There are no real buyer chats as a source. |
 | Runs | Every evaluation runs 3 times (`EVAL_REPEATS`) and reports mean and range per metric. A change counts as better only if its range does not overlap the previous one. |
-| Metrics per stage | Intent correct; each extracted field correct; right product among the candidates; decision correct; silent wrong changes; ignored requests; urgent share with precision and recall; «Pedido #N cambió» count; cost per message (mean); time (p95, without queue wait). |
+| Metrics per stage | Intent correct; each extracted field correct; right product among the candidates; decision correct; silent wrong changes; ignored requests; urgent share with precision and recall, and the false urgent share that gates the evals; «Pedido #N cambió» count; cost per message (mean); time (p95, without queue wait). |
 | Silent wrong change | A change applied without a «Con duda» mark or notice that differs from the expected order. |
 | Ignored request | A request with no change, no mark, no «Por resolver» point and no notice. |
 | Frozen holdout | Built outside the repository by an agent that never touches prompts and loaded from `EVAL_PRIVATE_DIR`. Run only to close a phase. Its texts are never published, in the repository, pull requests, Todoist or reports: only ids and failure types. |
