@@ -13,9 +13,9 @@ export type UndoOutcome =
   | Readonly<{ kind: "refused"; reason: UndoRefusalReason }>
   | Readonly<{ kind: "failed" }>;
 
-/** Confirms a review. The same input (and client id) is repeated while the answer may have been lost, so the review is saved once. */
 type ConfirmOrderReviewInput = Omit<ConfirmOrderReviewRequest, "version">;
 
+/** Confirms a review. The same input (and client id) is repeated while the answer may have been lost, so the review is saved once. */
 export function confirmReview(orderId: string, input: ConfirmOrderReviewInput, onInDoubt: () => void): Promise<Result<ConfirmOrderReviewResponse, ReviewRequestError>> {
   return repeatWhileInDoubt(() => orders.confirmOrderReview(orderId, input), { onInDoubt });
 }
