@@ -1,3 +1,5 @@
+import { findUnverdictedChanges, saveMessageChanges } from "@core/src/features/orders/infrastructure/message-change-repository";
+import type { OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { ok } from "@shared/functional";
@@ -184,6 +186,9 @@ function dependencies(wiring: SeedWiring, identify: ApplyChatMessageDependencies
     saveNewOrder: (order, link) => savePendingOrder(order, link),
     saveItemChanges: saveChatItemChanges,
     recordOrderMessage: recordProcessedMessage,
+    findUnverdictedChanges,
+    saveMessageChanges,
+    newChangeId: () => randomUUID() as OrderItemChangeId,
     recordOutcome,
     newOrderId: () => randomUUID() as OrderId,
     newItemId: () => randomUUID() as OrderItemId,

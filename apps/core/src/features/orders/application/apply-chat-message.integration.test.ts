@@ -1,3 +1,5 @@
+import { findUnverdictedChanges, saveMessageChanges } from "@core/src/features/orders/infrastructure/message-change-repository";
+import type { OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, test } from "vitest";
 import { Prisma } from "@prisma/client";
@@ -12,7 +14,9 @@ import type { ChatReadingContext, ReaderAction, ReaderAnswer } from "@core/src/f
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";
 import { findProductIdsOfVariants, findSellableVariantsByQrCodes } from "@core/src/features/products";
 import { products } from "@core/src/features/products/composition";
-import { saveChatItemChanges } from "@core/src/features/orders/composition";
+import { orders, saveChatItemChanges } from "@core/src/features/orders/composition";
+import type { OrderLineQuantity } from "@core/src/features/orders/domain/order-edit";
+import type { VariantId } from "@core/src/features/products/domain/product";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 import { identifyProductsInImage } from "@core/src/features/products/application/identify-products-in-image";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
@@ -47,7 +51,7 @@ async function fixture() {
   });
   return { companyId, sellerId, contactId, chatId, productId, variantIds, async cleanup() {
     await withTenantIsolation(companyId, async () => {
-      for (const table of ["chatPendings", "chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productStock", "productVariant", "productOption", "product", "image"] as const)
+      for (const table of ["chatPendings", "chatMessageOutcome", "orderItemChange", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productStock", "productVariant", "productOption", "product", "image"] as const)
         await (prisma[table] as unknown as { deleteMany(): Promise<unknown> }).deleteMany();
       await systemPrisma.user.deleteMany({ where: { companyId } });
       await prisma.company.delete({ where: { id: companyId } });
@@ -99,6 +103,9 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     saveNewOrder: savePendingOrder,
     saveItemChanges: saveChatItemChanges,
     recordOrderMessage: recordProcessedMessage,
+    findUnverdictedChanges,
+    saveMessageChanges,
+    newChangeId: () => randomUUID() as OrderItemChangeId,
     recordOutcome,
     newOrderId: () => randomUUID() as OrderId,
     newItemId: () => randomUUID() as OrderItemId,
@@ -678,5 +685,165 @@ test("two concurrent runs of one message write one item and one outcome", async 
     const [order] = await chatOrders(f);
     expect(order!.items.map((item) => Number(item.quantity))).toEqual([1]);
     expect(await inTenant(f, () => prisma.chatMessageOutcome.count({ where: { messageId } }))).toBe(1);
+  } finally { await f.cleanup(); }
+});
+
+const changesOf = (f: Fixture) => inTenant(f, () => prisma.orderItemChange.findMany({ orderBy: { seq: "asc" } }));
+const access = (f: Fixture) => ({ companyId: f.companyId as CompanyId, userId: f.sellerId as UserId });
+const undo = (f: Fixture, orderId: string, messageId: string) => inTenant(f, () => orders.undoMessage({ orderId: orderId as OrderId, messageId: messageId as ChatMessageId }, access(f)));
+
+test("the message transaction writes order lines, pendings, outcome, order message and changes together or not at all", async () => {
+  const f = await fixture();
+  try {
+    const failing = await message(f, { codes: [f.variantIds[0]!] });
+    const rolledBack = await apply(f, failing, { saveMessageChanges: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) });
+    expect(rolledBack.success).toBe(false);
+    expect(await chatOrders(f)).toHaveLength(0);
+    expect(await inTenant(f, () => prisma.orderMessage.count())).toBe(0);
+    expect(await inTenant(f, () => prisma.chatMessageOutcome.count())).toBe(0);
+    expect(await changesOf(f)).toHaveLength(0);
+
+    expect(await apply(f, failing)).toMatchObject({ success: true, data: { kind: "applied", createdOrder: true } });
+    const [order] = await chatOrders(f);
+    expect(await changesOf(f)).toMatchObject([{ orderId: order!.id, messageId: failing, seq: 1, position: 0, kind: "added", decision: "applied", verdict: null, itemId: order!.items[0]!.id }]);
+    expect(await inTenant(f, () => prisma.orderMessage.count({ where: { messageId: failing } }))).toBe(1);
+  } finally { await f.cleanup(); }
+});
+
+test("change rows of one company are invisible to another company", async () => {
+  const [a, b] = [await fixture(), await fixture()];
+  try {
+    await apply(a, await message(a, { codes: [a.variantIds[0]!] }));
+    expect(await changesOf(a)).toHaveLength(1);
+    expect(await changesOf(b)).toHaveLength(0);
+  } finally { await a.cleanup(); await b.cleanup(); }
+});
+
+test("undo restores lines and the touched pendings and records the undone verdict in one transaction", async () => {
+  const f = await fixture();
+  try {
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    const second = await message(f, { codes: [f.variantIds[1]!] });
+    await apply(f, second);
+    const [order] = await chatOrders(f);
+    expect(Object.keys(quantities(order!))).toHaveLength(2);
+
+    const undone = await undo(f, order!.id, second);
+    expect(undone).toMatchObject({ success: true, data: { undone: true, changeCount: 1 } });
+    expect(quantities((await chatOrders(f))[0]!)).toEqual({ [f.variantIds[0]!]: 1 });
+    expect((await changesOf(f)).map((change) => [change.messageId === second, change.verdict])).toEqual([[false, null], [true, "undone"]]);
+    expect(await inTenant(f, () => prisma.orderMessage.findFirstOrThrow({ where: { messageId: second } }))).toMatchObject({ undoneById: f.sellerId });
+    expect((await inTenant(f, () => prisma.order.findUniqueOrThrow({ where: { id: order!.id } }))).sellerActedAt).not.toBeNull();
+
+    expect(await undo(f, order!.id, second)).toMatchObject({ success: true, data: { undone: false } });
+    expect(await undo(f, order!.id, randomUUID())).toMatchObject({ success: false, error: { code: "MESSAGE_CHANGES_NOT_FOUND" } });
+  } finally { await f.cleanup(); }
+});
+
+/** Waits until `count` backends wait for an order row lock. */
+async function waitForOrderLockWaiters(f: Fixture, count: number) {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const [waiting] = await inTenant(f, () => prisma.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_stat_activity
+      WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid() AND query LIKE '%FROM "Order"%' AND query LIKE '%FOR UPDATE%'`);
+    if (waiting!.n >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Fewer than ${count} backends waited for the order lock`);
+}
+
+test("a message waiting on the order lock applies after an undo and reads the undone order", async () => {
+  const f = await fixture();
+  try {
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    const second = await message(f, { codes: [f.variantIds[1]!] });
+    await apply(f, second);
+    const [order] = await chatOrders(f);
+    const third = await message(f, { codes: [f.variantIds[1]!] });
+
+    // A holder keeps the order lock so that the undo, then the message, are both seen waiting and queue in that order.
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    let locked!: () => void;
+    const hasLock = new Promise<void>((resolve) => { locked = resolve; });
+    const holder = withTenantIsolation(f.companyId, () => withinTransaction(async () => {
+      await withLockedForUpdate(f.companyId, Prisma.sql`SELECT id FROM "Order" WHERE id = ${order!.id}::uuid`, () => ok(null));
+      locked();
+      await released;
+      return ok(null);
+    }));
+    await hasLock;
+    const undoing = undo(f, order!.id, second);
+    await waitForOrderLockWaiters(f, 1);
+    const waiting = apply(f, third);
+    await waitForOrderLockWaiters(f, 2);
+    release();
+    await holder;
+    expect(await undoing).toMatchObject({ success: true, data: { undone: true } });
+    expect(await waiting).toMatchObject({ success: true, data: { kind: "applied", createdOrder: false } });
+    expect(quantities((await chatOrders(f))[0]!)).toEqual({ [f.variantIds[0]!]: 1, [f.variantIds[1]!]: 1 });
+    expect((await changesOf(f)).map((change) => change.seq)).toEqual([1, 2, 3]);
+  } finally { await f.cleanup(); }
+});
+
+test("undo restores the pending a message completed, with its earlier last change, and a repeat changes nothing", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    setNow("2026-10-01T10:05:00Z");
+    await showProduct(f, catalog.polo.productId);
+    const pendingBefore = (await storedPendings(f))!.pendings;
+    expect(pendingBefore as unknown[]).toHaveLength(1);
+    setNow("2026-10-01T10:10:00Z");
+    const completing = await say(f, "negro M", completeFirst({ Talla: "M", Color: "Negro" }));
+    expect(await pendingCount(f)).toBe(0);
+    const [order] = await chatOrders(f);
+    expect(order!.items).toHaveLength(2);
+
+    expect(await undo(f, order!.id, completing.messageId)).toMatchObject({ success: true, data: { undone: true, pendingsRestored: 1 } });
+    expect((await storedPendings(f))!.pendings).toEqual(pendingBefore);
+    expect(Object.keys(quantities((await chatOrders(f))[0]!))).toEqual([f.variantIds[0]!]);
+
+    expect(await undo(f, order!.id, completing.messageId)).toMatchObject({ success: true, data: { undone: false } });
+    expect((await storedPendings(f))!.pendings).toEqual(pendingBefore);
+  } finally { await f.cleanup(); }
+});
+
+test("an earlier undo is refused while a later message holds the line and is available again once that message is undone", async () => {
+  const f = await fixture();
+  try {
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    const earlier = await message(f, { codes: [f.variantIds[1]!] });
+    await apply(f, earlier);
+    const later = await message(f, { codes: [f.variantIds[1]!] });
+    await apply(f, later);
+    const [order] = await chatOrders(f);
+    expect(quantities(order!)[f.variantIds[1]!]).toBe(2);
+
+    expect(await undo(f, order!.id, earlier)).toMatchObject({ success: false, error: { code: "UNDO_REFUSED", reason: "later_change" } });
+    expect(await undo(f, order!.id, later)).toMatchObject({ success: true, data: { undone: true } });
+    expect(await undo(f, order!.id, earlier)).toMatchObject({ success: true, data: { undone: true } });
+    expect(quantities((await chatOrders(f))[0]!)).toEqual({ [f.variantIds[0]!]: 1 });
+  } finally { await f.cleanup(); }
+});
+
+test("an edit sets the verdict of the edited items' changes, clears their marks and records sellerActedAt", async () => {
+  const f = await fixture();
+  try {
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    await apply(f, await message(f, { codes: [f.variantIds[1]!] }));
+    const [order] = await chatOrders(f);
+    const loaded = await inTenant(f, () => orders.getAggregate(order!.id as OrderId, access(f)));
+    if (!loaded.success) throw new Error(loaded.error.message);
+    const keptItem = order!.items.find((item) => item.variantId === f.variantIds[0])!;
+    const removedItem = order!.items.find((item) => item.variantId === f.variantIds[1])!;
+    const edited = await inTenant(f, () => orders.edit({ orderId: order!.id as OrderId,
+      items: { base: orders.revisions(loaded.data).items, lines: [{ variantId: f.variantIds[0] as VariantId, quantity: 3 as OrderLineQuantity }] } }, access(f)));
+    expect(edited.success).toBe(true);
+    const verdicts = Object.fromEntries((await changesOf(f)).map((change) => [change.itemId, change.verdict]));
+    expect(verdicts[removedItem.id]).toBe("removed");
+    expect(verdicts[keptItem.id]).toBe("quantity_changed");
+    expect((await inTenant(f, () => prisma.order.findUniqueOrThrow({ where: { id: order!.id } }))).sellerActedAt).not.toBeNull();
   } finally { await f.cleanup(); }
 });

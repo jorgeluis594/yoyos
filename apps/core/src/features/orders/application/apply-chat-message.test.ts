@@ -9,6 +9,7 @@ import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-orde
 import type { ChatPending, ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatMessageOutcomes, StoredChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
+import type { MessageChanges, OrderItemChange, OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
@@ -88,7 +89,7 @@ type Options = Readonly<{
   overrides?: Partial<ApplyChatMessageDependencies>;
 }>;
 
-type Store = { orders: Map<string, OrderAggregate>; pendings: ChatPendings; customers: Set<string>; messages: Map<string, string>; outcomes: Map<string, ChatMessageOutcomes> };
+type Store = { changes: OrderItemChange[]; orders: Map<string, OrderAggregate>; pendings: ChatPendings; customers: Set<string>; messages: Map<string, string>; outcomes: Map<string, ChatMessageOutcomes> };
 
 /** In-memory ports; `transaction` restores the state when its work fails, like a rollback. */
 function harness(options: Options = {}) {
@@ -98,8 +99,9 @@ function harness(options: Options = {}) {
   const candidateQueries: string[] = [];
   const openedSinceQueries: Date[] = [];
   const pendingSaves: ChatPendings[] = [];
+  const changeSaves: MessageChanges[] = [];
   const identifySignals: AbortSignal[] = [];
-  const store: Store = { orders: new Map(), pendings: options.pendings ?? pendingSet(), customers: new Set(), messages: new Map(), outcomes: new Map() };
+  const store: Store = { changes: [], orders: new Map(), pendings: options.pendings ?? pendingSet(), customers: new Set(), messages: new Map(), outcomes: new Map() };
   const called = <T,>(name: string, value: T): T => { calls.push(name); return value; };
   const target: ChatOrderTarget = options.target ?? { kind: "none" };
   if (target.kind === "open") store.orders.set(target.order.id, target.order);
@@ -138,6 +140,13 @@ function harness(options: Options = {}) {
     saveNewOrder: async (order) => { calls.push("saveNewOrder"); store.orders.set(order.id, order); return ok(null); },
     saveItemChanges: async (order) => { calls.push("saveItemChanges"); store.orders.set(order.id, order); return ok(null); },
     recordOrderMessage: async (orderId, key) => { calls.push("recordOrderMessage"); store.messages.set(key, orderId); return ok(null); },
+    findUnverdictedChanges: async () => ok({ open: store.changes.filter((change) => change.verdict === null && change.supersededBy === null), lastSeq: Math.max(0, ...store.changes.map((change) => change.seq)) }),
+    saveMessageChanges: async (saved) => {
+      changeSaves.push(saved);
+      store.changes = [...store.changes.map((change) => saved.supersedes.includes(change.id) ? { ...change, supersededBy: saved.changes[0]!.id } : change), ...saved.changes];
+      return ok(null);
+    },
+    newChangeId: (() => { let counter = 800; return () => id(counter++) as OrderItemChangeId; })(),
     recordOutcome: async ({ messageId: key, outcomes }) => { calls.push("recordOutcome"); store.outcomes.set(key, outcomes); return ok(null); },
     newOrderId: () => id(500) as OrderId,
     newItemId: (() => { let counter = 300; return () => id(counter++) as OrderItemId; })(),
@@ -147,7 +156,7 @@ function harness(options: Options = {}) {
     ...options.overrides,
   };
   const controller = new AbortController();
-  return { calls, contexts, readingIds, candidateQueries, openedSinceQueries, pendingSaves, identifySignals, store, controller, deps, run: () => applyChatMessage({ companyId, messageId }, deps, controller.signal) };
+  return { calls, contexts, readingIds, candidateQueries, openedSinceQueries, pendingSaves, changeSaves, identifySignals, store, controller, deps, run: () => applyChatMessage({ companyId, messageId }, deps, controller.signal) };
 }
 
 const quantityOf = (store: Store, variantId: VariantId) => [...store.orders.values()].flatMap((order) => order.items).find((item) => item.variantId === variantId)?.quantity;
@@ -431,5 +440,45 @@ describe("applyChatMessage: texts and pendings", () => {
     h.controller.abort();
     expect(await h.run()).toMatchObject({ success: false, error: { code: "DEADLINE_EXCEEDED" } });
     expect(h.calls).not.toContain("readChatMessage");
+  });
+});
+
+describe("applyChatMessage: change records", () => {
+  test("records the changes of a message that creates the order, in the same transaction", async () => {
+    const h = harness({ identification: visual(productCap) });
+    await succeeded(h.run());
+    expect(h.changeSaves).toHaveLength(1);
+    expect(h.changeSaves[0]).toMatchObject({ orderId: id(500), messageId, changes: [{ kind: "added", seq: 1, before: null, after: { variantId: cap.variantId, quantity: 1, position: 0 },
+      decision: { kind: "applied" }, messageId }], supersedes: [] });
+  });
+
+  test("records the line before and after for a message that raises a line of the open order", async () => {
+    const h = harness({ identification: visual(productCap), target: openTarget() });
+    await succeeded(h.run());
+    expect(h.changeSaves[0]?.changes).toMatchObject([{ kind: "quantity_changed", before: { itemId: id(60), quantity: 1 }, after: { itemId: id(60), quantity: 2 } }]);
+  });
+
+  test("supersedes the earlier unverdicted change of the item and continues the order's seq", async () => {
+    const h = harness({ identification: visual(productCap), target: openTarget() });
+    const earlier = { id: id(70) as OrderItemChangeId, orderId: id(9) as OrderId, messageId: id(71) as ChatMessageId, position: 0, seq: 4 as never, kind: "added" as const, before: null,
+      after: { itemId: id(60) as OrderItemId, variantId: cap.variantId, productName: "Gorra", variantAttributes: {}, sku: null, quantity: 1 as PositiveInteger, unitPrice: money(25), mentionedPrice: null, position: 0 },
+      decision: { kind: "applied" as const }, quoteId: null, supersededBy: null, reviewId: null, verdict: null, createdAt: hourBefore };
+    h.store.changes = [earlier];
+    await succeeded(h.run());
+    expect(h.changeSaves[0]).toMatchObject({ supersedes: [earlier.id], changes: [{ seq: 5 }] });
+  });
+
+  test("records no change rows for a message that only creates a pending, because it has no order message", async () => {
+    const h = harness({ identification: visual(productPolo) });
+    await succeeded(h.run());
+    expect(h.changeSaves).toEqual([]);
+    expect(h.store.messages.size).toBe(0);
+  });
+
+  test("rolls the change rows back with the transaction when saving them fails", async () => {
+    const h = harness({ identification: visual(productCap), overrides: { saveMessageChanges: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) } });
+    expect(await h.run()).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(h.store.orders.size).toBe(0);
+    expect(h.store.outcomes.size).toBe(0);
   });
 });

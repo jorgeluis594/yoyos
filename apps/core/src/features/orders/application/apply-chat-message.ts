@@ -3,14 +3,15 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { applyChatActions, needsNewChatOrder, type ChatOrderTarget, type ChatOrderLimits, type ReportOutcome, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import type { OrderItemChanges } from "@core/src/features/orders/domain/order-edit";
-import { pendingLife, type ChatPendingId, type ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
+import { pendingLife, type ChatPending, type ChatPendingId, type ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
 import { checkReaderAnswer, fixedShownAnswer, type ChatReadingContext, type ReaderAnswer } from "@core/src/features/orders/domain/chat-reading";
 import type { ChatMessageFailureCode, ChatMessageOutcome, ChatMessageOutcomes, StoredChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
 import { chooseSellerNotice, isNoticeDue } from "@core/src/features/orders/domain/seller-notice";
 import type { ChatId, OrderChatSource } from "@core/src/features/orders/domain/message-order";
+import { diffMessageChanges, type ChangeSeq, type MessageChanges, type OrderItemChange, type OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { OrderAggregate, OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
-import type { CompanyId, ContactId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
+import type { CompanyId, ContactId, OrderId, OrderItem, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
 import type { ReadChatMessage, ReaderError, ReaderUsage } from "@core/src/features/orders/application/read-chat-message";
 import { buildReadingContext, listedItems, selectReadingProducts, type ShownProduct } from "@core/src/features/orders/application/reading-context";
 import type { IdentifyProductsError, ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
@@ -115,6 +116,11 @@ export type ApplyChatMessageDependencies = Readonly<{
   saveNewOrder: (order: OrderAggregate, link: OrderChatSource) => Promise<Result<null, PersistenceError | SellerUnavailable>>;
   saveItemChanges: (order: OrderAggregate, changes: OrderItemChanges) => Promise<Result<null, PersistenceError>>;
   recordOrderMessage: (orderId: OrderId, messageId: ChatMessageId) => Promise<Result<null, PersistenceError | MessageAlreadyProcessed>>;
+  /** The order's changes that no one judged yet and no message superseded, and its highest change `seq`; plain reads under the order lock. */
+  findUnverdictedChanges: (orderId: OrderId) => Promise<Result<UnverdictedChanges, PersistenceError | InvalidStoredData>>;
+  /** Writes the change rows, the supersessions and the touched pendings of the message; after `recordOrderMessage`. */
+  saveMessageChanges: (changes: MessageChanges) => Promise<Result<null, PersistenceError>>;
+  newChangeId: () => OrderItemChangeId;
   recordOutcome: (record: Readonly<{ messageId: ChatMessageId; outcomes: ChatMessageOutcomes }>) => Promise<Result<null, PersistenceError | InvalidStoredData | MessageAlreadyProcessed>>;
   newOrderId: () => OrderId;
   newItemId: () => OrderItemId;
@@ -122,6 +128,8 @@ export type ApplyChatMessageDependencies = Readonly<{
   clock: () => Date;
   limits: ChatMessageLimits;
 }>;
+
+export type UnverdictedChanges = Readonly<{ open: readonly OrderItemChange[]; lastSeq: number }>;
 
 type Input = Readonly<{ companyId: CompanyId; messageId: ChatMessageId }>;
 type RunError = PersistenceError | InvalidStoredData | ContactNotFound | SellerUnavailable | MessageAlreadyProcessed | OrderDomainError;
@@ -311,6 +319,16 @@ async function reportMiss(run: Run, deps: ApplyChatMessageDependencies): Promise
   return reportOnly({ kind: "not_identified", source: "photo", identification: null, silent: readiness.data !== "ready" }, run);
 }
 
+/** The change rows of the message, with `seq` after the order's highest and the earlier changes it supersedes. Reads only when a line changed. */
+async function diffChanges(orderId: OrderId, messageId: ChatMessageId, items: Readonly<{ before: readonly OrderItem[]; after: readonly OrderItem[] }>,
+  pendings: Readonly<{ before: readonly ChatPending[]; after: readonly ChatPending[] }>, at: Date, deps: ApplyChatMessageDependencies): Promise<Result<MessageChanges, PersistenceError | InvalidStoredData>> {
+  const linesChanged = items.before.length !== items.after.length || items.after.some((line, index) => !isDeepStrictEqual(line, items.before[index]));
+  const unverdicted = linesChanged ? await deps.findUnverdictedChanges(orderId) : ok<UnverdictedChanges>({ open: [], lastSeq: 0 });
+  if (!unverdicted.success) return unverdicted;
+  return ok(diffMessageChanges({ orderId, messageId, before: items.before, after: items.after, decision: () => ({ kind: "applied" }), openChanges: unverdicted.data.open,
+    pendingsBefore: pendings.before, pendingsAfter: pendings.after, newChangeId: deps.newChangeId, at, nextSeq: (unverdicted.data.lastSeq + 1) as ChangeSeq }));
+}
+
 async function applyInTransaction(message: ChatSourceMessage, actions: readonly ResolvedChatAction[], deps: ApplyChatMessageDependencies): Promise<Result<AppliedChatMessage, RunError>> {
   const locked = await deps.lockContact(message.contactId);
   if (!locked.success) return locked;
@@ -354,6 +372,14 @@ async function applyInTransaction(message: ChatSourceMessage, actions: readonly 
   if (orderId) {
     const recorded = await deps.recordOrderMessage(orderId, message.id);
     if (!recorded.success) return recorded;
+    const items = { before: target.data.kind === "open" ? target.data.order.items : [], after: (createdOrder ?? changedOrder)?.items ?? [] };
+    const messageChanges = await diffChanges(orderId, message.id, items, { before: alive.pendings, after: applied.data.pendings.pendings }, now, deps);
+    if (!messageChanges.success) return messageChanges;
+    const { changes: rows, pendingsBefore, pendingsAfter } = messageChanges.data;
+    if (rows.length > 0 || pendingsBefore.length > 0 || pendingsAfter.length > 0) {
+      const savedChanges = await deps.saveMessageChanges(messageChanges.data);
+      if (!savedChanges.success) return savedChanges;
+    }
   }
   const recorded = await deps.recordOutcome({ messageId: message.id, outcomes });
   if (!recorded.success) return recorded;
