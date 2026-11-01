@@ -20,17 +20,29 @@ describe("metrics of one run", () => {
   });
 
   test("counts the gate per changed line when the change rows were read: a completion counts and a mark is per line", () => {
-    const rows = (changedLines: number, unmarkedLines: number, over: Partial<StageFacts> = {}) => facts({ orderMatches: false, changedLines, unmarkedLines, ...over });
-    // A completion of a pending: decision `pending`, nothing marked at message level, but a changed unmarked line.
+    const rows = (unmarkedLines: number, silentLines: number, over: Partial<StageFacts> = {}) => facts({ orderMatches: false, changedLines: 2, unmarkedLines, silentLines, ...over });
+    // A completion of a pending: decision `pending`, nothing marked at message level, but a changed unmarked wrong line.
     expect(silentWrongChangeOf(rows(1, 1, { changeApplied: false }))).toBe(true);
-    // One marked and one unmarked line: the message is not «marked» as a whole.
-    expect(silentWrongChangeOf(rows(2, 1, { marked: true }))).toBe(true);
-    expect(silentWrongChangeOf(rows(2, 0, { marked: true }))).toBe(false);
-    // A line that inherits the mark is marked; no line changed means no change.
-    expect(silentWrongChangeOf(rows(1, 0))).toBe(false);
-    expect(silentWrongChangeOf(rows(0, 0))).toBe(false);
+    // One marked and one unmarked wrong line: the message is not «marked» as a whole.
+    expect(silentWrongChangeOf(rows(1, 1, { marked: true }))).toBe(true);
+    // Every changed line is marked (an inherited mark included): not silent.
+    expect(silentWrongChangeOf(rows(0, 0, { marked: true }))).toBe(false);
     expect(silentWrongChangeOf(rows(1, 1, { noticed: true }))).toBe(false);
-    expect(silentWrongChangeOf(rows(1, 1, { orderMatches: true }))).toBe(false);
+  });
+
+  test("a message is judged by the lines it changed: a cascade from an earlier message does not count", () => {
+    // The order as a whole is wrong, but the one line this message changed (unmarked) is right.
+    expect(silentWrongChangeOf(facts({ orderMatches: false, changedLines: 1, unmarkedLines: 1, silentLines: 0 }))).toBe(false);
+    // A real silent change: the unmarked changed line is wrong, even if the order otherwise matches the fields scored.
+    expect(silentWrongChangeOf(facts({ orderMatches: true, changedLines: 1, unmarkedLines: 1, silentLines: 1 }))).toBe(true);
+    // A wrong line that is marked is not silent.
+    expect(silentWrongChangeOf(facts({ orderMatches: false, changedLines: 1, unmarkedLines: 0, silentLines: 0, marked: true }))).toBe(false);
+  });
+
+  test("records written before the lines were scored keep the earlier readings", () => {
+    expect(silentWrongChangeOf(facts({ orderMatches: false, changedLines: 1, unmarkedLines: 1 }))).toBe(true);
+    expect(silentWrongChangeOf(facts({ orderMatches: false, changedLines: 1, unmarkedLines: 0 }))).toBe(false);
+    expect(silentWrongChangeOf(facts({ orderMatches: true, changedLines: 1, unmarkedLines: 1 }))).toBe(false);
   });
 
   test("counts an ignored request as a request with no change, mark, point or notice", () => {

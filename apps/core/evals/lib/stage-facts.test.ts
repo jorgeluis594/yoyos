@@ -42,9 +42,10 @@ test("scores each stage against the expectation and leaves unstated stages null"
   expect(scoreStages(expectedStagesOf(expectation({ notice: null, outcomes: ["added"] })), answer())).toMatchObject({ fields: null, resolution: null });
 });
 
-test("states the count of changed lines and of those with no mark", () => {
+test("states the count of changed lines, of those with no mark and of those silently wrong", () => {
   const expected = expectedStagesOf({ outcomes: ["added"] });
-  expect(scoreStages(expected, answer({ changedLines: [{ marked: true }, { marked: false }] }))).toMatchObject({ changedLines: 2, unmarkedLines: 1 });
+  expect(scoreStages(expected, answer({ changedLines: [{ marked: true, wrong: true }, { marked: false, wrong: false }, { marked: false, wrong: true }] })))
+    .toMatchObject({ changedLines: 3, unmarkedLines: 2, silentLines: 1 });
   expect(scoreStages(expected, answer())).not.toHaveProperty("changedLines");
 });
 

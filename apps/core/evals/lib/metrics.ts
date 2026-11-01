@@ -17,12 +17,14 @@ const lowerIsBetter: ReadonlySet<MetricName> = new Set(["silentWrongChanges", "i
 const higherIsBetter: ReadonlySet<MetricName> = new Set(["intentAccuracy", "fieldsAccuracy", "resolutionAccuracy", "decisionAccuracy", "urgentPrecision", "urgentRecall"]);
 
 /**
- * The founder's gate: a wrong change applied with no «Con duda» mark and no notice. With the message's change rows read, it is per line: some line the
- * message changed carries no mark (own or inherited) and the order differs from the expected one. Without them (older records), a message-wide reading.
+ * The founder's gate: a wrong change applied with no «Con duda» mark and no notice. With the message's change rows read, it is per changed line: a line the
+ * message changed (a completion included) carries no mark (own or inherited), no notice was sent, and that line differs from the expected order's line. Lines
+ * the message did not touch do not count for it (a cascade from an earlier message). Without the rows (older records), a message-wide reading.
  */
 export const silentWrongChangeOf = (facts: StageFacts): boolean => {
-  if (facts.noticed || facts.orderMatches !== false) return false;
-  return facts.unmarkedLines !== undefined ? facts.unmarkedLines > 0 : facts.changeApplied && !facts.marked;
+  if (facts.noticed) return false;
+  if (facts.silentLines !== undefined) return facts.silentLines > 0;
+  return facts.orderMatches === false && (facts.unmarkedLines !== undefined ? facts.unmarkedLines > 0 : facts.changeApplied && !facts.marked);
 };
 /** A request that left no change, no mark, no «Por resolver» point and no notice. */
 export const ignoredRequestOf = (facts: StageFacts): boolean => facts.requested && !facts.changeApplied && !facts.marked && !facts.point && !facts.noticed;

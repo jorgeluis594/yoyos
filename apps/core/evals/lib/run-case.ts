@@ -9,7 +9,8 @@ import { readFixtureImage } from "@core/evals/lib/eval-catalog";
 import { expectedStagesOf, scoreStages } from "@core/evals/lib/stage-facts";
 import { legacyAnswerOf, stagedAnswerOf } from "@core/evals/lib/staged-answer";
 import type { MessageTrace } from "@core/src/features/orders/domain/reader/trace";
-import { scoreImage, scoreMessage, type ImageActual, type MessageActual, type MessageScored, type Scored } from "@core/evals/lib/scorers";
+import { scoredLinesOf } from "@core/evals/lib/changed-lines";
+import { expectedOrder, scoreImage, scoreMessage, type ImageActual, type MessageActual, type MessageScored, type Scored } from "@core/evals/lib/scorers";
 
 /** Runs one case through the production path, scores it, asks the judge when the case allows several answers, and records it. */
 
@@ -36,9 +37,9 @@ export function messageActualOf(applied: AppliedMessage): Readonly<MessageActual
 const orderFieldNames = ["product", "variant", "quantity", "mentionedPrice"] as const;
 
 /** The staged reader's scoring of one message (lib/staged-answer.ts): the intent, fields, product and decision the reading trace states, against the case. */
-export function stageFactsOf(applied: AppliedMessage, trace: MessageTrace | null, actual: Readonly<MessageActual>, scored: MessageScored, expectation: MessageExpectation): StageFacts {
+export function stageFactsOf(applied: AppliedMessage, trace: MessageTrace | null, actual: Readonly<MessageActual>, scored: MessageScored, expectation: MessageExpectation, initial: readonly OrderLine[]): StageFacts {
   const answer = stagedAnswerOf({ trace, expected: expectedStagesOf(expectation), outcomes: actual.outcomes, notice: actual.notice,
-    orderMatches: orderFieldNames.every((name) => scored.fields[name] !== false), changedLines: applied.changedLines, latencyMs: applied.latencyMs, productKeyOf: keyOf });
+    orderMatches: orderFieldNames.every((name) => scored.fields[name] !== false), changedLines: scoredLinesOf(applied.changedLines, expectedOrder(expectation, initial)), latencyMs: applied.latencyMs, productKeyOf: keyOf });
   return scoreStages(expectedStagesOf(expectation), answer);
 }
 
@@ -155,7 +156,7 @@ export function runMessageCase(context: RunCaseContext, testCase: MessageCase, r
     const actual = messageActualOf(applied);
     const scored = scoreMessage(actual, testCase.expected, testCase.input.order, context.scope);
     const trace = observedTrace();
-    const facts = stageFactsOf(applied, trace, actual, scored, testCase.expected[scored.expectationIndex]!);
+    const facts = stageFactsOf(applied, trace, actual, scored, testCase.expected[scored.expectationIndex]!, testCase.input.order);
     const reading = readingOf(trace);
     return { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual), error: actual.error, latencyMs: applied.latencyMs, attempts: applied.attempts,
       message: { facts, ...(reading ? { reading } : {}), kind: messageKindOf(testCase.input), noticeProducts: actual.noticeProducts, previousOrder: testCase.input.order, expectsRepeatNotice: false,
@@ -201,7 +202,7 @@ export async function runConversationCase(context: RunCaseContext, testCase: Con
       const actual = messageActualOf(applied);
       const before = previousOrder.map(lineOf);
       const scored = scoreMessage(actual, [step.expected], before, context.scope);
-      const facts = stageFactsOf(applied, observation.trace, actual, scored, step.expected);
+      const facts = stageFactsOf(applied, observation.trace, actual, scored, step.expected, before);
       const reading = readingOf(observation.trace);
       const evaluated: Evaluated = { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual), error: actual.error, latencyMs: applied.latencyMs,
         attempts: applied.attempts, message: { ...base, facts, ...(reading ? { reading } : {}), noticeProducts: actual.noticeProducts, previousOrder: before } };

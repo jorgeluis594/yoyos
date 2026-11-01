@@ -25,6 +25,8 @@ export type StageFacts = Readonly<{
   /** The lines this message changed (the message's `OrderItemChange` rows, completions of a pending included) and how many carry no «Con duda» mark. Absent in records from before they were measured. */
   changedLines?: number;
   unmarkedLines?: number;
+  /** Of those, the lines with no mark that differ from the expected order's line (missing, extra, or another quantity, variant or price): what the silent-change gate counts. */
+  silentLines?: number;
   point: boolean;
   noticed: boolean;
   /** The order after the message equals the expected one; null when the case states no order. */

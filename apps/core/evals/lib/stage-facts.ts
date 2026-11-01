@@ -1,4 +1,5 @@
 import type { DecisionKind, IntentKind, MessageExpectation } from "@core/evals/cases/schema";
+import type { ScoredChangedLine } from "@core/evals/lib/changed-lines";
 import type { StageFacts } from "@core/evals/lib/case-record";
 
 /**
@@ -59,8 +60,8 @@ export type StageAnswer = Readonly<{
   intentOnly?: boolean;
   changeApplied: boolean;
   marked: boolean;
-  /** The lines the message changed, each with its mark (own or inherited); absent when the path does not read them. */
-  changedLines?: readonly Readonly<{ marked: boolean }>[];
+  /** The lines the message changed, each with its mark (own or inherited) and whether it differs from the expected order's line; absent when the path does not read them. */
+  changedLines?: readonly ScoredChangedLine[];
   point: boolean;
   noticed: boolean;
   changedNotice: boolean;
@@ -83,7 +84,8 @@ export function scoreStages(expected: ExpectedStages, answer: StageAnswer): Stag
     decisionActual: answer.decision ?? (answer.changeApplied ? "applied" : "silent"),
     requested: expected.requested,
     changeApplied: answer.changeApplied, marked: answer.marked,
-    ...(answer.changedLines ? { changedLines: answer.changedLines.length, unmarkedLines: answer.changedLines.filter(({ marked }) => !marked).length } : {}),
+    ...(answer.changedLines ? { changedLines: answer.changedLines.length, unmarkedLines: answer.changedLines.filter(({ marked }) => !marked).length,
+    silentLines: answer.changedLines.filter(({ marked, wrong }) => !marked && wrong).length } : {}),
     point: answer.point, noticed: answer.noticed,
     orderMatches: answer.orderMatches, changedNotice: answer.changedNotice,
     readingMs: answer.readingMs, queuedMs: answer.queuedMs, stageCostsUsd: answer.stageCostsUsd,

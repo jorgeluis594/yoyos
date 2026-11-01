@@ -83,7 +83,7 @@ export function stagedAnswerOf(input: StagedAnswerInput): StageAnswer {
     product: productId === null ? null : input.productKeyOf(productId),
     decision,
     // The change rows are the truth when read: a completion of a pending changes the order and its decision is `pending`, and a mark can be inherited.
-    changeApplied: kinds.some((kind) => kind === "applied" || kind === "doubtful") || (kinds.length === 0 && decision === "applied") || (input.changedLines?.length ?? 0) > 0,
+    changeApplied: kinds.some((kind) => kind === "applied" || kind === "doubtful") || (input.changedLines === undefined ? kinds.length === 0 && decision === "applied" : input.changedLines.length > 0),
     marked: kinds.includes("doubtful") || (input.changedLines?.some(({ marked }) => marked) ?? false),
     ...(input.changedLines ? { changedLines: input.changedLines } : {}),
     point: kinds.includes("pending"),
