@@ -7,6 +7,7 @@ export const extractionInstructions = `You read one message from a buyer in a sa
 
 What you are given
 - The requests to extract (R1, R2...), with their kind and the words they come from.
+- The currency of the shop's prices, when known.
 - Facts about a photo: whether the message is the caption of a photo, whether the photo shows a catalog product, and whether the buyer's previous message was a photo that left a pending or an item.
 - Recent messages (M1, M2...), oldest first, each marked buyer or seller. They explain what the buyer's message refers to.
 - Order lines (I1, I2...): what the chat's open order holds.
@@ -44,7 +45,7 @@ Quantity: how many units
 
 Price
 - Give a price only when the buyer states one. amount is the number as written; never compute a total and never divide a price.
-- currency order when the buyer names no currency, other when the buyer names one.
+- currency order when the buyer names no currency or names the currency of the shop's prices (the input says which it is); other only when the buyer names a different currency.
 - basis unit when the price is for each unit, lot when it is for the whole quantity, not_explicit when the buyer does not say.
 
 Change verb

@@ -15,11 +15,12 @@ const pendingLine = (pending: ReadingPending) => {
 const intentLine = ({ id, kind, quote }: RequestIntent) =>
   `${id} (${kind}): «${quote.text.slice(0, maxIntentQuoteChars)}»${quote.source === "context" ? ` in ${quote.ref}` : ""}`;
 
-function photoLines({ current, photo, photoMemory }: ReadingInput): string[] {
+function photoLines({ current, photo, photoMemory, currency }: ReadingInput): string[] {
   const shown = photo === null ? [] : [photo.productId === null ? "The photo shows no catalog product." : "The photo shows a catalog product."];
   const previous = photoMemory === null ? [] : [photoMemory.left === null ? "The buyer's previous message was a photo that left nothing."
     : `The buyer's previous message was a photo that left ${photoMemory.left.kind === "pending" ? "a pending" : "an item in the order"}.`];
-  return [`Message kind: ${current.kind === "image" ? "caption of a photo" : "text message"}`, ...shown, ...previous];
+  const shop = currency ? [`Prices of this shop are in ${currency}.`] : [];
+  return [`Message kind: ${current.kind === "image" ? "caption of a photo" : "text message"}`, ...shown, ...previous, ...shop];
 }
 
 /**

@@ -119,6 +119,13 @@ describe("helpers", () => {
     expect(hasHighRiskIntent([intent("R1", "add"), intent("R2", "payment_request")])).toBe(false);
   });
 
+  test("a mention carries the price the request states in the order's currency, with its units, and none in another currency", () => {
+    const priced = (currency: "order" | "other") => ({ request: { ...request("R1", "add"), price: { amount: 45, currency, basis: "not_explicit" as const, quote: { source: "current" as const, text: "45" } },
+      quantity: { value: 2, mode: "add" as const, quote: { source: "current" as const, text: "2" } } }, complete: true });
+    expect(mentionsOf([priced("order")])[0]!.price).toEqual({ amount: 45, units: 2, basis: "not_explicit" });
+    expect(mentionsOf([priced("other")])[0]!.price).toBeUndefined();
+  });
+
   test("a mention is a request that names its product", () => {
     const named = { request: request("R1", "add"), complete: true };
     const unnamed = { request: { ...request("R2", "add"), target: { kind: "none" } as const }, complete: true };

@@ -82,7 +82,10 @@ function inputSummary(input: ReadingInput, extra: Partial<StageInputSummary> = {
 
 /** The mentions of a message: every request that names a product by words. */
 export function mentionsOf(requests: readonly VerifiedRequest[]): readonly ProductMention[] {
-  return requests.flatMap(({ request }) => (request.target.kind === "named" ? [{ request: request.request, words: request.target.words, values: request.values }] : []));
+  return requests.flatMap(({ request }) => (request.target.kind === "named"
+    ? [{ request: request.request, words: request.target.words, values: request.values,
+      ...(request.price && request.price.currency === "order" ? { price: { amount: request.price.amount, units: request.quantity?.value ?? 1, basis: request.price.basis } } : {}) }]
+    : []));
 }
 
 const sameMention = (a: ProductMention, b: ProductMention) => a.request === b.request && a.words.text.toLowerCase() === b.words.text.toLowerCase()

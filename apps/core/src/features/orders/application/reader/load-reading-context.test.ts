@@ -32,6 +32,7 @@ function fakes(over: Partial<LoadReadingContextDependencies> & { messages?: read
   const deps: LoadReadingContextDependencies = {
     findRecentChatMessages: async (query) => { calls.recent.push(query); return ok(over.messages ?? []); },
     findMaskedTexts: async (ids) => { calls.masks.push(ids); return ok(over.masks ?? new Map()); },
+    findShopCurrency: async () => ok("PEN" as const),
     findOutcome: async (messageId) => { calls.outcomes.push(messageId); return ok(over.outcomes?.get(messageId) ?? null); },
     findChatOrdersOpenedSince: async (_chat, since) => { calls.openedSince.push(since); return ok([]); },
     clock: () => now, pendingTtlMs: 7 * 24 * hour, budgets: defaultReadingBudgets, ...over,
@@ -45,6 +46,13 @@ const orderWith = (count: number): OrderAggregate => ({ id: id(9) as OrderId, co
   payments: [], delivery: null, createdAt: ago(5), checkoutConfirmedAt: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelledAt: null, cancelled: false } as unknown as OrderAggregate);
 
 describe("loadReadingContext", () => {
+  test("puts the currency of the shop's prices in the input, and leaves it out when the company has none on record", async () => {
+    const known = await loadReadingContext(fakes().deps, message(), noTarget, noPendings, null);
+    expect(known.success && known.data.input.currency).toBe("PEN");
+    const unknown = await loadReadingContext(fakes({ findShopCurrency: async () => ok(null) }).deps, message(), noTarget, noPendings, null);
+    expect(unknown.success && "currency" in unknown.data.input).toBe(false);
+  });
+
   test("asks for the messages before the anchor, anchored at sentAt or at receivedAt when it is missing", async () => {
     const withSent = fakes();
     await loadReadingContext(withSent.deps, message(), noTarget, noPendings, null);
@@ -144,6 +152,7 @@ describe("loadReadingContext", () => {
 
   test.each([
     ["messages", { findRecentChatMessages: async (): Promise<Result<readonly RecentChatMessage[], { code: "PERSISTENCE_UNAVAILABLE"; message: string }>> => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) }],
+    ["shop currency", { findShopCurrency: async () => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "down" }), messages: [recent(1)] }],
     ["masks", { findMaskedTexts: async () => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "down" }), messages: [recent(1)] }],
   ])("fails with the persistence error when the %s read fails", async (_name, over) => {
     const { deps } = fakes(over);
