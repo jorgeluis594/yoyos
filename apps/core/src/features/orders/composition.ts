@@ -84,6 +84,8 @@ import { claimNotice, releaseNotice } from "@core/src/features/orders/infrastruc
 import type { ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
 import { describeChatMessageNotice as describeNotice, type NoticeLocale } from "@core/src/features/orders/application/describe-chat-message-notice";
 import { findSellerNoticeTarget } from "@core/src/features/orders/application/find-seller-notice-target";
+import { findOpenQuestions } from "@core/src/features/orders/application/find-open-questions";
+import { findChatQuestionStates, findMessageChats, findOrderQuestionFacts, findOutcomes } from "@core/src/features/orders/infrastructure/open-question-repository";
 import { renderSellerNotice } from "@core/src/features/orders/presentation/seller-notice-texts";
 import { products } from "@core/src/features/products/composition";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
@@ -730,6 +732,7 @@ export const orders = {
     companyId: getCompanyId, findOrderNumbers, findProductNames: findProductNoticeNames, render: renderSellerNotice }),
   releaseChatMessageNotice: (messageId: ChatMessageId) => releaseNotice(messageId),
   findSellerNoticeTarget: (messageId: ChatMessageId) => findSellerNoticeTarget(messageId, { findOutcome, orderExists }),
+  findOpenQuestions: (messageIds: readonly ChatMessageId[]) => findOpenQuestions(messageIds, { findOutcomes, findMessageChats, findChatQuestionStates, findOrderQuestionFacts }),
   confirmCheckoutDelivery: async (input: ConfirmCheckoutDeliveryInput, access: CheckoutAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "confirm_checkout" });

@@ -9,6 +9,7 @@ import { releaseImage, viewImage } from "@mobile/features/whatsapp/application/v
 import type { CompanyId, UserId } from "@mobile/features/whatsapp/domain/ids";
 import { createLocalSql, type SqlDatabase } from "@mobile/features/whatsapp/infrastructure/local-sql";
 import { createMessageApi } from "@mobile/features/whatsapp/infrastructure/message-api";
+import { createMessageQuestionsApi } from "@mobile/features/whatsapp/infrastructure/message-questions-api";
 import { createSqliteLinkStore } from "@mobile/features/whatsapp/infrastructure/sqlite-link-store";
 import { createSqliteMessageStore } from "@mobile/features/whatsapp/infrastructure/sqlite-message-store";
 import { uploadImage } from "@mobile/shared/infrastructure/image-api";
@@ -47,6 +48,7 @@ export function createWhatsAppRuntime(deps: WhatsAppRuntimeDeps) {
   return {
     store,
     changes,
+    questions: createMessageQuestionsApi(deps.request),
     links,
     sync,
     reception,
