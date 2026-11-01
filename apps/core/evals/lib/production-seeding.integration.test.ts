@@ -7,7 +7,7 @@ import { pendingLife } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import { evalCatalogSchema, productIdOf, variantIdOf } from "@core/evals/fixtures/catalog";
 import { privateCompanyId, seedEvalCatalog } from "@core/evals/lib/eval-catalog";
-import { seedChatStart, type ChatStart } from "@core/evals/lib/production";
+import { companyOf, restoreDeactivated, seedChatStart, type ChatStart } from "@core/evals/lib/production";
 
 /** Seeds each start of a case with no model call and reads back what the reader would see: the chat's order target and its pendings. */
 
@@ -111,5 +111,18 @@ describe("seeding the start of a case", () => {
     expect(await variantStatus("campera", { Talla: "M" })).toBe("inactive");
     expect(await variantStatus("polera", { Talla: "M" })).toBe("inactive");
     expect(await variantStatus("campera", { Talla: "L" })).toBe("active");
+  });
+
+  test("a product a conversation deactivated is sellable again for the next one, and a variant the catalog marks inactive stays so", async () => {
+    await withTenantIsolation(privateCompanyId, async () => {
+      await prisma.productVariant.updateMany({ where: { id: { in: [variantIdOf("gorra", { Color: "Rojo" }, "private"), variantIdOf("gorra", { Color: "Azul" }, "private"), variantIdOf("campera", { Talla: "L" }, "private")] } }, data: { status: "inactive" } });
+    });
+
+    await restoreDeactivated([{ event: "deactivate_product", product: "gorra" }, { event: "deactivate_product", product: "campera" }] as never, companyOf("private"));
+
+    expect(await variantStatus("gorra", { Color: "Rojo" })).toBe("active");
+    expect(await variantStatus("gorra", { Color: "Azul" })).toBe("active");
+    expect(await variantStatus("campera", { Talla: "L" })).toBe("active");
+    expect(await variantStatus("campera", { Talla: "M" })).toBe("inactive");
   });
 });

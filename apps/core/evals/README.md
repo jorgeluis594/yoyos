@@ -173,7 +173,7 @@ certainties with their gate, the counts above, latency, retries, model calls wit
 - **The gate**, over the first run of each scored message, whole and per family (`kind`): right count and percentage, ignored actions,
   conversations with two notices for one product, wrong silent changes, extra notices as a share of the messages expected silent.
   The sections of the first run are this gate; the later runs feed the metrics section (mean, min and max per metric); cases whose runs gave another result are listed as flips apart;
-- the cost per scored message against the US$0.003 target (a reported target, not a gate) with input, cached, output and reasoning
+- the cost per scored message against the US$0.003 cap per message (reader plus photo stages; founder, 2026-11-01) with input, cached, output and reasoning
   tokens, the p95 latency per message, and the model calls per message kind (text, photo, photo with caption) against what the
   design allows (the reader and the vision chooser are not told apart);
 - a `pinned-miss` section: for each case tagged `pinned-miss`, the ignored actions of each repetition;
@@ -253,10 +253,10 @@ Every product named by a case must exist in `catalog.json`. A file inside the re
 The report's `runs` section scores each of the `EVAL_REPEATS` runs apart (`lib/metrics.ts`) and gives mean, min and max per metric:
 intent, fields, resolution and decision accuracy (over the messages whose case states them), silent wrong changes (an applied change with no
 «Con duda» mark and no notice whose order differs from the expected one), ignored requests (no change, mark, «Por resolver» point or notice),
-urgent share with precision and recall, the «Pedido #N cambió» count apart, cost per message and per stage (photo stages included), and the p95
+urgent share with precision and recall, the false urgent share (messages that interrupted the seller without needing it, over the decided messages; the urgent gate is a false urgent share at or under 10 % with urgent recall at 100 %, while the total urgent share and precision are reported only, because the case sets expect about 30 % urgent messages), the «Pedido #N cambió» count apart, cost per message and per stage (photo stages included), and the p95
 from the start of the reading to the decision without queue wait. `eval:compare` calls a metric better or worse only when the ranges of the two
 runs do not overlap; otherwise it prints «not distinguishable». A case states its stages with `stages` (intent, fields, product) and `decision`;
-the cases without them are relabelled by derivation from their notice and outcomes (`lib/stage-facts.ts`), and `cases/stage-labels.ts` labels
+the cases without them are relabelled by derivation from their notice and outcomes (`lib/stage-facts.ts`; an outcome that is a problem, with no pending beside it, expects an urgent decision), a conversation that deactivates a product restores the catalog's status when it ends, each record keeps the masked output of every stage (`reading`), and `cases/stage-labels.ts` labels
 the cases of the four seed-bank families. Records of the current (legacy) reader path carry no stage facts and feed only the gate flags until
 the suites point at the staged pipeline.
 

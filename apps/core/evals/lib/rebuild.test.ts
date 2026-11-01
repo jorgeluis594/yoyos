@@ -73,3 +73,14 @@ test("a split's part of a run keeps its records and their error groups, without 
   expect(part.report.usage.byRole.classifier).toBeUndefined();
   expect(part.report.settings.split).toBe(splitOf(record.baseId));
 });
+
+test("a rebuild derives the expected decision again, so a change of the derivation reaches a saved run", () => {
+  const meta = { runId: "run", startedAt: "", finishedAt: "", settings: {} };
+  const facts = { intent: true, fields: null, resolution: null, decision: false, decisionExpected: "applied" as const, decisionActual: "urgent" as const, requested: true, changeApplied: false, marked: false,
+    point: false, noticed: true, orderMatches: null, changedNotice: false, readingMs: 10, queuedMs: 0, stageCostsUsd: {} };
+  const saved = messageRecord({ expected: [{ outcomes: ["unclear_item"] }], actual: { outcomes: ["unclear_item"], notice: "unclear_item", noticeProducts: [], order: [] }, facts });
+
+  const { records } = rebuildResult({ report: buildReport([saved], meta), records: [saved] });
+
+  expect(records[0]!.facts).toMatchObject({ decisionExpected: "urgent", decisionActual: "urgent", decision: true });
+});

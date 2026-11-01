@@ -30,6 +30,7 @@ test("runs the whole harness in fake mode with zero model calls", () => {
   expect(report.runs.metrics.ignoredRequests).toEqual({ mean: 0, min: 0, max: 0, runs: 3 });
   expect(report.runs.metrics.urgentPrecision!.mean).toBe(1);
   expect(report.runs.metrics.urgentRecall!.mean).toBe(1);
+  expect(report.runs.metrics.falseUrgentShare!.mean).toBe(0);
   expect(report.runs.metrics.costPhotoUsd!.mean).toBeGreaterThan(0);
   expect(formatGateSummary(report)).toContain("Metrics over 3 runs");
 });
