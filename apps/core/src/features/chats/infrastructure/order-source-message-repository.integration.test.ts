@@ -30,8 +30,8 @@ test("findOrderSourceMessage returns image and text messages and hides other com
       return { contact, chat, image, ready, text };
     });
     await withTenantIsolation(a.id, async () => {
-      const expected = (m: { id: string }, imageId: string | null, text: string | null, caption: string | null) => ({ success: true, data: {
-        id: m.id, companyId: a.id, chatId: rows.chat.id, contactId: rows.contact.id, direction: "incoming", uploadedByUserId: "uploader", imageId, text, caption } });
+      const expected = (m: { id: string; receivedAt: Date }, imageId: string | null, text: string | null, caption: string | null) => ({ success: true, data: {
+        id: m.id, companyId: a.id, chatId: rows.chat.id, contactId: rows.contact.id, direction: "incoming", uploadedByUserId: "uploader", imageId, text, caption, sentAt: base.sentAt, receivedAt: m.receivedAt } });
       expect(await findOrderSourceMessage(rows.ready.id)).toEqual(expected(rows.ready, rows.image.id, null, "2 en talla M"));
       expect(await findOrderSourceMessage(rows.text.id)).toEqual(expected(rows.text, null, "hola", null));
       expect(await findOrderSourceMessage(randomUUID())).toEqual({ success: true, data: null });

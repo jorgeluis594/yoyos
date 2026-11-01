@@ -30,7 +30,7 @@ function order(patch: Partial<OrderAggregateResponse> = {}): OrderAggregateRespo
     paymentStatus: "pending", paidAmount: pen(0), balanceDue: pen(178), overpaidAmount: pen(0), cancelled: false, delivery: null, deliveryStatus: "pending",
     stockDeducted: false, stockDue: null,
     items: [item("00000000-0000-4000-8000-000000000001", trajeM, "Traje de Príncipe Azul", "M", 89, 1), item("00000000-0000-4000-8000-000000000002", trajeL, "Traje de Príncipe Azul", "L", 89, 1)],
-    payments: [], itemsTotal: pen(178), deliveryCost: pen(0), deliveryCharge: pen(0), total: pen(178), ...patch,
+    payments: [], itemsTotal: pen(178), deliveryCost: pen(0), deliveryCharge: pen(0), total: pen(178), revisions: { items: "A".repeat(43) }, ...patch,
   };
 }
 const loaded = (patch: Partial<LoadedOrder> = {}): LoadedOrder => ({ order: order(), revisions, lineCatalog: { [trajeM]: { stock: 5 }, [trajeL]: { stock: 2 } }, ...patch });
