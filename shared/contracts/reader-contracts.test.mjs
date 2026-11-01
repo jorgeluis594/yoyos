@@ -24,7 +24,8 @@ const review = {
     acknowledged: false, question: "¿En qué talla la quieres?" }],
   products: [{ itemId: id(1), changedSinceLastReview: true }],
   removedSinceLastReview: [line],
-  messageRows: [{ messageId: id(11), at, changes: [change], undo: { kind: "refused", reason: "later_change" } }, { messageId: id(12), at, changes: [], undo: { kind: "available" } }],
+  messageRows: [{ messageId: id(11), at, changes: [change], undo: { kind: "refused", reason: "later_change" }, pendings: { back: [], end: [] } },
+    { messageId: id(12), at, changes: [], undo: { kind: "available" }, pendings: { back: [{ kind: "variant_missing", product: "Polo básico" }], end: [{ kind: "not_clear", product: null }] } }],
   moreRows: 0,
   loaded,
 };
@@ -71,6 +72,8 @@ test("the review response rejects unknown reasons, undo refusals, entries and ex
   assert.equal(bad({ loaded: { ...loaded, changesThrough: 1.5 } }), false);
   assert.equal(bad({ doubtful: [{ change: { ...change, decision: { kind: "doubtful", reason: { kind: "gut_feeling" } } }, quote: null }] }), false);
   assert.equal(bad({ messageRows: [{ messageId: id(11), at, changes: [], undo: { kind: "refused", reason: "bad_mood" } }] }), false);
+  assert.equal(bad({ messageRows: [{ messageId: id(11), at, changes: [], undo: { kind: "available" } }] }), false);
+  assert.equal(bad({ messageRows: [{ messageId: id(11), at, changes: [], undo: { kind: "available" }, pendings: { back: [{ kind: "mystery", product: null }], end: [] } }] }), false);
   assert.equal(bad({ trace: "texto" }), false);
 });
 
