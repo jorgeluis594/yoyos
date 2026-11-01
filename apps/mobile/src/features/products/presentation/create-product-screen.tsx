@@ -42,7 +42,7 @@ export default function CreateProductScreen() {
   const { discardVersion } = useProductDraft();
   const setDirty = useProductNavigationGuard(
     values.name !== emptyProductForm.name || values.description !== emptyProductForm.description || values.sku !== emptyProductForm.sku ||
-    values.salePrice !== emptyProductForm.salePrice || values.purchasePrice !== emptyProductForm.purchasePrice || values.stock !== emptyProductForm.stock || photos.unsaved || editor.dirty,
+    values.salePrice !== emptyProductForm.salePrice || values.purchasePrice !== emptyProductForm.purchasePrice || values.stock !== emptyProductForm.stock || values.hidden !== emptyProductForm.hidden || photos.unsaved || editor.dirty,
   );
   const discardVersionRef = useRef(discardVersion);
   useEffect(() => {
@@ -69,7 +69,8 @@ export default function CreateProductScreen() {
   const hasOptions = draft.options.length > 0;
   // The form opens above the tabs; going back returns to wherever it was opened from.
   const close = () => router.canGoBack() ? router.back() : router.replace("/products");
-  const setValue = (field: keyof ProductFormValues, value: string) => {
+  const setHidden = (hidden: boolean) => setValues((current) => ({ ...current, hidden }));
+  const setValue = (field: Exclude<keyof ProductFormValues, "hidden">, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
     setErrors((current) => ({ ...current, [field]: undefined, form: undefined }));
   };
@@ -108,6 +109,7 @@ export default function CreateProductScreen() {
       name: values.name,
       ...(values.description === "" ? {} : { description: values.description }),
       photos: photos.toSave(),
+      hidden: values.hidden,
       draft: next,
     });
     setSaving(false);
@@ -132,6 +134,7 @@ export default function CreateProductScreen() {
       title={t('newProduct')}
       values={values}
       setValue={setValue}
+      setHidden={setHidden}
       currency={currency}
       draft={draft}
       errorCount={rowErrorCount(editor.errors)}
