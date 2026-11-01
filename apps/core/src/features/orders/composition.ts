@@ -54,7 +54,7 @@ import { deleteExpiredMessageTraces, type DeleteExpiredMessageTracesDependencies
 import { reportVerdictLabels, type ReportVerdictLabelsInput } from "@core/src/features/orders/application/report-verdict-labels";
 import { countVerdicts } from "@core/src/features/orders/infrastructure/verdict-counts";
 import { readVerdictReportTimeoutMs } from "@core/src/features/orders/infrastructure/verdict-report-env";
-import { deleteExpiredMessageTraces as deleteCompanyExpiredMessageTraces, findTraceQuotes, listCompaniesWithExpiredMessageTraces, readAuditedMessageTraces, type TraceReadAudit } from "@core/src/features/orders/infrastructure/message-trace-repository";
+import { deleteExpiredMessageTraces as deleteCompanyExpiredMessageTraces, findTraceQuotes, saveMessageTrace, listCompaniesWithExpiredMessageTraces, readAuditedMessageTraces, type TraceReadAudit } from "@core/src/features/orders/infrastructure/message-trace-repository";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
 import type { AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, findChatOrderTarget, findChatOrdersOpenedSince, saveItemChanges as saveOrderItemChanges, saveOrderCustomer, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
@@ -64,16 +64,23 @@ import { findOrderSourceMessage } from "@core/src/features/chats";
 import { findRecentChatMessages } from "@core/src/features/chats/composition";
 import { loadReadingContext as loadReadingContextWith, type ReadingMessage } from "@core/src/features/orders/application/reader/load-reading-context";
 import { findMaskedTexts } from "@core/src/features/orders/infrastructure/message-masked-text-lookup";
-import { readReadingBudgets } from "@core/src/features/orders/infrastructure/reading-budgets-env";
+import { readReadingBudgets, readReadingLimits } from "@core/src/features/orders/infrastructure/reading-budgets-env";
+import { createReadingDeadline, withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
 import { createChatMessageDeadLetterHandler, createChatMessageHandler, type ChatMessageHandlerDependencies } from "@core/src/features/orders/application/chat-message-handler";
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
-import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { buildMessageTrace } from "@core/src/features/orders/application/reader/build-message-trace";
+import { createLegacyShadowReader } from "@core/src/features/orders/application/reader/legacy-shadow-reader";
+import { readShadowConfig } from "@core/src/features/orders/infrastructure/reader/shadow-config";
+import { priceOf } from "@core/src/shared/infrastructure/model-prices";
+import { readChatReaderEnv } from "@core/src/features/orders/infrastructure/chat-reader-env";
+import { findChatMemory, findChatPendings, findChatPendingsForUpdate, saveChatPendings, saveLastIncomingPhotoOfMessageChat } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { recordFailedChatMessage } from "@core/src/features/orders/application/record-failed-chat-message";
 import { confirmOrderReview, type ConfirmOrderReviewInput } from "@core/src/features/orders/application/confirm-order-review";
 import { loadOrderReview, type LoadOrderReviewInput } from "@core/src/features/orders/application/load-order-review";
 import { recordLinkAction, type RecordLinkActionInput } from "@core/src/features/orders/application/record-link-action";
-import { findChangesAfter, findChangesByIds, findLatestChatOrder, findOrderChanges, findReview, findReviewListFacts, markChangesReviewed, saveLinkAction, saveReview, settleUnreviewedChanges } from "@core/src/features/orders/infrastructure/order-review-repository";
+import { findChangesAfter, findChangesByIds, findLinkNoticeArming, findLatestChatOrder, findOrderChanges, findReview, findReviewListFacts, markChangesReviewed, saveLinkAction, saveReview, settleUnreviewedChanges } from "@core/src/features/orders/infrastructure/order-review-repository";
 import { pointsOfOrder, reviewStatus } from "@core/src/features/orders/domain/order-review";
 import { findLaterChanges, findMessageChanges, findUnverdictedChanges, markMessageUndone, releaseSupersededChanges, saveMessageChanges, saveSellerActedAt, setUndoneVerdicts, setVerdictsForEdit } from "@core/src/features/orders/infrastructure/message-change-repository";
 import { undoMessageChanges, type UndoMessageError, type UndoMessageInput } from "@core/src/features/orders/application/undo-message-changes";
@@ -82,7 +89,7 @@ import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructur
 import { readerStagesFromEnv } from "@core/src/features/orders/infrastructure/reader/runtime/reader-stages-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
-import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { findOutcome, insertFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import { claimNotice, releaseNotice } from "@core/src/features/orders/infrastructure/chat-message-notice-repository";
 import type { ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
 import { describeChatMessageNotice as describeNotice, type NoticeLocale } from "@core/src/features/orders/application/describe-chat-message-notice";
@@ -903,8 +910,32 @@ export const orders = {
 
 // The products composition imports the event handlers that import this module, so `products` is only read when a message is applied.
 const readChatMessage = createChatReaderFromEnv(process.env);
-/** The staged reader's ports from the env; not used by `applyChatMessage` yet. A function, so nothing starts, or fails startup, before it is called. */
-export const createReaderStagePorts = () => readerStagesFromEnv(process.env);
+const readingBudgets = readReadingBudgets(process.env);
+const readingLimits = (() => {
+  const limits = readReadingLimits(process.env);
+  if (!limits.success) throw new Error(limits.error.message);
+  return limits.data;
+})();
+/** The staged reader's ports from the env; null without OPENAI_API_KEY and no fake. Built on first use so that nothing starts, or fails startup, before a message is read. */
+let stagedPorts: ReturnType<typeof readerStagesFromEnv> | undefined;
+export const createReaderStagePorts = () => (stagedPorts ??= readerStagesFromEnv(process.env, readingBudgets.stageInputMaxChars));
+
+let shadowReaderCache: ApplyChatMessageDependencies["shadowReader"] | undefined;
+/** The legacy shadow reader, built on first use: null when `READER_SHADOW_LEGACY` is off or no model provider is configured. */
+function legacyShadowReader(): ApplyChatMessageDependencies["shadowReader"] {
+  if (shadowReaderCache !== undefined) return shadowReaderCache;
+  const config = readShadowConfig(process.env);
+  if (!config.success) throw new Error(config.error.message);
+  const limits = readChatMessageLimits(process.env);
+  const model = readChatReaderEnv(process.env).AI_READER_MODEL;
+  shadowReaderCache = config.data.legacy && readChatMessage
+    ? createLegacyShadowReader({ readChatMessage, findChatOrderTarget: (chatId) => findChatOrderTarget(chatId, findProductIdsOfVariants), findChatOrdersOpenedSince, findChatPendings,
+      findProductsForReading: (ids) => products.findProductsForReading(ids), findMessageCandidates: (text) => products.findMessageCandidates(text),
+      costOf: (usage) => { const price = priceOf(model); return price ? (usage.inputTokens * price.input + usage.outputTokens * price.output) / 1_000_000 : null; },
+      clock: () => new Date(), limits })
+    : null;
+  return shadowReaderCache;
+}
 
 const chatMessageDependencies: ApplyChatMessageDependencies = {
   findOutcome,
@@ -919,13 +950,18 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   findChatOrdersOpenedSince,
   findChatPendings,
   findChatPendingsForUpdate,
+  findChatMemory,
   saveChatPendings,
   readImage: (imageId) => readImageBytes(imageId),
   identifyProductsInImage: (image, signal) => products.identifyProductsInImage(image, signal),
+  loadReadingContext: (message, target, pendings, photoMemory) => loadReadingContext(message, target, pendings, photoMemory),
+  findMentionCandidates: (mentions) => products.findMentionCandidates(mentions),
   findProductsForReading: (productIds) => products.findProductsForReading(productIds),
-  findMessageCandidates: (text) => products.findMessageCandidates(text),
   catalogSearchReadiness: () => products.catalogSearchReadiness(),
+  get stages() { return createReaderStagePorts(); },
   readChatMessage,
+  createDeadline: (budgetMs, meta, jobSignal) => createReadingDeadline(budgetMs, meta, Date.now, jobSignal).signal,
+  withAbort,
   transaction: scopedOrderTransaction,
   lockContact,
   ensureCustomerForContact: async (contactId) => {
@@ -938,6 +974,7 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   saveItemChanges: saveChatItemChanges,
   recordOrderMessage: recordProcessedMessage,
   findUnverdictedChanges,
+  findLinkNoticeArming,
   saveMessageChanges,
   newChangeId: () => randomUUID() as OrderItemChangeId,
   recordOutcome,
@@ -945,14 +982,22 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   newItemId: () => randomUUID() as OrderItemId,
   newPendingId: () => randomUUID() as ChatPendingId,
   clock: () => new Date(),
-  limits: readChatMessageLimits(process.env),
+  buildMessageTrace,
+  saveMessageTrace,
+  // Phase 5 only: the legacy reader runs beside the staged one and never applies anything. T17 removes it.
+  get shadowReader() { return legacyShadowReader(); },
+  limits: { ...readChatMessageLimits(process.env), ...readingLimits },
 };
 
+type ReadingContextLoader = (message: ReadingMessage, target: Parameters<typeof loadReadingContextWith>[2], pendings: Parameters<typeof loadReadingContextWith>[3],
+  photoMemory: Parameters<typeof loadReadingContextWith>[4]) => ReturnType<typeof loadReadingContextWith>;
+
+/** The loader of the reading input on a given clock (a test moves the clock; production uses the real one). */
+export const createReadingContextLoader = (clock: () => Date): ReadingContextLoader => (message, target, pendings, photoMemory) => loadReadingContextWith({ findRecentChatMessages, findMaskedTexts, findOutcome,
+  findChatOrdersOpenedSince, clock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs, budgets: readingBudgets }, message, target, pendings, photoMemory);
+
 /** The input of the staged reader's three stages for a message: recent chat messages, masks, the latest photo outcome, order lines and pendings. */
-export const loadReadingContext = (message: ReadingMessage, target: Parameters<typeof loadReadingContextWith>[2], pendings: Parameters<typeof loadReadingContextWith>[3],
-  photoMemory: Parameters<typeof loadReadingContextWith>[4]) => loadReadingContextWith({ findRecentChatMessages, findMaskedTexts, findOutcome, findChatOrdersOpenedSince,
-  clock: chatMessageDependencies.clock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs, budgets: readingBudgets }, message, target, pendings, photoMemory);
-const readingBudgets = readReadingBudgets(process.env);
+export const loadReadingContext: ReadingContextLoader = (message, target, pendings, photoMemory) => createReadingContextLoader(chatMessageDependencies.clock)(message, target, pendings, photoMemory);
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
@@ -969,7 +1014,7 @@ const publishChatMessageProcessed: PublishChatMessageProcessed = async (payload)
 const chatMessageHandlerDependencies: ChatMessageHandlerDependencies = {
   withTenant: withTenantIsolation,
   apply: (input, signal) => applyChatMessage(input, chatMessageDependencies, signal),
-  recordFailedOutcome,
+  recordFailedOutcome: recordFailedChatMessage({ transaction: (work) => scopedOrderTransaction(getCompanyId(), work), insertFailedOutcome, saveLastIncomingPhotoOfMessageChat }),
   publishNotice: publishChatMessageProcessed,
   deadlineMs: chatMessageDeadlineMs,
   retries: chatMessagePolicy.retries,

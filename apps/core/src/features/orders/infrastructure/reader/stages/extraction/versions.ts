@@ -7,10 +7,10 @@ import { extractionConfirmInstructions } from "@core/src/features/orders/infrast
 import { renderExtractionInput } from "@core/src/features/orders/infrastructure/reader/stages/extraction/render-extraction-input";
 
 /** Same schema, parser, rendering and settings; only the phrasing of the instructions differs between the primary and the confirming reading. */
-const extractionVersion = (version: string, instructions: string): StageVersion<ExtractionInput, readonly ExtractedRequest[]> => ({
+const extractionVersion = (version: string, instructions: string, maxChars: number): StageVersion<ExtractionInput, readonly ExtractedRequest[]> => ({
   stage: "extraction", version, instructions, schemaName: "extraction_answer", jsonSchema: extractionJsonSchema,
   reasoningEffort: "none", maxOutputTokens: 3000,
-  renderInput: (input) => renderExtractionInput(input),
+  renderInput: (input) => renderExtractionInput(input, maxChars),
   parse: parseExtractionAnswer,
 });
 
@@ -18,7 +18,7 @@ const extractionVersion = (version: string, instructions: string): StageVersion<
  * The prompt versions of the extraction stage, keyed by version. A confirming reading names `extraction_confirm-v1` in
  * `READER_EXTRACTION_CONFIRM_PROMPT`; without it, it uses the primary's version.
  */
-export const extractionVersions: PromptRegistry["extraction"] = {
-  "extraction-v1": extractionVersion("extraction-v1", extractionInstructions),
-  "extraction_confirm-v1": extractionVersion("extraction_confirm-v1", extractionConfirmInstructions),
-};
+export const createExtractionVersions = (maxChars: number): PromptRegistry["extraction"] => ({
+  "extraction-v1": extractionVersion("extraction-v1", extractionInstructions, maxChars),
+  "extraction_confirm-v1": extractionVersion("extraction_confirm-v1", extractionConfirmInstructions, maxChars),
+});

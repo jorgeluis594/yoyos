@@ -1,10 +1,10 @@
-import type { ContextMessageRef, ExtractedRequest, ExtractedValue, Quote, ReadingInput, TargetReference } from "@core/src/features/orders/domain/reader/readings";
+import type { ContextMessageRef, ExtractedRequest, ExtractedValue, Quote, ReadingInput, RequestIntent, TargetReference } from "@core/src/features/orders/domain/reader/readings";
 
 /** A request after its quotes were checked: `complete` is false when some datum of it was dropped, which is certainty signal 1. */
 export type VerifiedRequest = Readonly<{ request: ExtractedRequest; complete: boolean }>;
 
-/** Case and whitespace are ignored; nothing else is normalized. */
-const squash = (text: string): string => text.toLowerCase().replace(/\s+/g, "");
+/** Case and whitespace are ignored, and so is «⏎», the mark the stage inputs render a line break as; nothing else is normalized. */
+const squash = (text: string): string => text.toLowerCase().replace(/[\s⏎]+/g, "");
 
 function isFound(quote: Quote, input: ReadingInput, allowContext: boolean): boolean {
   const wanted = squash(quote.text);
@@ -44,4 +44,25 @@ function verifiedTarget(target: TargetReference, keep: (quote: Quote | null, all
     case "pending": return { ...target, named: keep(target.named, true) ? target.named : null };
     default: return target;
   }
+}
+
+/** Intent quotes are verified like extraction quotes (the current message, or the context message they name): an intent with an unverified quote is dropped. */
+export function verifyIntentQuotes(intents: readonly RequestIntent[], input: ReadingInput): Readonly<{ kept: readonly RequestIntent[]; dropped: readonly RequestIntent[] }> {
+  const found = (intent: RequestIntent) => isFound(intent.quote, input, true);
+  return { kept: intents.filter(found), dropped: intents.filter((intent) => !found(intent)) };
+}
+
+export type QuoteDrop = Readonly<{ requestKind: RequestIntent["kind"]; field: "intent" | "target" | "values" | "quantity" | "price" | "change_verb" }>;
+
+const namedQuoteOf = (target: TargetReference): Quote | null => (target.kind === "named" ? target.words : target.kind === "item" || target.kind === "pending" ? target.named : null);
+
+/** What verifying the quotes took from a request, by field: for the `reader_quote_dropped` log. */
+export function droppedFields(before: ExtractedRequest, after: ExtractedRequest): readonly QuoteDrop["field"][] {
+  const dropped: QuoteDrop["field"][] = [];
+  if (namedQuoteOf(before.target) !== null && namedQuoteOf(after.target) === null) dropped.push("target");
+  if (after.values.length < before.values.length) dropped.push("values");
+  if (before.quantity && !after.quantity) dropped.push("quantity");
+  if (before.price && !after.price) dropped.push("price");
+  if (before.changeVerb && !after.changeVerb) dropped.push("change_verb");
+  return dropped;
 }

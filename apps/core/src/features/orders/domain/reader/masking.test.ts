@@ -31,6 +31,10 @@ describe("maskPersonalData", () => {
     expect(maskPersonalData("quiero dos polos", [""])).toBe("quiero dos polos");
   });
 
+  test("masks an address span the model copied with ⏎ where the message has a line break", () => {
+    expect(maskPersonalData("envíalo a Av. Lima 123\nMiraflores, gracias", ["Av. Lima 123⏎Miraflores"])).toBe("envíalo a [dirección], gracias");
+  });
+
   test("masks the same text the same way twice", () => {
     const once = maskPersonalData("al +51 987 654 312, Av. Larco 345", ["Av. Larco 345"]);
     expect(maskPersonalData(once, ["Av. Larco 345"])).toBe(once);

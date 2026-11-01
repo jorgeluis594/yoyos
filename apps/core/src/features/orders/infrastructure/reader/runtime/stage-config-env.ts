@@ -37,8 +37,11 @@ const settingsSchema = z.object({
 });
 const readingBudgetSchema = z.coerce.number().int().positive().default(60_000);
 
-/** `READER_READING_BUDGET_MS`: what a whole reading may take, under the attempt deadline. Invalid values fail at startup. */
-export const readReadingBudgetMs = (env: Env): number => readingBudgetSchema.parse(valueOf(env, "READER_READING_BUDGET_MS"));
+/** `READER_READING_BUDGET_MS`: what a whole reading may take, under the attempt deadline. Invalid values are an error the composition turns into a startup failure. */
+export function readReadingBudgetMs(env: Env): Result<number, StageConfigError> {
+  const parsed = readingBudgetSchema.safeParse(valueOf(env, "READER_READING_BUDGET_MS"));
+  return parsed.success ? ok(parsed.data) : err({ code: "INVALID_STAGE_ENV", message: "Invalid configuration of the reading budget: READER_READING_BUDGET_MS" });
+}
 
 /**
  * The configuration of one stage and reading from `READER_<STAGE>[_CONFIRM]_PROVIDER|_MODEL|_PROMPT` and `READER_STAGE_TIMEOUT_MS`.

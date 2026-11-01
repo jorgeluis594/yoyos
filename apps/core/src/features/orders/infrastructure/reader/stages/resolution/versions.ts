@@ -1,4 +1,3 @@
-import { readReadingBudgets } from "@core/src/features/orders/infrastructure/reading-budgets-env";
 import type { PromptRegistry, ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 import { parseResolution, resolutionFallback } from "@core/src/features/orders/infrastructure/reader/stages/resolution/resolution-parser";
 import { planResolution } from "@core/src/features/orders/infrastructure/reader/stages/resolution/resolution-plan";
@@ -16,4 +15,4 @@ export function createResolutionV1(maxChars: number): ResolutionVersion {
 }
 
 /** The prompt versions of the resolution stage, keyed by version («resolution-v1»). */
-export const resolutionVersions: PromptRegistry["resolution"] = { "resolution-v1": createResolutionV1(readReadingBudgets(process.env).stageInputMaxChars) };
+export const createResolutionVersions = (maxChars: number): PromptRegistry["resolution"] => ({ "resolution-v1": createResolutionV1(maxChars) });

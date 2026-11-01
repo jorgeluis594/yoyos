@@ -1,12 +1,18 @@
+import { defaultReadingBudgets } from "@core/src/features/orders/domain/reader/budgets";
 import type { ReaderStage } from "@core/src/features/orders/domain/reader/readings";
 import type { StageVersion, PromptRegistry } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
-import { intentVersions } from "@core/src/features/orders/infrastructure/reader/stages/intent/versions";
-import { extractionVersions } from "@core/src/features/orders/infrastructure/reader/stages/extraction/versions";
-import { resolutionVersions } from "@core/src/features/orders/infrastructure/reader/stages/resolution/versions";
+import { createIntentVersions } from "@core/src/features/orders/infrastructure/reader/stages/intent/versions";
+import { createExtractionVersions } from "@core/src/features/orders/infrastructure/reader/stages/extraction/versions";
+import { createResolutionVersions } from "@core/src/features/orders/infrastructure/reader/stages/resolution/versions";
 
 export type { ExtractionInput, ResolutionInput, StageIO, StageVersion, PromptRegistry } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 
-export const promptRegistry: PromptRegistry = { intent: intentVersions, extraction: extractionVersions, resolution: resolutionVersions };
+/** The registry whose renderers cut every stage input to `maxChars` (`READER_STAGE_INPUT_MAX_CHARS`, read by the composition). */
+export const createPromptRegistry = (maxChars: number): PromptRegistry =>
+  ({ intent: createIntentVersions(maxChars), extraction: createExtractionVersions(maxChars), resolution: createResolutionVersions(maxChars) });
+
+/** The registry at the default budget, for tests and tools that read no env. */
+export const promptRegistry: PromptRegistry = createPromptRegistry(defaultReadingBudgets.stageInputMaxChars);
 
 export function registeredVersions(registry: PromptRegistry) {
   return (Object.keys(registry) as ReaderStage[]).flatMap((stage) =>

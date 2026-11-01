@@ -69,8 +69,9 @@ describe("stage configuration from the env", () => {
 
 describe("reading budget", () => {
   test("defaults to 60 s, reads READER_READING_BUDGET_MS and refuses a non-positive value", () => {
-    expect(readReadingBudgetMs({})).toBe(60_000);
-    expect(readReadingBudgetMs({ READER_READING_BUDGET_MS: "30000" })).toBe(30_000);
-    expect(() => readReadingBudgetMs({ READER_READING_BUDGET_MS: "-1" })).toThrow();
+    expect(readReadingBudgetMs({})).toEqual({ success: true, data: 60_000 });
+    expect(readReadingBudgetMs({ READER_READING_BUDGET_MS: "30000" })).toEqual({ success: true, data: 30_000 });
+    expect(readReadingBudgetMs({ READER_READING_BUDGET_MS: "-1" })).toEqual({ success: false, error: expect.objectContaining({ code: "INVALID_STAGE_ENV", message: expect.stringContaining("READER_READING_BUDGET_MS") }) });
+    expect(readReadingBudgetMs({ READER_READING_BUDGET_MS: "soon" }).success).toBe(false);
   });
 });

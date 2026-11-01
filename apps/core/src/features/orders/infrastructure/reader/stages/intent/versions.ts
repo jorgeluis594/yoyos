@@ -4,12 +4,13 @@ import { parseIntentAnswer } from "@core/src/features/orders/infrastructure/read
 import { intentInstructions, intentJsonSchema } from "@core/src/features/orders/infrastructure/reader/stages/intent/intent.v1";
 import { renderIntentInput } from "@core/src/features/orders/infrastructure/reader/stages/intent/render-intent-input";
 
-const intentV1: StageVersion<ReadingInput, IntentReading> = {
+/** `intent-v1` rendering under the stage input budget (technical design 6.8). */
+const intentV1 = (maxChars: number): StageVersion<ReadingInput, IntentReading> => ({
   stage: "intent", version: "intent-v1", instructions: intentInstructions, schemaName: "intent_answer", jsonSchema: intentJsonSchema,
   reasoningEffort: "none", maxOutputTokens: 1500,
-  renderInput: (input) => renderIntentInput(input),
+  renderInput: (input) => renderIntentInput(input, maxChars),
   parse: parseIntentAnswer,
-};
+});
 
 /** The prompt versions of the intent stage, keyed by version («intent-v1»). */
-export const intentVersions: PromptRegistry["intent"] = { "intent-v1": intentV1 };
+export const createIntentVersions = (maxChars: number): PromptRegistry["intent"] => ({ "intent-v1": intentV1(maxChars) });
