@@ -13,7 +13,7 @@ import {
   hasCorrections, invalidItems, isRemoved, itemsLeft, keepItem, parseQuantity, quantityTextOf, reconcile, removeItem, toRequest, typeQuantity,
   type Corrections,
 } from "@core/src/features/orders/presentation/order-review-corrections";
-import { lineLabel, lineName, lineVariant, reasonText, type ReviewChange, type ReviewMoney } from "@core/src/features/orders/presentation/order-review-texts";
+import { lineLabel, lineName, lineVariant, messageSummary, reasonText, type ReviewChange, type ReviewMoney } from "@core/src/features/orders/presentation/order-review-texts";
 import { ReviewPoints } from "@core/src/features/orders/presentation/review-points";
 
 export type ReviewOrigin = "link" | "detail";
@@ -47,14 +47,14 @@ type Props = Readonly<{
   origin: ReviewOrigin; orderId: string; orderNumber: number;
   /** The review and the order as the page loaded them: shown at once while the dialog reads them again. */
   initial: LoadedReview;
-  api: OrderReviewApi; money: ReviewMoney; retryDelaysMs: readonly number[];
+  api: OrderReviewApi; money: ReviewMoney; /** The clock time of a message, as the rows show it. */ time: (at: string) => string; retryDelaysMs: readonly number[];
   onClose: (result: ReviewDialogResult) => void;
   /** An undo changed the saved order: the page reads it again. */
   onOrderChanged: () => void;
 }>;
 
 /** «Revisa el pedido #N»: the doubtful changes with their controls, the points to resolve, the products and the total. Confirming saves the corrections and records the review. */
-export function OrderReviewDialog({ origin, orderId, orderNumber, initial, api, money, retryDelaysMs, onClose, onOrderChanged }: Props) {
+export function OrderReviewDialog({ origin, orderId, orderNumber, initial, api, money, time, retryDelaysMs, onClose, onOrderChanged }: Props) {
   const { t } = useTranslation();
   const [data, setData] = useState<LoadedReview>(initial);
   const [load, setLoad] = useState<"loading" | "ready" | "failed">("loading");
@@ -147,16 +147,15 @@ export function OrderReviewDialog({ origin, orderId, orderNumber, initial, api, 
   }, order.total.amount);
 
   const allCorrected = marks.some((mark) => mark.item) && marks.every((mark) => !mark.item || corrections[mark.itemId] !== undefined);
-  const undoButton = (mark: Marked, item: Item | null) => mark.messageIds.map((messageId) => {
+  const undoButton = (mark: Marked) => mark.messageIds.map((messageId) => {
     const row = rowOf(messageId);
     if (!row || row.undo.kind === "undone") return null;
-    if (row.undo.kind === "refused") return <p key={messageId} className="text-sm text-muted-foreground">{refusalText(row.undo, t)}</p>;
+    if (row.undo.kind === "refused") return <p key={messageId} className="text-sm text-muted-foreground">{refusalText(row, t)}</p>;
     // Undo reverts the reader's changes while the order is open for messages and its items can still change.
     if (!editable || !review.status.openForMessages) return null;
-    const name = item ? lineName({ productName: item.productName, variantAttributes: item.variantAttributes }) : mark.changes[0]?.before ? lineName(mark.changes[0].before) : "";
     return <Button key={messageId} type="button" variant="outline" size="sm" className="w-fit min-h-control max-md:min-h-touch aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-      aria-label={t("orderReview.undoMessageOf", { name })} aria-disabled={corrected || undefined} aria-describedby={corrected ? "review-undo-blocked" : undefined}
-      onClick={() => { if (!corrected) { setUndoDone(false); setUndoing({ row, progress: "idle" }); } }}>{t("orderReview.undoMessage")}</Button>;
+      aria-label={t("orderReview.changes.undoRow", { time: time(row.at), summary: messageSummary(row.changes, t) })} aria-disabled={corrected || busy || undefined} aria-describedby={corrected ? "review-undo-blocked" : undefined}
+      onClick={() => { if (!corrected && !busy) { setUndoDone(false); setUndoing({ row, progress: "idle" }); } }}>{t("orderReview.undoMessage")}</Button>;
   });
 
   const markedRow = (mark: Marked): ReactNode => {
@@ -167,7 +166,7 @@ export function OrderReviewDialog({ origin, orderId, orderNumber, initial, api, 
       return <li key={mark.itemId} className="grid gap-2 py-3">
         <p className="font-medium">{line ? t("orderReview.removedByMessage", { line: lineLabel(line, t) }) : reasons[0]}</p>
         {mark.quote && <p className="text-sm italic text-muted-foreground">{t("orderReview.quote", { quote: `“${mark.quote}”` })}</p>}
-        {undoButton(mark, null)}
+        {undoButton(mark)}
       </li>;
     }
     const name = lineName({ productName: item.productName, variantAttributes: item.variantAttributes });
@@ -196,12 +195,12 @@ export function OrderReviewDialog({ origin, orderId, orderNumber, initial, api, 
         </div>
         <Button type="button" variant="ghost" size="sm" className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" aria-label={t("orderReview.remove", { name })} disabled={busy}
           aria-disabled={lastItem || undefined} aria-describedby={lastItem ? "review-last-item" : undefined} onClick={() => { if (!lastItem) setCorrections(removeItem(corrections, item.id)); }}><Trash2 data-icon="inline-start" aria-hidden="true" />{t("orderReview.remove", { name: "" }).trim()}</Button>
-        {undoButton(mark, item)}
+        {undoButton(mark)}
       </div>}
       {invalid && <p id={`review-quantity-${item.id}`} role="alert" className="text-sm text-destructive">{t("orderReview.quantityInvalid")}</p>}
       {editable && removed && <div className="flex flex-wrap items-center gap-2"><p className="text-sm">{t("orderReview.willRemove")}</p>
         <Button type="button" variant="outline" size="sm" aria-label={t("orderReview.keep", { name })} disabled={busy} onClick={() => setCorrections(keepItem(corrections, item.id))}>{t("orderReview.keep", { name: "" }).trim()}</Button></div>}
-      {!editable && <div className="flex flex-wrap items-center gap-2">{undoButton(mark, item)}</div>}
+      {!editable && <div className="flex flex-wrap items-center gap-2">{undoButton(mark)}</div>}
     </li>;
   };
 
@@ -216,7 +215,7 @@ export function OrderReviewDialog({ origin, orderId, orderNumber, initial, api, 
           <DialogTitle ref={titleRef} tabIndex={-1} className="text-lg font-semibold outline-none">{t("orderReview.title", { number: orderNumber })}</DialogTitle>
           <DialogDescription id="review-subtitle" className={cn(origin !== "link" && "sr-only")}>{origin === "link" ? t("orderReview.subtitle") : t("orderReview.title", { number: orderNumber })}</DialogDescription>
         </DialogHeader>
-        <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-4 sm:p-6" data-testid="review-content">
+        <div className="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto p-4 sm:p-6" data-testid="review-content">
           <div role="status" aria-live="polite" className="text-sm text-muted-foreground empty:hidden">{load === "loading" ? t("orderReview.loading") : undoDone ? t("orderReview.changes.done") : ""}</div>
           {load === "failed" && <div className="flex flex-wrap items-center gap-3"><p role="alert" className="text-sm text-destructive">{t("orderReview.loadError")}</p>
             <Button type="button" variant="outline" onClick={() => void refresh()}>{t("orderReview.retry")}</Button></div>}

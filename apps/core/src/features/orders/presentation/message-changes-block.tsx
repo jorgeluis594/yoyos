@@ -4,13 +4,19 @@ import type { OrderReviewResponse } from "@shared/contracts/order-review";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
-import { messageSummary, undoStep, type ReviewChange } from "@core/src/features/orders/presentation/order-review-texts";
+import { lineVariant, messageSummary, undoStep, type ReviewChange } from "@core/src/features/orders/presentation/order-review-texts";
 
 export type MessageRow = OrderReviewResponse["messageRows"][number];
 
-/** Why a row cannot be undone, in the seller's words. */
-export function refusalText(row: Extract<MessageRow["undo"], { kind: "refused" }>, t: TFunction): string {
-  return t(`orderReview.changes.refused.${row.reason}`);
+/** Why a row cannot be undone, in the seller's words. «ya no se vende» names the product when the message touched exactly one line. */
+export function refusalText(row: MessageRow, t: TFunction): string {
+  if (row.undo.kind !== "refused") return "";
+  const lines = new Map(row.changes.flatMap((change) => { const line = change.after ?? change.before; return line ? [[line.itemId, line] as const] : []; }));
+  if (row.undo.reason === "not_sold" && lines.size === 1) {
+    const [line] = [...lines.values()];
+    return t("orderReview.changes.refused.not_sold_named", { product: [line!.productName, lineVariant(line!)].filter(Boolean).join(" · ") });
+  }
+  return t(`orderReview.changes.refused.${row.undo.reason}`);
 }
 
 type BlockProps = Readonly<{
@@ -37,7 +43,7 @@ export function MessageChangesBlock({ rows, moreRows, moreLoading, moreFailed, b
               aria-label={t("orderReview.changes.undoRow", { time: time(row.at), summary })} aria-disabled={blocked || undefined} aria-describedby={blocked ? "message-changes-blocked" : undefined}
               onClick={() => { if (!blocked) onUndo(row); }}>{t("orderReview.changes.undo")}</Button>
           </>}
-          {row.undo.kind === "refused" && <p className="text-sm text-muted-foreground">{refusalText(row.undo, t)}</p>}
+          {row.undo.kind === "refused" && <p className="text-sm text-muted-foreground">{refusalText(row, t)}</p>}
           {row.undo.kind === "undone" && <p className="text-sm font-medium text-muted-foreground">{t("orderReview.changes.undone")}</p>}
         </li>;
       })}</ul>

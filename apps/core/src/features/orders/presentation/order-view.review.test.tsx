@@ -27,22 +27,25 @@ let writeText: ReturnType<typeof vi.fn>;
 beforeEach(() => { writeText = vi.fn(async () => undefined); Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true }); });
 afterEach(() => { act(() => root?.unmount()); root = undefined; container?.remove(); vi.unstubAllGlobals(); });
 
-type Over = Readonly<{ review: OrderReviewResponse; api: ReturnType<typeof fakeApi>; order: ReturnType<typeof order1042>; state: OrderViewState; onChanged: () => void; retryDelaysMs: readonly number[] }>;
+type Over = Readonly<{ review: OrderReviewResponse; api: ReturnType<typeof fakeApi>; order: ReturnType<typeof order1042>; state: OrderViewState; onChanged: () => void; afterChange: OrderReviewResponse; retryDelaysMs: readonly number[] }>;
 async function mount(over: Partial<Over> = {}) {
   const review = over.review ?? reviewJson();
   const api = over.api ?? fakeApi();
   const onChanged = over.onChanged ?? vi.fn();
   const start = over.state ?? savedState({ order: over.order ?? whatsappOrder() });
-  const props: Omit<OrderViewProps, "state" | "onStateChange"> = {
+  const propsFor = (current: OrderReviewResponse, changed: () => void): Omit<OrderViewProps, "state" | "onStateChange"> => ({
     settings: null, links: { sales: "/es-PE/orders", deliverySettings: "/es-PE/settings/delivery", createProduct: "/es-PE/products/new" }, catalogEpoch: 0,
     guard: { blocked: false, mode: "changes", stay: vi.fn(), leave: vi.fn() }, saving: false, notice: null, attempts: 0, unavailableVariantId: null, coverRequired: false,
     format: { amount: (money) => `S/ ${money.amount.toFixed(2)}`, date: (iso) => iso }, newPaymentId: () => "00000000-0000-4000-8000-0000000000f1", onSave: vi.fn(), onCheckAgain: vi.fn(),
     saved: { link: { kind: "ready", url }, receiptUrls: {}, manualPaymentId: "00000000-0000-4000-8000-0000000000f2", voidResult: undefined, actionBusy: false, underHeader: null, statusCard: null,
       onPrint: vi.fn(), onDiscardChanges: vi.fn(), onReload: vi.fn(), onSaveCustomerOnly: vi.fn(),
-      review: { review, api, onChanged, retryDelaysMs: over.retryDelaysMs ?? [], now: () => new Date("2026-10-30T22:00:00.000Z") } } };
+      review: { review: current, api, onChanged: changed, retryDelaysMs: over.retryDelaysMs ?? [], now: () => new Date("2026-10-30T22:00:00.000Z") } } });
   function Harness() {
     const [state, setState] = useState(start);
-    return <OrderView state={state} onStateChange={setState} {...props} />;
+    // The route reads the review again after a confirmation: its answer replaces the one the view was given.
+    const [current, setCurrent] = useState(review);
+    const changed = () => { onChanged(); if (over.afterChange) setCurrent(over.afterChange); };
+    return <OrderView state={state} onStateChange={setState} {...propsFor(current, changed)} />;
   }
   const router = createMemoryRouter([{ path: "/", element: <Harness /> }]);
   container = document.body.appendChild(document.createElement("div"));
@@ -82,7 +85,7 @@ describe("web review on the order view", () => {
   });
 
   test("copy after confirming a review closes the dialog, shows the URL and focuses the copy icon without copying", async () => {
-    const { api, onChanged } = await mount();
+    const { api, onChanged } = await mount({ afterChange: reviewJson({ doubtful: [], status: { ...reviewJson().status, toReview: false, doubtfulCount: 0 } }) });
     await click(button("Copiar enlace"));
     await click(button("Confirmar revisión"));
     await gone();
@@ -257,7 +260,7 @@ describe("the review dialog", () => {
 
   test("Deshacer mensaje is disabled while the dialog has corrections and enabled after Descartar correcciones", async () => {
     await open();
-    const undo = () => button("Deshacer mensaje de Disfraz de Deadpool M");
+    const undo = () => [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.getAttribute("aria-label")?.startsWith("Deshacer mensaje de las 15:42"));
     expect(undo()?.getAttribute("aria-disabled")).toBeNull();
     await type(input(quantityLabel), "2");
     expect(undo()?.getAttribute("aria-disabled")).toBe("true");
@@ -355,6 +358,40 @@ describe("the review dialog", () => {
     await click(button("Confirmar revisión"));
     await gone();
     expect(container.textContent).toMatch(/Mientras revisabas, un mensaje agregó Gorra trucker · Rojo · ×1\. Total: S\/\s338\.00\./);
+  });
+
+  test("a confirmation with changes that arrived meanwhile keeps the URL until the link is taken, then asks for the review again", async () => {
+    const api = fakeApi({ confirm: vi.fn(async () => ok(confirmed({ changedMeanwhile: [sureChange()], total: pen(338) }))) });
+    await mount({ api, afterChange: reviewJson() });
+    await click(button("Copiar enlace"));
+    await click(button("Confirmar revisión"));
+    await gone();
+    expect(urlInput()?.value).toBe(url);
+    await click(button("Copiar enlace"));
+    expect(dialog()).toBeNull();
+    expect(writeText).toHaveBeenCalledWith(url);
+    expect(api.recordLinkAction).toHaveBeenCalledWith("00000000-0000-4000-8000-000000001042", { id: expect.any(String), action: "copy" });
+    expect(urlInput()).toBeNull();
+    await click(button("Copiar enlace"));
+    expect(dialog()?.textContent).toContain("Revisa el pedido #1042");
+  });
+
+  test("Deshacer mensaje in the dialog is disabled while the confirmation is saving", async () => {
+    let finish: () => void = () => undefined;
+    const api = fakeApi({ confirm: vi.fn(() => new Promise<ReturnType<typeof ok>>((resolve) => { finish = () => resolve(ok(confirmed())); })) as never });
+    await open({ api });
+    const undo = () => [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.getAttribute("aria-label")?.startsWith("Deshacer mensaje de las"));
+    await click(button("Confirmar revisión"));
+    expect(undo()?.getAttribute("aria-disabled")).toBe("true");
+    await click(undo());
+    expect(document.body.textContent).not.toContain("¿Deshacer lo que hizo este mensaje?");
+    await act(async () => finish());
+  });
+
+  test("a refusal for a product no longer sold names the product when the message touched one line", async () => {
+    const review = reviewJson({ messageRows: [{ messageId: messageTwo, at: "2026-10-29T20:42:00.000Z", changes: [sureChange()], undo: { kind: "refused", reason: "not_sold" } }] });
+    await mount({ review });
+    expect(container.textContent).toContain("Gorra trucker · Rojo ya no se vende.");
   });
 
   test("a second seller's edit answers ORDER_CHANGED and reloads", async () => {

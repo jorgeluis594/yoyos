@@ -46,12 +46,13 @@ export function useOrderReviewSession(given: ReviewViewProps | undefined, savedO
   const { t, i18n } = useTranslation();
   // A new sale has no order and no review: nothing below runs without both.
   const props = savedOrder ? given : undefined;
-  const order = savedOrder as OrderAggregateResponse;
+  const order = savedOrder;
   const currency = savedOrder?.total.currency ?? "PEN";
   const [shown, setShown] = useState<OrderReviewResponse | undefined>(props?.review);
   const [seen, setSeen] = useState(props?.review);
   const [opened, setOpened] = useState<Opened | null>(null);
-  const [revealed, setRevealed] = useState<OrderReviewResponse | null>(null);
+  // Set by a confirmation: the link stays visible until the seller takes it or opens another review, even if the route reload brings changes that arrived meanwhile.
+  const [revealed, setRevealed] = useState(false);
   const [statusLine, setStatusLine] = useState<string | null>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
   const [more, setMore] = useState<"idle" | "loading" | "failed">("idle");
@@ -73,7 +74,7 @@ export function useOrderReviewSession(given: ReviewViewProps | undefined, savedO
   const review = shown;
   const entry = review?.status.entry ?? "none";
   const active = review !== undefined && entry !== "none";
-  const gated = review !== undefined && entry === "link" && review.status.toReview && revealed !== review;
+  const gated = review !== undefined && entry === "link" && review.status.toReview && !revealed;
   const counts = review ? countsText(review.status, t) : null;
   const time = (at: string) => rowTime(at, props?.now?.() ?? new Date(), i18n.language === "pt" ? "pt-BR" : "es-PE");
 
@@ -87,14 +88,14 @@ export function useOrderReviewSession(given: ReviewViewProps | undefined, savedO
     return byItem;
   }, [review, active, t, money, currency]);
 
-  function open(next: Opened) { setStatusLine(null); setUndoDone(false); setOpened(next); }
+  function open(next: Opened) { setRevealed(false); setStatusLine(null); setUndoDone(false); setOpened(next); }
 
   function closed(result: ReviewDialogResult) {
     const current = opened;
     setOpened(null);
     if (!current) return;
     if (result.kind === "confirmed") {
-      setRevealed(review ?? null);
+      setRevealed(true);
       const total = money(result.total.amount, result.total.currency);
       setStatusLine(result.changedMeanwhile.length > 0 ? meanwhileText(result.changedMeanwhile, total, t) : null);
       props?.onChanged();
@@ -103,6 +104,7 @@ export function useOrderReviewSession(given: ReviewViewProps | undefined, savedO
   }
 
   async function undo(row: MessageRow) {
+    if (!order) return;
     setUndoing({ row, progress: "working" });
     if (typeof navigator !== "undefined" && navigator.onLine === false) { setUndoing({ row, progress: "failed" }); return; }
     const result = await untilAnswered(() => api.undo(order.id, row.messageId), delays, () => setUndoing({ row, progress: "in_doubt" }));
@@ -112,15 +114,16 @@ export function useOrderReviewSession(given: ReviewViewProps | undefined, savedO
   }
 
   async function loadMore() {
+    if (!order) return;
     setMore("loading");
     const loaded = await api.load(order.id);
     if (loaded.success) { setShown(loaded.data.review); setMore("idle"); } else setMore("failed");
   }
 
-  const linkReview: OrderLinkReview | null = review === undefined ? null : {
+  const linkReview: OrderLinkReview | null = review === undefined || !order ? null : {
     gated, counts, blocked: gated && blocks.unsavedItems, statusLine,
     onRequest: (action) => open({ origin: "link", opener: linkIconId[action] }),
-    onTaken: (action) => { if (order.source === "whatsapp") void api.recordLinkAction(order.id, { id: crypto.randomUUID(), action }); },
+    onTaken: (action) => { setRevealed(false); if (order.source === "whatsapp") void api.recordLinkAction(order.id, { id: crypto.randomUUID(), action }); },
   };
 
   const showReviewButton = active && entry === "detail" && review.status.toReview;
@@ -144,7 +147,7 @@ export function useOrderReviewSession(given: ReviewViewProps | undefined, savedO
   </> : null;
 
   const dialogs = <>
-    {opened && review && <OrderReviewDialog key={opened.opener} origin={opened.origin} orderId={order.id} orderNumber={order.number} initial={{ review, order }} api={api} money={money}
+    {opened && review && order && <OrderReviewDialog key={opened.opener} origin={opened.origin} orderId={order.id} orderNumber={order.number} initial={{ review, order }} api={api} money={money} time={time}
       retryDelaysMs={delays} onClose={closed} onOrderChanged={() => props?.onChanged()} />}
     {undoing && <UndoConfirmDialog changes={undoing.row.changes} progress={undoing.progress} onApply={() => void undo(undoing.row)} onKeep={() => setUndoing(null)} />}
   </>;
