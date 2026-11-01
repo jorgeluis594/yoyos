@@ -7,6 +7,12 @@ const p = (n: number) => `p${n}` as ProductId;
 const r = (n: number) => `R${n}` as RequestRef;
 
 describe("assembleCandidates", () => {
+  test("offers the sellable match, not the unavailable twin, when only one candidate fits per mention", () => {
+    const result = assembleCandidates({ searched: [{ request: r(1), productIds: [p(1), p(2)], unavailableProductIds: [p(9)] }],
+      photoProductId: null, itemProductIds: [], pendingProductIds: [], perMention: 1 });
+    expect(result.byMention.get(r(1))).toEqual([p(1)]);
+  });
+
   test("keeps at most the per-mention limit, with one slot for an unavailable twin", () => {
     const { byMention } = assembleCandidates({ searched: [{ request: r(1), productIds: [p(1), p(2), p(3), p(4)], unavailableProductIds: [p(9)] }],
       photoProductId: null, itemProductIds: [], pendingProductIds: [], perMention: 3 });

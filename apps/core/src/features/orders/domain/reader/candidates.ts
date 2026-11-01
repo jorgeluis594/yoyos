@@ -5,7 +5,7 @@ export type MentionSearch = Readonly<{ request: RequestRef; productIds: readonly
 export type AssembledCandidates = Readonly<{
   /** Every distinct product the resolution may see, in search rank order, then the photo's, the items' and the pendings'. */
   productIds: readonly ProductId[];
-  /** Per mention: its searched products (sellable first, one slot kept for an unavailable twin), then the photo's, items' and pendings'. */
+  /** Per mention: its searched products (sellable first, one slot kept for an unavailable twin when `perMention` is 2 or more), then the photo's, items' and pendings'. */
   byMention: ReadonlyMap<RequestRef, readonly ProductId[]>;
 }>;
 
@@ -18,7 +18,7 @@ export function assembleCandidates(input: Readonly<{ searched: readonly MentionS
   const known = [...new Set([...input.photoProductId ? [input.photoProductId] : [], ...input.itemProductIds, ...input.pendingProductIds])];
   const byMention = new Map<RequestRef, readonly ProductId[]>();
   for (const { request, productIds, unavailableProductIds } of input.searched) {
-    const twins = unavailableProductIds.slice(0, Math.min(1, input.perMention));
+    const twins = unavailableProductIds.slice(0, input.perMention >= 2 ? 1 : 0);
     const sellable = productIds.slice(0, input.perMention - twins.length);
     byMention.set(request, [...new Set([...sellable, ...twins, ...known])].slice(0, input.perMention));
   }

@@ -187,7 +187,7 @@ test("searches every mention of a message in one statement on one connection", a
 
 test("a mention search that runs out of budget after waiting for a connection returns a timed-out empty result", async () => {
   const company = await freshCompany();
-  await withTenantIsolation(company, () => insertProductNames(catalogNames(5_000)));
+  await withTenantIsolation(company, () => insertProductNames(catalogNames(20_000)));
   const budgetMs = 400;
   const held = await holdEveryConnection();
   setTimeout(held.release, budgetMs - 5);

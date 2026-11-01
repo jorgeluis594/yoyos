@@ -60,7 +60,8 @@ function compose(entries: readonly Entry[], byId: ReadonlyMap<ProductId, Product
 
 /**
  * The deterministic rendering of a resolution input and what the parser needs to read the answer. The cut order of design 6.8 applies to
- * the real rendered text: candidates per mention to 1, then attribute values only for each mention's best candidate, then a fixed priority
+ * the real rendered text: candidates per mention to 1, then attribute values only for the mentions' first candidates (with per-mention candidate lists, cut 1 already leaves one candidate each,
+ * so this step renders what cut 1 renders and only matters when every mention sees every product), then a fixed priority
  * fill (mentions in order, then candidates by search rank) that omits what does not fit. An omitted mention resolves to `none`.
  */
 export function planResolution(input: ResolutionInput, maxChars: number): ResolutionPlan {

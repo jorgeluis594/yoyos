@@ -110,13 +110,17 @@ export type MentionSearchLimits = TextMatchLimits & Readonly<{ timeoutMs: number
 const timedOutResult = (mentions: number, started: number): MentionCandidates =>
   ({ mentions: Array.from({ length: mentions }, () => ({ productIds: [], unavailableProductIds: [], matchCount: 0, wordsSearched: 0 })), durationMs: Math.round(performance.now() - started), timedOut: true });
 
+/** A statement always gets at least this long, however much of the budget the wait for a connection used (design §5.1 step 6). */
+const MIN_STATEMENT_MS = 200;
+
 /** Waiting for a connection past `maxWait` is Prisma's P2028; like a statement timeout, it is a result, not an error. */
 const isTransactionStartTimeout = (cause: unknown) => cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2028" && /start a transaction/i.test(cause.message);
 
 /**
  * Every mention of a message in one transaction, one connection and one ranking statement (design §5.1 step 6). The words come from
  * `allocateMentionWords`, so words × active products stays within the pair budget except at the floor. The whole call, the wait for a
- * connection included, has `limits.timeoutMs`: the transaction waits at most that long for a connection and each statement gets what is left.
+ * connection included, has `limits.timeoutMs`: the transaction waits at most that long for a connection and each statement gets what is left,
+ * never less than 200 ms. Call it outside any transaction: inside one, `maxWait` is ignored and the outer transaction keeps this statement timeout.
  */
 export async function searchMentionsByCoverage(mentions: readonly string[], limits: MentionSearchLimits): Promise<Result<MentionCandidates, PersistenceError>> {
   const companyId = getCompanyId();
@@ -124,26 +128,17 @@ export async function searchMentionsByCoverage(mentions: readonly string[], limi
   const remainingMs = () => Math.floor(limits.timeoutMs - (performance.now() - started));
   try {
     const found = await withinTransaction(async () => {
-      const limitStatement = async () => {
-        const left = remainingMs();
-        if (left <= 0) return false;
-        await prisma.$queryRaw`SELECT set_config('statement_timeout', ${`${left}ms`}, true), set_config('jit', 'off', true)`;
-        return true;
-      };
-      if (!await limitStatement()) return ok({ kind: "timed_out" as const });
+      const limitStatement = () => prisma.$queryRaw`SELECT set_config('statement_timeout', ${`${Math.max(remainingMs(), MIN_STATEMENT_MS)}ms`}, true), set_config('jit', 'off', true)`;
+      await limitStatement();
       const [{ total }] = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`
         SELECT count(*)::int AS total FROM "Product" WHERE "companyId" = ${companyId}::uuid AND status = 'active'`);
       const searched = allocateMentionWords(mentions, total, limits);
       const pairs = searched.flatMap((words, mention) => words.map((word) => ({ mention, word })));
       if (!pairs.length) return ok({ kind: "searched" as const, searched, rows: [] as unknown[] });
-      if (!await limitStatement()) return ok({ kind: "timed_out" as const });
+      await limitStatement();
       const rows = await prisma.$queryRaw<unknown[]>(mentionCoverageQuery(companyId, pairs.map(({ mention }) => mention), pairs.map(({ word }) => word), limits));
       return ok({ kind: "searched" as const, searched, rows });
     }, { maxWait: limits.timeoutMs });
-    if (found.data.kind === "timed_out") {
-      log.warn({ event: "mention_candidates_timeout", companyId, mentionCount: mentions.length, durationMs: Math.round(performance.now() - started) }, "mention_candidates_timeout");
-      return ok(timedOutResult(mentions.length, started));
-    }
     const parsed = z.array(coverageRowSchema).safeParse(found.data.rows);
     if (!parsed.success) return unavailable(parsed.error);
     const result: MentionCandidates = { mentions: found.data.searched.map((words, mention): MentionMatches => {
