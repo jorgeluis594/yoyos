@@ -306,13 +306,11 @@ function foldIntoCompletions(requests: readonly VerifiedRequest[], snapshot: Che
 const quantityKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["add", "change_quantity"]);
 /** The same line, pending or kind of target, whatever words each request used to name it. */
 const sameTarget = (one: ExtractedRequest["target"], other: ExtractedRequest["target"]): boolean => {
-  const { kind, ref } = { ref: undefined, ...one } as { kind: string; ref?: string };
-  const second = { ref: undefined, ...other } as { kind: string; ref?: string };
-  return kind === second.kind && ref === second.ref && kind !== "named";
+  const refOf = (target: ExtractedRequest["target"]): string | undefined => ("ref" in target ? target.ref : undefined);
+  return one.kind === other.kind && refOf(one) === refOf(other) && one.kind !== "named";
 };
-
 /**
- * Two quantity requests of one message that point at the same target and carry the very same quantity words are the same words read twice (an intent «2» and an intent «pásame 2 de esos»):
+ * Two quantity requests of one message that point at the same target and carry the very same quantity words and mode are the same words read twice (an intent «2» and an intent «pásame 2 de esos»):
  * the first answers for both, so the quantity is applied, or asked about, once. Values and prices make a request its own, and a different target is another request.
  */
 function foldSameQuantity(requests: readonly VerifiedRequest[], absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
@@ -323,7 +321,7 @@ function foldSameQuantity(requests: readonly VerifiedRequest[], absorbedBy: Map<
     for (const other of requests.slice(index + 1)) {
       const { quantity } = other.request;
       if (gone.has(other) || !plain(other) || !quantity || !entry.request.quantity) continue;
-      if (quantity.value !== entry.request.quantity.value || !sameQuote(quantity.quote, entry.request.quantity.quote) || !sameTarget(entry.request.target, other.request.target)) continue;
+      if (quantity.value !== entry.request.quantity.value || quantity.mode !== entry.request.quantity.mode || !sameQuote(quantity.quote, entry.request.quantity.quote) || !sameTarget(entry.request.target, other.request.target)) continue;
       gone.add(other);
       absorb(absorbedBy, entry.request.request, other.request.request);
     }
@@ -421,7 +419,9 @@ function unnamedAmongPendings(said: Said, env: Env): CheckedAction | null {
   const { snapshot } = env;
   const { target } = request;
   if ((request.kind !== "change_quantity" && request.kind !== "add") || !request.quantity || request.values.length > 0 || snapshot.photoJustSent !== null || snapshot.pendings.length < 2) return null;
-  const unnamed = (target.kind === "pending" && target.named === null) || (snapshot.items.length === 0 && (target.kind === "none" || (target.kind === "context" && target.basis !== "mentioned_product")));
+  // In a photo message the photo names the pending of the product it shows: a caption quantity cited to it is not unnamed.
+  const shown = snapshot.messageKind === "photo_product" && target.kind === "pending" && snapshot.pendings.some((entry) => entry.ref === target.ref && productsOfPending(entry.pending).some((id) => shownProductIds(snapshot).has(id)));
+  const unnamed = (target.kind === "pending" && target.named === null && !shown) || (snapshot.items.length === 0 && (target.kind === "none" || (target.kind === "context" && target.basis !== "mentioned_product")));
   if (!unnamed) return null;
   return problem(said, { kind: "unnamed_add" }, "unnamed_add", { language: snapshot.language, kind: "another_of_which" });
 }
@@ -1019,27 +1019,33 @@ function checkComplete(said: Said, env: Env, targetNamed: Named = "named"): Chec
 }
 
 /**
- * A decline whose name the resolution found no product for (a demonstrative, a word the catalog search missed) is a reference without a name: it is about what the chat is waiting on,
- * as a context target. The pending the photo just sent left, or the only pending, ends «Con duda»; with several pendings it asks which. A name that did resolve, and a decline with
- * no pending to end, change nothing and send no notice (the buyer declining what the chat does not have). A decline never ends in silence while the chat has something to end.
+ * A decline that points at no pending by itself (a context or no target, a reference to a line, a name the resolution found no product for or left between several) is about what the chat
+ * is waiting on or holds: the pending the photo just sent left, or the only pending that fits, ends «Con duda»; with several that fit, or a line it could mean, it is urgent `unclear_item`.
+ * A decline ends in silence only when nothing could be meant: the chat has nothing to end, the name resolved to a product the chat neither waits on nor holds, or the pending already ended.
  */
 function checkDecline(said: Said, env: Env): CheckedAction {
   const { target } = said.request;
   const { snapshot } = env;
   const { photoJustSent: left } = snapshot;
-  const named = said.request.target.kind === "named";
   const resolution = resolutionOf(said.request, env);
-  const unresolved = named && (resolution === undefined || resolution.kind === "none");
   const pending = target.kind === "pending" ? snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending
     : target.kind === "named" ? namedPending(said.request, env)
     : left?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === left.pendingId)?.pending : undefined;
   if (pending) return checked(said, { kind: "decline_pending", pendingId: pending.id }, signalsOf(said, "named"));
-  if (!unresolved || snapshot.pendings.length === 0) return checked(said, report({ kind: "no_intent" }), signalsOf(said, "named"));
-  const photoPending = left?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === left.pendingId)?.pending : undefined;
-  const [only, ...more] = snapshot.pendings;
-  const aimed = photoPending ?? (more.length === 0 ? only?.pending : undefined);
+  const nothing = (): CheckedAction => checked(said, report({ kind: "no_intent" }), signalsOf(said, "named"));
+  const unclear = (): CheckedAction => problem(said, { kind: "unclear_item", orderId: null, namedItem: false, namedProductId: null }, "unclear_item", null);
+  if (target.kind === "photo_same_message" || (target.kind === "pending" && snapshot.endedPendings?.includes(target.ref))) return nothing();
+  const ids = resolution?.kind === "chosen" ? [resolution.productId] : resolution?.kind === "between" ? resolution.productIds : [];
+  const named = target.kind === "named";
+  const held = ids.length > 0 && snapshot.items.some((item) => item.productId !== null && ids.includes(item.productId));
+  const fitting = snapshot.pendings.filter((entry) => !named || ids.length === 0 || productsOfPending(entry.pending).some((id) => ids.includes(id))).map((entry) => entry.pending);
+  if (held) return unclear();
+  if (fitting.length === 0) return named || snapshot.items.length === 0 ? nothing() : unclear();
+  const photoPending = left?.kind === "pending" ? fitting.find((candidate) => candidate.id === left.pendingId) : undefined;
+  const [only, ...more] = fitting;
+  const aimed = photoPending ?? (more.length === 0 ? only : undefined);
   const [productId] = aimed ? productsOfPending(aimed) : [];
   const product = snapshot.products.find((candidate) => candidate.productId === productId);
-  if (!aimed || !product) return problem(said, { kind: "unclear_item", orderId: null, namedItem: false, namedProductId: null }, "unclear_item", null);
+  if (!aimed || !product) return unclear();
   return checked(said, { kind: "decline_pending", pendingId: aimed.id }, signalsOf(said, "context"), { doubt: { kind: "removed", product: product.name } });
 }

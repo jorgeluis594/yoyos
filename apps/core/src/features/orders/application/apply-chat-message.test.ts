@@ -785,7 +785,7 @@ describe("applyChatMessage: a set quantity right after a photo that left a pendi
       script: { intent: requestsOf(intent("R1", "change_quantity", "sean 3")), extraction: [aimed] } });
     await succeeded(h.run());
 
-    expect(h.store.pendings.pendings[0]).toMatchObject({ quantity: 3 });
+    expect(h.store.pendings.pendings[0]).toMatchObject({ quantity: 3, doubt: { reason: { kind: "quantity_set", quantity: 3 } } });
     expect(h.changeSaves[0]?.changes ?? []).toHaveLength(0);
   });
 });

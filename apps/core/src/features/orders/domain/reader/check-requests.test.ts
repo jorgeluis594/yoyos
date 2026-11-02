@@ -702,7 +702,7 @@ describe("checkRequests: named targets against the order and the pendings", () =
     const line = only(checkRequests([request({ kind: "remove", target: named })], [chosen("polo")], snapshot({ items: [polo], pendings: [pendingRef(1, pending)] })));
     expect(line.action).toMatchObject({ kind: "remove", target: { kind: "variant", variantId: polo.variantId } });
     const two = only(checkRequests([request({ kind: "decline", target: named })], [chosen("polera")], snapshot({ pendings: [pendingRef(1, pendingOf("polera")), pendingRef(2, pendingOf("polera", { n: 2 }))] })));
-    expect(two.action).toEqual({ kind: "report", outcome: { kind: "no_intent" } });
+    expect(decision(two)).toMatchObject({ kind: "urgent", problem: "unclear_item" });
   });
 
   test("adds the quantity of a named product the order does not have", () => {
@@ -1088,14 +1088,32 @@ describe("checkRequests: a quantity among several pendings", () => {
     const cited = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: quantity(3, "set") });
     const checked = only(checkRequests([cited], [], snapshot({ order: "none", pendings: two, photoJustSent: { kind: "pending", pendingId: polera.id } })));
     expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: polera.id, quantity: 3 });
+    expect(decision(checked)).toMatchObject({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
+  });
+
+  test("does not ask for a caption quantity cited to the pending of the product the photo shows", () => {
+    const shown = Object.values(catalog).map((product) => (product.productId === productId("polera") ? { ...product, shown: true } : product));
+    const cited = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q2" as PendingRef, named: null }, quantity: quantity(3, "set") });
+    const checked = only(checkRequests([cited], [], snapshot({ messageKind: "photo_product", products: shown, order: "none", pendings: two })));
+    expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: polera.id, quantity: 3 });
   });
 
   test("counts two requests over the same quantity words once, the second absorbed by the first", () => {
     const set = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: quantity(2, "set") });
-    const add = { ...request({ kind: "add", target: { kind: "pending", ref: "Q1" as PendingRef, named: say("esos") }, quantity: quantity(2, "add") }), request: { ...request({}).request, request: "R2" as RequestRef, kind: "add" as const, target: { kind: "pending" as const, ref: "Q1" as PendingRef, named: say("esos") }, quantity: quantity(2, "add") } };
-    const checked = checkRequests([set, add], [], snapshot({ order: "none", pendings: two }));
+    const again = { ...request({ kind: "add", target: { kind: "pending", ref: "Q1" as PendingRef, named: say("esos") }, quantity: quantity(2, "set") }), request: { ...request({}).request, request: "R2" as RequestRef, kind: "add" as const, target: { kind: "pending" as const, ref: "Q1" as PendingRef, named: say("esos") }, quantity: quantity(2, "set" as const) } };
+    const checked = checkRequests([set, again], [], snapshot({ order: "none", pendings: two }));
     expect(checked).toHaveLength(1);
     expect(checked[0]).toMatchObject({ request: "R1", absorbed: ["R2"] });
+  });
+
+  test("never folds a set and an add over the same words, whichever the model lists first: each asks", () => {
+    const set = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: quantity(2, "set") });
+    const add = { ...set, request: { ...set.request, request: "R2" as RequestRef, kind: "add" as const, quantity: quantity(2, "add") } };
+    for (const listed of [[set, add], [add, set]]) {
+      const checked = checkRequests(listed, [], snapshot({ order: "none", pendings: two }));
+      expect(checked).toHaveLength(2);
+      checked.forEach((entry) => expect(decision(entry)).toMatchObject({ kind: "urgent", problem: "unnamed_add" }));
+    }
   });
 
   test("keeps apart two quantities with other words or for another target", () => {
@@ -1125,6 +1143,37 @@ describe("checkRequests: a decline whose name found no product", () => {
     expect(left.action).toEqual({ kind: "decline_pending", pendingId: polera.id });
     const unclear = only(checkRequests([decline], [], snapshot({ pendings: two })));
     expect(decision(unclear)).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+  });
+
+  test("never ends in silence while the chat has a pending or a line it could mean, whatever the target", () => {
+    const targets = [{ kind: "context", basis: "last_photo" }, { kind: "none" }, { kind: "item", ref: "I1", named: null }, { kind: "pending", ref: "Q9", named: null }] as unknown as ExtractedRequest["target"][];
+    const two = [pendingRef(1, poloPending), pendingRef(2, polera)];
+    for (const target of targets) {
+      const aimed = request({ kind: "decline", target });
+      const sole = only(checkRequests([aimed], [], snapshot({ pendings: [pendingRef(1, poloPending)] })));
+      expect(sole.action).toEqual({ kind: "decline_pending", pendingId: poloPending.id });
+      expect(decision(sole)).toEqual({ kind: "doubtful", reason: { kind: "removed", product: catalog.polo.name } });
+      const left = only(checkRequests([aimed], [], snapshot({ pendings: two, photoJustSent: { kind: "pending", pendingId: polera.id } })));
+      expect(left.action).toEqual({ kind: "decline_pending", pendingId: polera.id });
+      expect(decision(only(checkRequests([aimed], [], snapshot({ pendings: two }))))).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+      expect(decision(only(checkRequests([aimed], [], snapshot({ items: [item("I1", "gorra", { Color: "Rojo" })] }))))).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+    }
+    expect(decision(only(checkRequests([request({ kind: "decline", target: { kind: "none" } })], [], snapshot())))).toEqual({ kind: "silent" });
+  });
+
+  test("a name resolved between two pendings ends the one the photo left, or asks", () => {
+    const two = [pendingRef(1, poloPending), pendingRef(2, polera)];
+    const between = [{ request: "R1" as RequestRef, kind: "between", productIds: [productId("polo"), productId("polera")] } as ProductResolution];
+    const left = only(checkRequests([decline], between, snapshot({ pendings: two, photoJustSent: { kind: "pending", pendingId: polera.id } })));
+    expect(left.action).toEqual({ kind: "decline_pending", pendingId: polera.id });
+      expect(decision(left)).toMatchObject({ kind: "doubtful", reason: { kind: "removed" } });
+    expect(decision(only(checkRequests([decline], between, snapshot({ pendings: two }))))).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+  });
+
+  test("asks when the resolved product is a line of the order, and stays silent when the pending already ended", () => {
+    expect(decision(only(checkRequests([decline], [chosen("gorra")], snapshot({ items: [item("I1", "gorra", { Color: "Rojo" })] }))))).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+    const ended = request({ kind: "decline", target: { kind: "pending", ref: "Q2" as PendingRef, named: null } });
+    expect(decision(only(checkRequests([ended], [], snapshot({ pendings: [pendingRef(1, poloPending)], endedPendings: ["Q2" as PendingRef] }))))).toEqual({ kind: "silent" });
   });
 
   test("still sends nothing for a decline with no pending or whose resolved product is in none", () => {
