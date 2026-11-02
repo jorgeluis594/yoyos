@@ -1020,7 +1020,7 @@ function checkComplete(said: Said, env: Env, targetNamed: Named = "named"): Chec
 
 /**
  * A decline that points at no pending by itself (a context or no target, a reference to a line, a name the resolution found no product for or left between several) is about what the chat
- * is waiting on or holds: the pending the photo just sent left, or the only pending that fits, ends «Con duda»; with several that fit, or a line it could mean, it is urgent `unclear_item`.
+ * is waiting on or holds (a pending cited without a name included): the pending the photo just sent left, or the only pending that fits, ends «Con duda» (a cited pending only when it is that one); with several that fit, or a line it could mean, it is urgent `unclear_item`.
  * A decline ends in silence only when nothing could be meant: the chat has nothing to end, the name resolved to a product the chat neither waits on nor holds, or the pending already ended.
  */
 function checkDecline(said: Said, env: Env): CheckedAction {
@@ -1028,9 +1028,11 @@ function checkDecline(said: Said, env: Env): CheckedAction {
   const { snapshot } = env;
   const { photoJustSent: left } = snapshot;
   const resolution = resolutionOf(said.request, env);
-  const pending = target.kind === "pending" ? snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending
+  const cited = target.kind === "pending" ? snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending : undefined;
+  // Only a pending the buyer named, a product the resolution found in one, or a photo the model itself aimed at is ended with certainty.
+  const pending = target.kind === "pending" ? (target.named !== null ? cited : undefined)
     : target.kind === "named" ? namedPending(said.request, env)
-    : left?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === left.pendingId)?.pending : undefined;
+    : target.kind === "photo_just_sent" && left?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === left.pendingId)?.pending : undefined;
   if (pending) return checked(said, { kind: "decline_pending", pendingId: pending.id }, signalsOf(said, "named"));
   const nothing = (): CheckedAction => checked(said, report({ kind: "no_intent" }), signalsOf(said, "named"));
   const unclear = (): CheckedAction => problem(said, { kind: "unclear_item", orderId: null, namedItem: false, namedProductId: null }, "unclear_item", null);
@@ -1040,12 +1042,12 @@ function checkDecline(said: Said, env: Env): CheckedAction {
   const held = ids.length > 0 && snapshot.items.some((item) => item.productId !== null && ids.includes(item.productId));
   const fitting = snapshot.pendings.filter((entry) => !named || ids.length === 0 || productsOfPending(entry.pending).some((id) => ids.includes(id))).map((entry) => entry.pending);
   if (held) return unclear();
-  if (fitting.length === 0) return named || snapshot.items.length === 0 ? nothing() : unclear();
+  if (fitting.length === 0) return (named && ids.length > 0) || snapshot.items.length === 0 ? nothing() : unclear();
   const photoPending = left?.kind === "pending" ? fitting.find((candidate) => candidate.id === left.pendingId) : undefined;
   const [only, ...more] = fitting;
   const aimed = photoPending ?? (more.length === 0 ? only : undefined);
   const [productId] = aimed ? productsOfPending(aimed) : [];
   const product = snapshot.products.find((candidate) => candidate.productId === productId);
-  if (!aimed || !product) return unclear();
+  if (!aimed || !product || (cited && cited.id !== aimed.id)) return unclear();
   return checked(said, { kind: "decline_pending", pendingId: aimed.id }, signalsOf(said, "context"), { doubt: { kind: "removed", product: product.name } });
 }

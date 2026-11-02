@@ -1125,7 +1125,7 @@ describe("checkRequests: a quantity among several pendings", () => {
 
 describe("checkRequests: a decline whose name found no product", () => {
   const poloPending = pendingOf("polo");
-  const polera = pendingOf("polera");
+  const polera = pendingOf("polera", { n: 2 });
   const decline = request({ kind: "decline", target: { kind: "named", words: say("ese polo") } });
   const unresolved = [[], [{ request: "R1" as RequestRef, kind: "none" } as ProductResolution]];
 
@@ -1166,8 +1166,43 @@ describe("checkRequests: a decline whose name found no product", () => {
     const between = [{ request: "R1" as RequestRef, kind: "between", productIds: [productId("polo"), productId("polera")] } as ProductResolution];
     const left = only(checkRequests([decline], between, snapshot({ pendings: two, photoJustSent: { kind: "pending", pendingId: polera.id } })));
     expect(left.action).toEqual({ kind: "decline_pending", pendingId: polera.id });
-      expect(decision(left)).toMatchObject({ kind: "doubtful", reason: { kind: "removed" } });
+    expect(decision(left)).toMatchObject({ kind: "doubtful", reason: { kind: "removed" } });
     expect(decision(only(checkRequests([decline], between, snapshot({ pendings: two }))))).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+  });
+
+  test("asks when a name resolved to nothing and the order has lines but no pending, and stays silent with no line", () => {
+    const none = [{ request: "R1" as RequestRef, kind: "none" } as ProductResolution];
+    const withLine = snapshot({ items: [item("I1", "gorra", { Color: "Rojo" })] });
+    for (const resolutions of [[], none]) {
+      expect(decision(only(checkRequests([decline], resolutions, withLine)))).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+      expect(decision(only(checkRequests([decline], resolutions, snapshot())))).toEqual({ kind: "silent" });
+    }
+  });
+
+  test("ends a pending cited without a name «Con duda», or asks when another pending could be meant", () => {
+    const two = [pendingRef(1, poloPending), pendingRef(2, polera)];
+    const unnamed = (ref: string) => request({ kind: "decline", target: { kind: "pending", ref: ref as PendingRef, named: null } });
+    const sole = only(checkRequests([unnamed("Q1")], [], snapshot({ pendings: [pendingRef(1, poloPending)] })));
+    expect(decision(sole)).toEqual({ kind: "doubtful", reason: { kind: "removed", product: catalog.polo.name } });
+    expect(decision(only(checkRequests([unnamed("Q2")], [], snapshot({ pendings: two }))))).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+    const photoLeft = { kind: "pending", pendingId: polera.id } as const;
+    expect(decision(only(checkRequests([unnamed("Q1")], [], snapshot({ pendings: two, photoJustSent: photoLeft }))))).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+    const same = only(checkRequests([unnamed("Q2")], [], snapshot({ pendings: two, photoJustSent: photoLeft })));
+    expect(same.action).toEqual({ kind: "decline_pending", pendingId: polera.id });
+    expect(decision(same)).toMatchObject({ kind: "doubtful", reason: { kind: "removed" } });
+    const named = request({ kind: "decline", target: { kind: "pending", ref: "Q2" as PendingRef, named: say("la polera") } });
+    expect(decision(only(checkRequests([named], [chosen("polera")], snapshot({ pendings: two }))))).toEqual({ kind: "pending" });
+  });
+
+  test("rates a decline after a photo high only when the model aimed it at the photo just sent", () => {
+    const two = [pendingRef(1, poloPending), pendingRef(2, polera)];
+    const state = snapshot({ pendings: two, photoJustSent: { kind: "pending", pendingId: polera.id } });
+    const aimed = only(checkRequests([request({ kind: "decline", target: { kind: "photo_just_sent" } })], [], state));
+    expect(aimed.action).toEqual({ kind: "decline_pending", pendingId: polera.id });
+    expect(decision(aimed)).toEqual({ kind: "pending" });
+    for (const target of [{ kind: "context", basis: "last_photo" }, { kind: "none" }] as unknown as ExtractedRequest["target"][]) {
+      expect(decision(only(checkRequests([request({ kind: "decline", target })], [], state)))).toMatchObject({ kind: "doubtful", reason: { kind: "removed" } });
+    }
   });
 
   test("asks when the resolved product is a line of the order, and stays silent when the pending already ended", () => {
