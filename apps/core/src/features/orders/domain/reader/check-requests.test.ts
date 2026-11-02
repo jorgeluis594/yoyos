@@ -1077,7 +1077,7 @@ describe("checkRequests: a quantity among several pendings", () => {
 
   test("keeps a pending the buyer named, a single pending and a quantity for the photo just sent", () => {
     const named = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: say("el polo") }, quantity: quantity(2, "set") });
-    expect(only(checkRequests([named], [{ ...chosen("polo"), namesProduct: true }], snapshot({ order: "none", pendings: two }))).action).toMatchObject({ kind: "change_pending_quantity", pendingId: poloPending.id });
+    expect(only(checkRequests([named], [chosen("polo")], snapshot({ order: "none", pendings: two }))).action).toMatchObject({ kind: "change_pending_quantity", pendingId: poloPending.id });
     const cited = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: quantity(2, "set") });
     expect(only(checkRequests([cited], [], snapshot({ order: "none", pendings: [two[0]!] }))).action.kind).toBe("change_pending_quantity");
     const photo = request({ kind: "change_quantity", target: { kind: "photo_just_sent" }, quantity: quantity(2, "set") });
