@@ -333,10 +333,21 @@ describe("applyChatMessage: the staged pipeline", () => {
       expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }] });
     });
 
-    test("falls back to the shown product added as without a caption when the extraction cannot be read", async () => {
+    test("adds the shown product marked «Con duda» when the extraction of the question caption cannot be read", async () => {
       const h = asked([], [], { overrides: { stages: { ...stagesOf({ intent: question }, [], []), extractRequests: async () => err({ code: "INVALID_AI_RESPONSE", stage: "extraction", call: null, message: "x" }) } } });
 
-      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }], trace: { answer: "fixed" } });
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }, { kind: "caption_not_applied" }], trace: { answer: "fixed" } });
+      expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "added", decision: { kind: "doubtful", reason: { kind: "caption_unread" } } }]);
+    });
+
+    test("fails the message to be retried, adding nothing, when a transient error stops the extraction of the question caption", async () => {
+      for (const code of ["AI_PROVIDER_UNAVAILABLE", "DEADLINE_EXCEEDED"] as const) {
+        const h = asked([], [], { overrides: { stages: { ...stagesOf({ intent: question }, [], []), extractRequests: async () => err({ code, stage: "extraction", call: null, message: code }) } } });
+        const result = await h.run();
+
+        expect(result).toEqual({ success: false, error: expect.objectContaining({ code }) });
+        expect(h.changeSaves).toEqual([]);
+      }
     });
 
     test("does not read the other reasons for a value", async () => {

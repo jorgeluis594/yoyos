@@ -62,7 +62,7 @@ function resolveOne(plan: ResolutionPlan, answered: Answered): Result<ProductRes
   const entry = plan.rendered.find(({ mention }) => mention.request === answered.request)!;
   const productIds = answered.products.map((label) => plan.products.get(label)?.productId);
   if (productIds.some((id) => id === undefined || !entry.allowed.includes(id))) return err<Refusal>({ reason: "outside_candidates", message: `${answered.request} chose a product outside its candidates` });
-  // A defect of the shape (a repeated product, none with a product, a count that does not fit the kind) is no choice: the mention resolves to none, which the checks
+  // A defect of the shape (none with a product, a count of distinct products that does not fit the kind; a product repeated counts once) is no choice: the mention resolves to none, which the checks
   // answer with a doubt, and never to the product the model may have meant.
   const labels = answered.products.filter((label, index) => answered.products.indexOf(label) === index);
   const distinct = labels.map((label) => plan.products.get(label)!);

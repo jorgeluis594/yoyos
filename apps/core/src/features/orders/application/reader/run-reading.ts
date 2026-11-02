@@ -174,11 +174,13 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   const said = intentResult.data.value;
   read = said;
   // A caption of a product photo that the intent reads as a question may still carry values the shown product does not sell («¿la tienen en negro?»): the photo's
-  // add is read for them, and a reading that fails leaves the question as the intent read it (the shown product added as for any caption that is no intent).
+  // add is read for them. A reading the model returned unusable leaves that add unread (the shown product added with a doubt, as for any caption that cannot
+  // be read); a transient failure is still an error the handler retries.
   const asPhotoAdd = said.kind === "no_intent" && said.reason === "question" && photoProductIds.length > 0;
   const intent: IntentReading = asPhotoAdd ? { kind: "requests", language: said.language, addresses: said.addresses,
     requests: [{ id: "R1" as RequestRef, kind: "add", quote: { source: "current", text: input.current.text } }] } : said;
-  const unread = (): Result<StartedReading, RunReadingError> => ok({ primary: { intent: said, intents: [], overflow: null, droppedIntents: 0, droppedRequests: [], quoteDrops: [], chain: null, catalog: empty }, confirming: null, records });
+  const unread = (error: StageError | PersistenceError): Result<StartedReading, RunReadingError> => asPhotoAdd && error.code === "INVALID_AI_RESPONSE"
+    ? ok({ primary: { intent, intents: [], overflow: null, droppedIntents: 0, droppedRequests: [], quoteDrops: [], chain: null, catalog: empty }, confirming: null, records }) : fail(error);
   if (intent.kind !== "requests") return ok({ primary: { intent, intents: [], overflow: null, droppedIntents: 0, droppedRequests: [], quoteDrops: [], chain: null, catalog: empty }, confirming: null, records });
 
   const overflow = intent.requests[maxReaderActions]?.id ?? null;
@@ -202,7 +204,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   const extracted = await primaryExtraction;
   const extractionSummary = inputSummary(input);
   record("extraction", extracted, extractionSummary, extracted.success ? maskStageOutput("extraction", extracted.data.value, addresses) : null);
-  if (!extracted.success) { abort.abort(); return asPhotoAdd ? unread() : fail(extracted.error); }
+  if (!extracted.success) { abort.abort(); return unread(extracted.error); }
 
   const verified = verifyQuotes(extracted.data.value as readonly ExtractedRequest[], input);
   const extractionDrops = verified.flatMap(({ request }, index) => droppedFields((extracted.data.value as readonly ExtractedRequest[])[index]!, request).map((field): QuoteDrop => ({ requestKind: request.kind, field })));
@@ -214,10 +216,10 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
     return loaded.success ? ok({ mentions: [], products: loaded.data, catalog: { searchMs: null, matchCount: null, timedOut: false } }) : loaded;
   };
   const searched = mentions.length ? await searchMentions(deps, mentions, input, photoProductIds) : await noSearch();
-  if (!searched.success) { abort.abort(); return asPhotoAdd ? unread() : fail(searched.error); }
+  if (!searched.success) { abort.abort(); return unread(searched.error); }
   const resolved = searched.data.mentions.length ? await stages.chooseProducts(searched.data.mentions, searched.data.products, "primary", signal) : null;
   if (resolved) record("resolution", resolved, resolutionSummary(input, searched.data), resolved.success ? maskStageOutput("resolution", resolved.data.value, addresses) : null);
-  if (resolved && !resolved.success) { abort.abort(); return asPhotoAdd ? unread() : fail(resolved.error); }
+  if (resolved && !resolved.success) { abort.abort(); return unread(resolved.error); }
   const resolutions = resolved?.success ? resolved.data.value : [];
   const chain: ChainResult = { requests, resolutions, absorbed };
   const primary: PrimaryReading = { intent, intents, overflow, droppedIntents: dropped.length, droppedRequests, quoteDrops: [...intentDrops, ...extractionDrops], chain, catalog: { products: searched.data.products, ...searched.data.catalog } };
