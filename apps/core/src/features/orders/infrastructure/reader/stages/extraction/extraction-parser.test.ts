@@ -42,8 +42,8 @@ describe("extraction parser", () => {
     const named = (message: string) => answer(answerEntry("R1", { target: { kind: "named", ref: null, named: quote("la mochila", message), basis: null } }), answerEntry("R2"));
 
     expect(parseExtractionAnswer(named("M2"), input)).toMatchObject({ success: true, data: [{ target: { kind: "named", words: { source: "context", ref: "M2", text: "la mochila" } } }, {}] });
-    expect(parseExtractionAnswer(named("M9"), input).success).toBe(false);
-    expect(parseExtractionAnswer(named("el chat"), input).success).toBe(false);
+    expect(parseExtractionAnswer(named("M9"), input)).toMatchObject({ success: true, data: [{ request: "R2" }] });
+    expect(parseExtractionAnswer(named("el chat"), input)).toMatchObject({ success: true, data: [{ request: "R2" }] });
   });
 
   test.each([
@@ -51,8 +51,10 @@ describe("extraction parser", () => {
     ["a quantity that is not finite or positive", { quantity: { value: 0, mode: "add", quote: quote("2") } }],
     ["a price written as text", { price: { amount: "30", currency: "order", basis: "unit", quote: quote("30") } }],
     ["an unknown quantity mode", { quantity: { value: 2, mode: "increase", quote: quote("2") } }],
-  ])("rejects %s", (_name, over) => {
-    expect(parseExtractionAnswer(answer(answerEntry("R1", over), answerEntry("R2")), input)).toMatchObject({ success: false });
+  ])("leaves out the request with %s and keeps the others", (_name, over) => {
+    const parsed = parseExtractionAnswer(answer(answerEntry("R1", over), answerEntry("R2")), input);
+    expect(parsed).toMatchObject({ success: true, data: [{ request: "R2" }] });
+    if (parsed.success) expect(parsed.data).toHaveLength(1);
   });
 
   test.each([
@@ -63,8 +65,10 @@ describe("extraction parser", () => {
     ["a context target without a basis", { kind: "context", ref: "M1", named: null, basis: null }],
     ["a context target on the only item with a message reference", { kind: "context", ref: "M1", named: null, basis: "only_item" }],
     ["a context target on a photo with an item reference", { kind: "context", ref: "I1", named: null, basis: "last_photo" }],
-  ])("rejects %s", (_name, target) => {
-    expect(parseExtractionAnswer(answer(answerEntry("R1", { target }), answerEntry("R2")), input).success).toBe(false);
+  ])("leaves out the request with %s and keeps the others", (_name, target) => {
+    const parsed = parseExtractionAnswer(answer(answerEntry("R1", { target }), answerEntry("R2")), input);
+    expect(parsed).toMatchObject({ success: true, data: [{ request: "R2" }] });
+    if (parsed.success) expect(parsed.data).toHaveLength(1);
   });
 
   test("accepts a context target on the only item and on the last photo", () => {
@@ -83,10 +87,20 @@ describe("extraction parser", () => {
     }
   });
 
-  test("rejects an answer that omits a request, repeats one or names one the intent did not list", () => {
-    expect(parseExtractionAnswer(answer(answerEntry("R1")), input).success).toBe(false);
-    expect(parseExtractionAnswer(answer(answerEntry("R1"), answerEntry("R1")), input).success).toBe(false);
-    expect(parseExtractionAnswer(answer(answerEntry("R1"), answerEntry("R2"), answerEntry("R3")), input).success).toBe(false);
+  test("leaves out a request the answer omits or repeats and ignores one the intent did not list", () => {
+    const refs = (answered: unknown) => { const parsed = parseExtractionAnswer(answered, input); return parsed.success ? parsed.data.map(({ request }) => request) : parsed; };
+    expect(refs(answer(answerEntry("R1")))).toEqual(["R1"]);
+    expect(refs(answer(answerEntry("R1"), answerEntry("R1"), answerEntry("R2")))).toEqual(["R2"]);
+    expect(refs(answer(answerEntry("R1"), answerEntry("R2"), answerEntry("R3")))).toEqual(["R1", "R2"]);
+  });
+
+  test("refuses an answer with no usable entry, which is not a reading", () => {
+    expect(parseExtractionAnswer(answer(answerEntry("R3")), input).success).toBe(false);
+    expect(parseExtractionAnswer(answer(answerEntry("R1", { quantity: { value: 0, mode: "add", quote: quote("2") } }), answerEntry("R2", { price: { amount: -1, currency: "order", basis: "unit", quote: quote("3") } })), input).success).toBe(false);
+  });
+
+  test("leaves out an entry with an unknown field instead of refusing the answer", () => {
+    expect(parseExtractionAnswer(answer(answerEntry("R1", { extra: "campo" }), answerEntry("R2")), input)).toMatchObject({ success: true, data: [{ request: "R2" }] });
   });
 
   test("gives the requests in the order of the intents", () => {

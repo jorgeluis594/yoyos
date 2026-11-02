@@ -6,19 +6,19 @@ import type { ProductForReading } from "@core/src/features/products/domain/readi
 import type { ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 import { noneFor, planResolution, type ResolutionPlan } from "@core/src/features/orders/infrastructure/reader/stages/resolution/resolution-plan";
 
-const answerSchema = z.object({
-  results: z.array(z.object({
-    request: z.string(), kind: z.enum(["chosen", "between", "none"]), names: z.enum(["yes", "no"]).default("no"), products: z.array(z.string()),
-    values: z.array(z.object({ attribute: z.string(), value: z.string(), quote: z.string() })),
-    unmatched: z.array(z.string()).default([]),
-  })),
+/** Each result is checked on its own: one that does not fit is the same as one the model left out (the mention resolves to none), it never fails the answer. */
+const answerSchema = z.object({ results: z.array(z.unknown()) });
+const resultSchema = z.object({
+  request: z.string(), kind: z.enum(["chosen", "between", "none"]), names: z.enum(["yes", "no"]).catch("no"), products: z.array(z.string()).catch([]),
+  values: z.array(z.object({ attribute: z.string(), value: z.string(), quote: z.string() })).catch([]),
+  unmatched: z.array(z.string()).catch([]),
 });
-type Answered = z.infer<typeof answerSchema>["results"][number];
+type Answered = z.infer<typeof resultSchema>;
 
 const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
 
-/** Why one mention's answer was refused: a label outside its candidates is the only reason the stage falls back to `none`. */
-type Refusal = Readonly<{ reason: "outside_candidates" | "invalid"; message: string }>;
+/** Why one mention's answer was refused: a label outside its candidates, which the stage retries and then falls back to `none`. */
+type Refusal = Readonly<{ reason: "outside_candidates"; message: string }>;
 
 /** The buyer's words a quote points to: a value of the mention, or words inside the mention's own words (a value the extraction left in the name). Null when it is neither. */
 function quoteOf(mention: ProductMention, quote: string): Quote | null {
@@ -60,21 +60,22 @@ function mapValues(answered: Answered, mention: ProductMention, products: readon
 
 function resolveOne(plan: ResolutionPlan, answered: Answered): Result<ProductResolution, Refusal> {
   const entry = plan.rendered.find(({ mention }) => mention.request === answered.request)!;
-  const refuse = (reason: Refusal["reason"], message: string) => err<Refusal>({ reason, message });
   const productIds = answered.products.map((label) => plan.products.get(label)?.productId);
-  if (productIds.some((id) => id === undefined || !entry.allowed.includes(id))) return refuse("outside_candidates", `${answered.request} chose a product outside its candidates`);
-  const ids = productIds as NonNullable<(typeof productIds)[number]>[];
-  if (new Set(ids).size !== ids.length) return refuse("invalid", `${answered.request} repeats a product`);
-  if (answered.kind === "none") return ids.length === 0 ? ok(noneFor(entry.mention.request)) : refuse("invalid", `${answered.request} is none but names a product`);
-  if (answered.kind === "between") {
-    if (ids.length < 2 || ids.length > 4) return refuse("invalid", `${answered.request} must be between two and four products`);
-    const { values } = mapValues(answered, entry.mention, answered.products.map((label) => plan.products.get(label)!));
-    return ok({ request: entry.mention.request, kind: "between", productIds: ids, values, ...entry.mention.fixed === true && answered.names === "no" ? { namesProduct: false as const } : {} });
-  }
-  if (ids.length !== 1) return refuse("invalid", `${answered.request} must choose exactly one product`);
-  const { values, unmatched } = mapValues(answered, entry.mention, [plan.products.get(answered.products[0]!)!]);
+  if (productIds.some((id) => id === undefined || !entry.allowed.includes(id))) return err<Refusal>({ reason: "outside_candidates", message: `${answered.request} chose a product outside its candidates` });
+  // A defect of the shape (none with a product, a count of distinct products that does not fit the kind; a product repeated counts once) is no choice: the mention resolves to none, which the checks
+  // answer with a doubt, and never to the product the model may have meant.
+  const labels = answered.products.filter((label, index) => answered.products.indexOf(label) === index);
+  const distinct = labels.map((label) => plan.products.get(label)!);
+  const none = ok(noneFor(entry.mention.request));
+  if (answered.kind === "none" || distinct.length === 0 || distinct.length > 4) return none;
   const pointsOnly = entry.mention.fixed === true && answered.names === "no";
-  return ok({ request: entry.mention.request, kind: "chosen", productId: ids[0]!, values, unmatched, ...pointsOnly ? { namesProduct: false as const } : {} });
+  if (answered.kind === "between" || distinct.length > 1) {
+    if (distinct.length < 2) return none;
+    const { values } = mapValues(answered, entry.mention, distinct);
+    return ok({ request: entry.mention.request, kind: "between", productIds: distinct.map(({ productId }) => productId), values, ...pointsOnly ? { namesProduct: false as const } : {} });
+  }
+  const { values, unmatched } = mapValues(answered, entry.mention, distinct);
+  return ok({ request: entry.mention.request, kind: "chosen", productId: distinct[0]!.productId, values, unmatched, ...pointsOnly ? { namesProduct: false as const } : {} });
 }
 
 /** The per-mention outcome of an answer, or the reason the answer as a whole is unusable. */
@@ -83,13 +84,16 @@ function resolveAnswer(answer: unknown, plan: ResolutionPlan): Result<ReadonlyMa
   if (!shaped.success) return err({ message: "The resolution answer does not match its schema" });
   const byRequest = new Map<string, Result<ProductResolution, Refusal>>();
   const known = new Set(plan.rendered.map(({ mention }) => mention.request as string));
-  for (const answered of shaped.data.results) {
-    if (!known.has(answered.request)) return err({ message: `The answer resolves ${answered.request}, which is not a mention` });
-    if (byRequest.has(answered.request)) return err({ message: `The answer resolves ${answered.request} twice` });
-    byRequest.set(answered.request, resolveOne(plan, answered));
+  const twice = new Set<string>();
+  for (const entry of shaped.data.results) {
+    const answered = resultSchema.safeParse(entry);
+    // An entry that does not fit, or that resolves something that is no mention, says nothing; a mention answered twice has no one answer. Both leave the mention to none.
+    if (!answered.success || !known.has(answered.data.request)) continue;
+    if (byRequest.has(answered.data.request)) twice.add(answered.data.request);
+    else byRequest.set(answered.data.request, resolveOne(plan, answered.data));
   }
-  const missing = plan.rendered.find(({ mention }) => !byRequest.has(mention.request));
-  return missing ? err({ message: `The answer leaves ${missing.mention.request} unresolved` }) : ok(byRequest);
+  for (const request of twice) byRequest.delete(request);
+  return ok(byRequest);
 }
 
 function withOmitted(plan: ResolutionPlan, input: ResolutionInput, resolved: ReadonlyMap<string, ProductResolution>): readonly ProductResolution[] {
@@ -110,8 +114,8 @@ export function parseResolution(answer: unknown, input: ResolutionInput, maxChar
 }
 
 /**
- * After the second invalid answer: every mention whose choice fell outside its candidates is `none`. Any other defect, or an answer that was not
- * JSON of the expected shape, is not repaired (null: the stage fails).
+ * After the second invalid answer: every mention whose choice fell outside its candidates is `none`. An answer that was not
+ * JSON of the expected shape is not repaired (null: the stage fails).
  */
 export function resolutionFallback(lastAnswer: unknown, input: ResolutionInput, maxChars: number): readonly ProductResolution[] | null {
   if (lastAnswer === undefined) return null;
@@ -121,8 +125,7 @@ export function resolutionFallback(lastAnswer: unknown, input: ResolutionInput, 
   const resolved = new Map<string, ProductResolution>();
   for (const [request, outcome] of outcomes.data) {
     if (outcome.success) resolved.set(request, outcome.data);
-    else if (outcome.error.reason === "outside_candidates") resolved.set(request, noneFor(plan.rendered.find(({ mention }) => mention.request === request)!.mention.request));
-    else return null;
+    else resolved.set(request, noneFor(plan.rendered.find(({ mention }) => mention.request === request)!.mention.request));
   }
   return withOmitted(plan, input, resolved);
 }

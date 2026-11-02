@@ -312,6 +312,64 @@ describe("applyChatMessage: the staged pipeline", () => {
     expect(h.stageLog).toEqual(["intent:primary"]);
   });
 
+  describe("a product photo whose caption the intent reads as a question", () => {
+    const question = { kind: "no_intent", reason: "question", language: "es", addresses: [] } as const;
+    const asked = (extraction: readonly ExtractedRequest[], resolutions: readonly ProductResolution[], over: Partial<Options> = {}) =>
+      harness({ message: photoMessage({ caption: "¿la tienen en negro?" }), identification: visual(productCap), script: { intent: question, extraction, resolutions }, ...over });
+    const negro = { attributeWords: null, valueWords: current("negro") };
+
+    test("reads the caption as the photo's add and does not add silently a value the product does not sell", async () => {
+      const h = asked([extracted("R1", "add", { target: { kind: "photo_same_message" }, values: [negro] })], [{ request: "R1" as RequestRef, kind: "chosen", productId: productCap, values: [], unmatched: [current("negro")] }]);
+      const applied = await succeeded(h.run());
+
+      expect(quantityOf(h.store, cap.variantId)).toBeUndefined();
+      expect(applied).toMatchObject({ noticeDue: true, outcomes: expect.arrayContaining([expect.objectContaining({ kind: "variant_not_available" })]) });
+      expect(h.stageLog).toEqual(["intent:primary", "extraction:primary", "resolution:primary"]);
+    });
+
+    test("adds the shown product ×1 «Con duda» when the question asks for no value", async () => {
+      const h = asked([extracted("R1", "add", { target: { kind: "photo_same_message" } })], []);
+
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId, quantity: 1 }] });
+      expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "added", decision: { kind: "doubtful" } }]);
+    });
+
+    test("never applies the quantity or the price a question caption asks about", async () => {
+      const quote = current("¿tienen 3?");
+      const asking = [extracted("R1", "add", { target: { kind: "photo_same_message" }, quantity: { value: 3, mode: "add", quote }, price: { amount: 10, currency: "order", basis: "unit", quote } })];
+      const h = asked(asking, []);
+
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId, quantity: 1 }] });
+      expect(quantityOf(h.store, cap.variantId)).toBe(1);
+      expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "added", decision: { kind: "doubtful" } }]);
+      expect(h.changeSaves[0]!.changes).toMatchObject([{ after: { mentionedPrice: null } }]);
+    });
+
+    test("adds the shown product marked «Con duda» when the extraction of the question caption cannot be read", async () => {
+      const h = asked([], [], { overrides: { stages: { ...stagesOf({ intent: question }, [], []), extractRequests: async () => err({ code: "INVALID_AI_RESPONSE", stage: "extraction", call: null, message: "x" }) } } });
+
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }, { kind: "caption_not_applied" }], trace: { answer: "fixed" } });
+      expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "added", decision: { kind: "doubtful", reason: { kind: "caption_unread" } } }]);
+    });
+
+    test("fails the message to be retried, adding nothing, when a transient error stops the extraction of the question caption", async () => {
+      for (const code of ["AI_PROVIDER_UNAVAILABLE", "DEADLINE_EXCEEDED"] as const) {
+        const h = asked([], [], { overrides: { stages: { ...stagesOf({ intent: question }, [], []), extractRequests: async () => err({ code, stage: "extraction", call: null, message: code }) } } });
+        const result = await h.run();
+
+        expect(result).toEqual({ success: false, error: expect.objectContaining({ code }) });
+        expect(h.changeSaves).toEqual([]);
+      }
+    });
+
+    test("does not read the other reasons for a value", async () => {
+      const h = harness({ message: photoMessage({ caption: "qué linda se ve" }), identification: visual(productCap), script: { intent: { ...question, reason: "other" } } });
+      await succeeded(h.run());
+
+      expect(h.stageLog).toEqual(["intent:primary"]);
+    });
+  });
+
   test("leaves a pending for a product photo with several variants when its caption reads as no intent", async () => {
     const h = harness({ message: photoMessage({ caption: "qué linda se ve" }), identification: visual(productPolo) });
 
