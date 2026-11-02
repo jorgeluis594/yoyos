@@ -239,6 +239,22 @@ describe("checkRequests: the photo just sent", () => {
     expect(decision(checkedItem, "not_run")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
   });
 
+  test("sets what the photo just sent left when the model aimed the unnamed set at the only item or left the target to context", () => {
+    const gorraLine = item("I1", "polera", { Talla: "L" });
+    const aimed = [
+      request({ kind: "change_quantity", target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, quantity: quantity(3, "set") }),
+      request({ kind: "change_quantity", target: { kind: "item", ref: "I1" as ItemRef, named: null }, quantity: quantity(3, "set") }),
+      request({ kind: "change_quantity", target: { kind: "none" }, quantity: quantity(3, "set") }),
+    ];
+    for (const aim of aimed) {
+      const checked = only(checkRequests([aim], [], snapshot({ items: [gorraLine], pendings: [pendingRef(1, gorraPending)], photoJustSent: left })));
+      expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: gorraPending.id, mode: "set", quantity: 3 });
+      expect(decision(checked)).toEqual({ kind: "pending" });
+    }
+    const named = request({ kind: "change_quantity", target: { kind: "item", ref: "I1" as ItemRef, named: say("la polera") }, quantity: quantity(3, "set") });
+    expect(only(checkRequests([named], [], snapshot({ items: [gorraLine], pendings: [pendingRef(1, gorraPending)], photoJustSent: left }))).action).toMatchObject({ kind: "set_quantity", quantity: 3 });
+  });
+
   test("rates add wording after the photo just sent at best doubtful", () => {
     const checked = only(checkRequests([grow], [], snapshot({ pendings: [pendingRef(1, gorraPending)], photoJustSent: left })));
     expect(checked.action).toMatchObject({ kind: "change_pending_quantity", mode: "increase", quantity: 2 });
@@ -285,7 +301,7 @@ describe("checkRequests: the photo just sent", () => {
 describe("checkRequests: targets that are a pending", () => {
   const polera = item("I1", "polera", { Talla: "L" });
   const gorraPending = pendingOf("gorra");
-  const target = { kind: "pending", ref: "Q1" as PendingRef, named: say("la gorra") } as const;
+  const target = { kind: "pending", ref: "Q1" as PendingRef, named: say("la polera") } as const;
   const state = snapshot({ items: [polera], pendings: [pendingRef(1, gorraPending)] });
 
   test("changes the quantity of the pending, never of the only item of the order", () => {
@@ -411,7 +427,7 @@ describe("checkRequests: pendings and other kinds", () => {
     const pending = pendingOf("gorra", { quantity: 1 });
     const pendings = () => snapshot({ pendings: [pendingRef(1, pending)] });
     const context = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
-    const named = { kind: "pending", ref: "Q1" as PendingRef, named: say("la gorra") } as const;
+    const named = { kind: "pending", ref: "Q1" as PendingRef, named: say("la polera") } as const;
 
     test("sets the pending to the units its set wording states instead of adding them", () => {
       const checked = only(checkRequests([request({ kind: "add", target: context, quantity: quantity(2, "set") })], [], pendings()));
@@ -907,7 +923,7 @@ describe("checkRequests: the buyer's values mapped by the resolution", () => {
 
   test("changes an item's variant with the mapped value", () => {
     const gorra = item("I1", "gorra", { Color: "Rojo" });
-    const checked = only(checkRequests([request({ kind: "change_variant", target: { kind: "item", ref: "I1" as ItemRef, named: say("la gorra") }, values: [value("negra")], changeVerb: say("cámbiala") })],
+    const checked = only(checkRequests([request({ kind: "change_variant", target: { kind: "item", ref: "I1" as ItemRef, named: say("la polera") }, values: [value("negra")], changeVerb: say("cámbiala") })],
       [mapped("gorra", [{ attribute: "Color", value: "Negro", word: "negra" }])], snapshot({ items: [gorra] })));
     expect(checked.action).toMatchObject({ kind: "change_variant", to: { kind: "resolved", item: { variantId: variantOf("gorra", { Color: "Negro" }).variantId } } });
   });

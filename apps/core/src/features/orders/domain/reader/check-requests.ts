@@ -75,7 +75,7 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
     return first ? [checked(first, report({ kind: "image_with_request" }), signalsOf(first, "context"), { urgent: { problem: "image_with_request", question: null } })] : [];
   }
   const claims = new Map<string, number>();
-  const retargeted = requests.map((verified) => photoRetargeted(shownIfUnresolved(namedOnlyIfResolved(verified, resolutions, snapshot), resolutions, snapshot), snapshot));
+  const retargeted = requests.map((verified) => justSentRetargeted(photoRetargeted(shownIfUnresolved(namedOnlyIfResolved(verified, resolutions, snapshot), resolutions, snapshot), snapshot), snapshot));
   for (const entry of retargeted) {
     const id = claimedPending(entry.request, snapshot);
     if (id) claims.set(id, (claims.get(id) ?? 0) + 1);
@@ -109,6 +109,18 @@ function photoRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): Ve
   if (!line) return { ...verified, request: { ...request, kind: "add", target: { kind: "photo_same_message" } } };
   if (more.length > 0) return verified;
   return { ...verified, request: { ...request, target: { kind: "item", ref: line.ref, named: null } } };
+}
+
+/**
+ * In a text right after a product photo that left a pending or an item, a set quantity that does not name its target (the model took the only item or a line from
+ * the context) is about what the photo left: the model's choice of another line is not what the buyer said. It becomes a quantity for the photo just sent.
+ */
+function justSentRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): VerifiedRequest {
+  const { request } = verified;
+  if (snapshot.photoJustSent === null || request.kind !== "change_quantity" || request.quantity?.mode !== "set") return verified;
+  const { target } = request;
+  const unnamed = target.kind === "context" || target.kind === "none" || (target.kind === "item" && target.named === null);
+  return unnamed ? { ...verified, request: { ...request, target: { kind: "photo_just_sent" } } } : verified;
 }
 
 /**
