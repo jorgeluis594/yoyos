@@ -41,7 +41,8 @@ export type CheckSnapshot = Readonly<{
 type Urgent = NonNullable<CheckedAction["urgent"]>;
 type Said = Readonly<{ request: ExtractedRequest; complete: boolean }>;
 type Env = Readonly<{ snapshot: CheckSnapshot; resolutions: readonly ProductResolution[]; claims: ReadonlyMap<string, number>; added: ReadonlySet<ProductId>;
-  /** Completions that took a quantity change of the same message, and adds a photo caption made of words with no product: their target is only as named as that was. */ contextual?: ReadonlySet<RequestRef> }>;
+  /** Completions that took a quantity change of the same message, and adds a photo caption made of words with no product: their target is only as named as that was. */ contextual?: ReadonlySet<RequestRef>;
+  /** Requests the code aimed at the photo just sent (the model did not say so): their target is only as named as the model's own was, which is context. */ retargeted?: ReadonlySet<RequestRef> }>;
 type Named = CertaintySignals["targetNamed"];
 
 const changeKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["add", "remove", "change_quantity", "change_variant", "complete_pending", "mention_price"]);
@@ -83,7 +84,8 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
   const { requests: folded, absorbedBy, contextual: completing } = foldSameMessage(retargeted, resolutions, snapshot);
   const doubtful = new Set(requests.filter((entry, index) => retargeted[index]?.request.target.kind === "photo_same_message" && entry.request.target.kind === "named").map((entry) => entry.request.request));
   const contextual = new Set([...completing, ...doubtful]);
-  const env: Env = { snapshot, resolutions, claims, added: new Set(retargeted.flatMap((entry) => addedProductsOf(entry, resolutions, snapshot))), contextual };
+  const aimedByCode = new Set(retargeted.flatMap((entry, index) => entry.request.target.kind === "photo_just_sent" && requests[index]?.request.target.kind !== "photo_just_sent" ? [entry.request.request] : []));
+  const env: Env = { snapshot, resolutions, claims, added: new Set(retargeted.flatMap((entry) => addedProductsOf(entry, resolutions, snapshot))), contextual, retargeted: aimedByCode };
   return folded.flatMap((entry) => checkOne(entry, env).map((action) => withAbsorbed(action, absorbedBy.get(action.request))));
 }
 
@@ -113,14 +115,15 @@ function photoRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): Ve
 
 /**
  * In a text right after a product photo that left a pending or an item, a set quantity that does not name its target (the model took the only item or a line from
- * the context) is about what the photo left: the model's choice of another line is not what the buyer said. It becomes a quantity for the photo just sent.
+ * the context) is about what the photo left: the model's choice of another line is not what the buyer said. It becomes a quantity for the photo just sent, only as certain as a context target («Con duda»).
  * Unnamed is what the extraction said (`extracted`, before the resolution took the name away): a line the buyer named stays on that line, whatever the resolution says.
  */
 function justSentRetargeted(verified: VerifiedRequest, extracted: VerifiedRequest, snapshot: CheckSnapshot): VerifiedRequest {
   const { request } = verified;
   if (snapshot.photoJustSent === null || request.kind !== "change_quantity" || request.quantity?.mode !== "set") return verified;
   const { target } = extracted.request;
-  const unnamed = target.kind === "context" || target.kind === "none" || (target.kind === "item" && target.named === null);
+  // A context target with a concrete other source (a product mentioned in a recent message) is the model's own choice: it is not retargeted.
+  const unnamed = (target.kind === "context" && target.basis !== "mentioned_product") || target.kind === "none" || (target.kind === "item" && target.named === null);
   return unnamed ? { ...verified, request: { ...request, target: { kind: "photo_just_sent" } } } : verified;
 }
 
@@ -602,11 +605,13 @@ function pendingQuantity(said: Said, pending: ChatPending, quantity: Pick<NonNul
 /** A quantity for what the photo just sent left: set wording counts as named, add and decrease wording stay context. Null when nothing is left or it is gone. */
 function photoQuantity(said: Said, env: Env, quantity: Pick<NonNullable<ExtractedRequest["quantity"]>, "value" | "mode">): CheckedAction | null {
   const { photoJustSent: left, pendings, items } = env.snapshot;
-  const signals = signalsOf(said, quantity.mode === "set" ? "photo_just_sent_set" : "context");
+  // Set wording is named only when the extraction itself said «photo just sent»; a target the code retargeted there stays context.
+  const targetNamed = quantity.mode === "set" && !env.retargeted?.has(said.request.request) ? "photo_just_sent_set" : "context";
+  const signals = signalsOf(said, targetNamed);
   if (left?.kind === "pending") {
     const pending = pendings.find((entry) => entry.pending.id === left.pendingId)?.pending;
     if (!pending) return null;
-    return pendingQuantity(said, pending, quantity, quantity.mode === "set" ? "photo_just_sent_set" : "context");
+    return pendingQuantity(said, pending, quantity, targetNamed);
   }
   if (left?.kind === "item") {
     const item = items.find((line) => line.variantId === left.variantId);

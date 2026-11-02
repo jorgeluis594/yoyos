@@ -327,10 +327,22 @@ describe("applyChatMessage: the staged pipeline", () => {
       expect(h.stageLog).toEqual(["intent:primary", "extraction:primary", "resolution:primary"]);
     });
 
-    test("adds the shown product as without a caption when the question asks for no value", async () => {
+    test("adds the shown product ×1 «Con duda» when the question asks for no value", async () => {
       const h = asked([extracted("R1", "add", { target: { kind: "photo_same_message" } })], []);
 
-      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }] });
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId, quantity: 1 }] });
+      expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "added", decision: { kind: "doubtful" } }]);
+    });
+
+    test("never applies the quantity or the price a question caption asks about", async () => {
+      const quote = current("¿tienen 3?");
+      const asking = [extracted("R1", "add", { target: { kind: "photo_same_message" }, quantity: { value: 3, mode: "add", quote }, price: { amount: 10, currency: "order", basis: "unit", quote } })];
+      const h = asked(asking, []);
+
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId, quantity: 1 }] });
+      expect(quantityOf(h.store, cap.variantId)).toBe(1);
+      expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "added", decision: { kind: "doubtful" } }]);
+      expect(h.changeSaves[0]!.changes).toMatchObject([{ after: { mentionedPrice: null } }]);
     });
 
     test("adds the shown product marked «Con duda» when the extraction of the question caption cannot be read", async () => {

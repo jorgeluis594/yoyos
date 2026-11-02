@@ -258,10 +258,37 @@ describe("checkRequests: the photo just sent", () => {
     for (const aim of aimed) {
       const checked = only(checkRequests([aim], [], snapshot({ items: [gorraLine], pendings: [pendingRef(1, gorraPending)], photoJustSent: left })));
       expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: gorraPending.id, mode: "set", quantity: 3 });
-      expect(decision(checked)).toEqual({ kind: "pending" });
+      expect(checked.signals.targetNamed).toBe("context");
+      for (const agreement of ["agree", "not_run"] as const) expect(decision(checked, agreement)).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
     }
     const named = request({ kind: "change_quantity", target: { kind: "item", ref: "I1" as ItemRef, named: say("la polera") }, quantity: quantity(3, "set") });
     expect(only(checkRequests([named], [chosen("polera")], snapshot({ items: [gorraLine], pendings: [pendingRef(1, gorraPending)], photoJustSent: left }))).action).toMatchObject({ kind: "set_quantity", quantity: 3 });
+  });
+
+  test("rates a quantity the code aimed at the photo just sent «Con duda» on both readings, so a wrong target cannot be agreed upon", () => {
+    const gorra = item("I2", "gorra", { Color: "Rojo" });
+    const polera = item("I1", "polera", { Talla: "L" });
+    const photoItem = { kind: "item", orderId: "00000000-0000-4000-8000-000000000001" as OrderId, variantId: gorra.variantId, quantity: 1 as PositiveInteger } as const;
+    const state = snapshot({ items: [polera, gorra], photoJustSent: photoItem });
+    const primary = request({ kind: "change_quantity", target: { kind: "item", ref: "I1" as ItemRef, named: null }, quantity: quantity(3, "set") });
+    const confirming = request({ kind: "change_quantity", target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, quantity: quantity(3, "set") });
+    const first = only(checkRequests([primary], [], state));
+    const second = only(checkRequests([confirming], [], state));
+    for (const checked of [first, second]) {
+      expect(checked.action).toMatchObject({ kind: "set_photo_item_quantity", variantId: gorra.variantId, quantity: 3 });
+      expect(checked.signals.targetNamed).toBe("context");
+      expect(decision(checked, "agree")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
+    }
+  });
+
+  test("does not retarget a context target on a product mentioned in a recent message to the photo just sent", () => {
+    const gorra = item("I2", "gorra", { Color: "Rojo" });
+    const polera = item("I1", "polera", { Talla: "L" });
+    const photoItem = { kind: "item", orderId: "00000000-0000-4000-8000-000000000001" as OrderId, variantId: gorra.variantId, quantity: 1 as PositiveInteger } as const;
+    const mentioned = request({ kind: "change_quantity", target: { kind: "context", basis: "mentioned_product", ref: "M1" as ContextMessageRef }, quantity: quantity(3, "set") });
+    const checked = only(checkRequests([mentioned], [], snapshot({ items: [polera, gorra], photoJustSent: photoItem, contextProducts: new Map([["M1" as ContextMessageRef, [productId("polera")]]]) })));
+    expect(checked.action).not.toMatchObject({ kind: "set_photo_item_quantity" });
+    expect(decision(checked, "agree")).not.toEqual({ kind: "applied" });
   });
 
   test("keeps a set quantity on the line the buyer named even when the resolution says the words do not name its product or resolved to none", () => {

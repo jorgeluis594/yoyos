@@ -48,6 +48,8 @@ export type PrimaryReading = Readonly<{
   /** The first request beyond `maxReaderActions`, which is cut: the message then reports `too_many_actions`. */
   overflow: RequestRef | null;
   droppedIntents: number;
+  /** The caption of a product photo was read as a question: its read serves the catalog check only, and an add it leaves is «Con duda». */
+  questionCaption?: true;
   /** The refs of the dropped intents: requests of the message that no check will answer, which the decision reports instead of losing. */
   droppedRequests: readonly RequestRef[];
   /** What the quote verification took, for `reader_quote_dropped`: dropped intents and dropped data of the primary extraction. */
@@ -190,7 +192,11 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   const intentDrops = dropped.map(({ kind }): QuoteDrop => ({ requestKind: kind, field: "intent" }));
   if (intents.length === 0) return ok({ primary: { intent, intents, overflow, droppedIntents: dropped.length, droppedRequests, quoteDrops: intentDrops, chain: null, catalog: empty }, confirming: null, records });
 
-  const extract = (reading: Reading, extractSignal: AbortSignal) => stages.extractRequests(input, intents, reading, extractSignal);
+  // The read of a question caption only checks the catalog (does the shown product sell the asked value?): an asked quantity («¿tienen 3?») or price is not an order.
+  const extract = async (reading: Reading, extractSignal: AbortSignal) => {
+    const result = await stages.extractRequests(input, intents, reading, extractSignal);
+    return asPhotoAdd && result.success ? ok({ ...result.data, value: result.data.value.map((entry) => ({ ...entry, quantity: null, price: null })) }) : result;
+  };
   const primaryExtraction = extract("primary", signal);
   const abort = new AbortController();
   const confirmSignal = deps.withAbort(signal, abort.signal);
@@ -222,7 +228,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   if (resolved && !resolved.success) { abort.abort(); return unread(resolved.error); }
   const resolutions = resolved?.success ? resolved.data.value : [];
   const chain: ChainResult = { requests, resolutions, absorbed };
-  const primary: PrimaryReading = { intent, intents, overflow, droppedIntents: dropped.length, droppedRequests, quoteDrops: [...intentDrops, ...extractionDrops], chain, catalog: { products: searched.data.products, ...searched.data.catalog } };
+  const primary: PrimaryReading = { intent, intents, overflow, droppedIntents: dropped.length, ...(asPhotoAdd ? { questionCaption: true as const } : {}), droppedRequests, quoteDrops: [...intentDrops, ...extractionDrops], chain, catalog: { products: searched.data.products, ...searched.data.catalog } };
 
   const confirming: ConfirmingChain | null = confirmingExtraction ? {
     abort: () => abort.abort(),
