@@ -252,7 +252,7 @@ describe("checkRequests: the photo just sent", () => {
       expect(decision(checked)).toEqual({ kind: "pending" });
     }
     const named = request({ kind: "change_quantity", target: { kind: "item", ref: "I1" as ItemRef, named: say("la polera") }, quantity: quantity(3, "set") });
-    expect(only(checkRequests([named], [], snapshot({ items: [gorraLine], pendings: [pendingRef(1, gorraPending)], photoJustSent: left }))).action).toMatchObject({ kind: "set_quantity", quantity: 3 });
+    expect(only(checkRequests([named], [chosen("polera")], snapshot({ items: [gorraLine], pendings: [pendingRef(1, gorraPending)], photoJustSent: left }))).action).toMatchObject({ kind: "set_quantity", quantity: 3 });
   });
 
   test("rates add wording after the photo just sent at best doubtful", () => {
