@@ -123,7 +123,7 @@ function justSentRetargeted(verified: VerifiedRequest, extracted: VerifiedReques
   if (snapshot.photoJustSent === null || request.kind !== "change_quantity" || request.quantity?.mode !== "set") return verified;
   const { target } = extracted.request;
   // A context target with a concrete other source (a product mentioned in a recent message) is the model's own choice: it is not retargeted.
-  const unnamed = (target.kind === "context" && target.basis !== "mentioned_product") || target.kind === "none" || (target.kind === "item" && target.named === null);
+  const unnamed = (target.kind === "context" && target.basis !== "mentioned_product") || target.kind === "none" || ((target.kind === "item" || target.kind === "pending") && target.named === null);
   return unnamed ? { ...verified, request: { ...request, target: { kind: "photo_just_sent" } } } : verified;
 }
 
@@ -212,7 +212,7 @@ function foldSameMessage(requests: readonly VerifiedRequest[], resolutions: read
   const named = foldIntoNamedAdds(requests, resolutions, snapshot, absorbedBy);
   const photo = foldIntoPhotoAdd(named, resolutions, snapshot, absorbedBy);
   const pending = foldIntoCompletions(photo, snapshot, absorbedBy, contextual);
-  return { requests: foldOtherCurrency(pending, snapshot, absorbedBy), absorbedBy, contextual };
+  return { requests: foldOtherCurrency(foldSameQuantity(pending, absorbedBy), snapshot, absorbedBy), absorbedBy, contextual };
 }
 
 const photoKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["mention_price", "change_quantity", "change_variant"]);
@@ -303,6 +303,34 @@ function foldIntoCompletions(requests: readonly VerifiedRequest[], snapshot: Che
   return requests.filter((entry) => !gone.has(entry)).map((entry) => rewritten.get(entry) ?? entry);
 }
 
+const quantityKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["add", "change_quantity"]);
+/** The same line, pending or kind of target, whatever words each request used to name it. */
+const sameTarget = (one: ExtractedRequest["target"], other: ExtractedRequest["target"]): boolean => {
+  const { kind, ref } = { ref: undefined, ...one } as { kind: string; ref?: string };
+  const second = { ref: undefined, ...other } as { kind: string; ref?: string };
+  return kind === second.kind && ref === second.ref && kind !== "named";
+};
+
+/**
+ * Two quantity requests of one message that point at the same target and carry the very same quantity words are the same words read twice (an intent «2» and an intent «pásame 2 de esos»):
+ * the first answers for both, so the quantity is applied, or asked about, once. Values and prices make a request its own, and a different target is another request.
+ */
+function foldSameQuantity(requests: readonly VerifiedRequest[], absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
+  const plain = (entry: VerifiedRequest): boolean => quantityKinds.has(entry.request.kind) && entry.request.quantity !== null && entry.request.values.length === 0 && entry.request.price === null;
+  const gone = new Set<VerifiedRequest>();
+  requests.forEach((entry, index) => {
+    if (gone.has(entry) || !plain(entry)) return;
+    for (const other of requests.slice(index + 1)) {
+      const { quantity } = other.request;
+      if (gone.has(other) || !plain(other) || !quantity || !entry.request.quantity) continue;
+      if (quantity.value !== entry.request.quantity.value || !sameQuote(quantity.quote, entry.request.quantity.quote) || !sameTarget(entry.request.target, other.request.target)) continue;
+      gone.add(other);
+      absorb(absorbedBy, entry.request.request, other.request.request);
+    }
+  });
+  return requests.filter((entry) => !gone.has(entry));
+}
+
 /** A price in another currency is dropped: when the order has no line for it to land on, another request of the message answers for it instead of reporting «no open order». */
 function foldOtherCurrency(requests: readonly VerifiedRequest[], snapshot: CheckSnapshot, absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
   if (snapshot.order === "open") return requests;
@@ -384,9 +412,25 @@ function onPending(request: ExtractedRequest, env: Env): boolean {
   return request.kind === "remove" && (request.target.kind === "pending" || request.target.kind === "named") && pendingOfRequest(request, env) !== undefined;
 }
 
+/**
+ * A quantity that names neither a product nor the photo just sent, while the chat has several pendings and no line to fall back on, is about one of them and the code cannot tell which
+ * (the model citing one pending for wording that names none is a guess, like a line picked from context): it asks, never updating a pending silently. A pending the buyer did name is not this.
+ */
+function unnamedAmongPendings(said: Said, env: Env): CheckedAction | null {
+  const { request } = said;
+  const { snapshot } = env;
+  const { target } = request;
+  if ((request.kind !== "change_quantity" && request.kind !== "add") || !request.quantity || request.values.length > 0 || snapshot.photoJustSent !== null || snapshot.pendings.length < 2) return null;
+  const unnamed = (target.kind === "pending" && target.named === null) || (snapshot.items.length === 0 && (target.kind === "none" || (target.kind === "context" && target.basis !== "mentioned_product")));
+  if (!unnamed) return null;
+  return problem(said, { kind: "unnamed_add" }, "unnamed_add", { language: snapshot.language, kind: "another_of_which" });
+}
+
 function checkOne(said: Said, env: Env): readonly CheckedAction[] {
   const { request } = said;
   const { snapshot } = env;
+  const several = unnamedAmongPendings(said, env);
+  if (several) return [several];
   if (itemKinds.has(request.kind) && snapshot.order !== "open" && !onPending(request, env)) {
     const blocked = snapshot.order === "closed" ? "order_closed" : "no_open_order";
     return [checked(said, { kind: "change_unfound_item", target: { kind: "unnamed" } }, signalsOf(said, "context"), { blocked })];

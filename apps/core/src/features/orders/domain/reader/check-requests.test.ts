@@ -1056,6 +1056,55 @@ describe("checkRequests: the buyer's values mapped by the resolution", () => {
   });
 });
 
+describe("checkRequests: a quantity among several pendings", () => {
+  const poloPending = pendingOf("polo");
+  const polera = pendingOf("polera");
+  const two = [pendingRef(1, poloPending), pendingRef(2, polera)];
+  const asks = { language: "es", kind: "another_of_which" };
+
+  test("asks which one for an unnamed quantity on a pending cited by reference, never updating a pending", () => {
+    const cited = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: quantity(2, "set") });
+    const checked = only(checkRequests([cited], [], snapshot({ order: "none", pendings: two })));
+    expect(checked.action).toEqual({ kind: "report", outcome: { kind: "unnamed_add" } });
+    expect(decision(checked)).toEqual({ kind: "urgent", problem: "unnamed_add", question: asks });
+  });
+
+  test("asks which one, not «no open order», for a quantity with no target while the chat has only pendings", () => {
+    const loose = request({ kind: "change_quantity", target: { kind: "none" }, quantity: quantity(2, "add") });
+    const checked = only(checkRequests([loose], [], snapshot({ order: "none", pendings: two })));
+    expect(decision(checked)).toEqual({ kind: "urgent", problem: "unnamed_add", question: asks });
+  });
+
+  test("keeps a pending the buyer named, a single pending and a quantity for the photo just sent", () => {
+    const named = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: say("el polo") }, quantity: quantity(2, "set") });
+    expect(only(checkRequests([named], [{ ...chosen("polo"), namesProduct: true }], snapshot({ order: "none", pendings: two }))).action).toMatchObject({ kind: "change_pending_quantity", pendingId: poloPending.id });
+    const cited = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: quantity(2, "set") });
+    expect(only(checkRequests([cited], [], snapshot({ order: "none", pendings: [two[0]!] }))).action.kind).toBe("change_pending_quantity");
+    const photo = request({ kind: "change_quantity", target: { kind: "photo_just_sent" }, quantity: quantity(2, "set") });
+    expect(only(checkRequests([photo], [], snapshot({ order: "none", pendings: two, photoJustSent: { kind: "pending", pendingId: polera.id } }))).action).toMatchObject({ kind: "change_pending_quantity", pendingId: polera.id });
+  });
+
+  test("moves an unnamed pending cited right after a photo to the pending the photo left", () => {
+    const cited = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: quantity(3, "set") });
+    const checked = only(checkRequests([cited], [], snapshot({ order: "none", pendings: two, photoJustSent: { kind: "pending", pendingId: polera.id } })));
+    expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: polera.id, quantity: 3 });
+  });
+
+  test("counts two requests over the same quantity words once, the second absorbed by the first", () => {
+    const set = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: null }, quantity: quantity(2, "set") });
+    const add = { ...request({ kind: "add", target: { kind: "pending", ref: "Q1" as PendingRef, named: say("esos") }, quantity: quantity(2, "add") }), request: { ...request({}).request, request: "R2" as RequestRef, kind: "add" as const, target: { kind: "pending" as const, ref: "Q1" as PendingRef, named: say("esos") }, quantity: quantity(2, "add") } };
+    const checked = checkRequests([set, add], [], snapshot({ order: "none", pendings: two }));
+    expect(checked).toHaveLength(1);
+    expect(checked[0]).toMatchObject({ request: "R1", absorbed: ["R2"] });
+  });
+
+  test("keeps apart two quantities with other words or for another target", () => {
+    const first = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: say("el polo") }, quantity: { value: 2, mode: "set", quote: say("2 polos") } });
+    const other = { ...first, request: { ...first.request, request: "R2" as RequestRef, target: { kind: "pending" as const, ref: "Q2" as PendingRef, named: say("la polera") }, quantity: { value: 2, mode: "set" as const, quote: say("2 poleras") } } };
+    expect(checkRequests([first, other], [], snapshot({ order: "none", pendings: two }))).toHaveLength(2);
+  });
+});
+
 describe("checkRequests: a pending that ended before the message", () => {
   test("a detail for an ended pending is urgent variant_only, never applied", () => {
     const completes = request({ kind: "complete_pending", target: { kind: "pending", ref: "Q2" as PendingRef, named: null }, values: [] });
