@@ -142,6 +142,15 @@ describe("checkRequests: adds and prices", () => {
     expect(checked.action).toMatchObject({ kind: "add", mentionedPrice: null });
   });
 
+  test("answers a price asked for a line in another currency as a request the chat never does, and keeps one in the order's currency noted", () => {
+    const line = item("I1", "polera", { Talla: "L" });
+    const aimed = (currency: "order" | "other") => request({ kind: "mention_price", target: { kind: "item", ref: "I1" as ItemRef, named: say("la polera") }, price: { amount: 10, currency, basis: "not_explicit", quote: say("10") } });
+    const foreign = only(checkRequests([aimed("other")], [chosen("polera")], snapshot({ items: [line] })));
+    expect(foreign.urgent).toMatchObject({ problem: "request_not_allowed" });
+    expect(decision(foreign)).toMatchObject({ kind: "urgent", problem: "request_not_allowed" });
+    expect(only(checkRequests([aimed("order")], [chosen("polera")], snapshot({ items: [line] }))).action).toMatchObject({ kind: "set_mentioned_price" });
+  });
+
   test("makes a product without its variant a pending and between two products a doubtful pending", () => {
     const missing = only(checkRequests([request({ target: { kind: "named", words: say("polo") } })], [chosen("polo")], snapshot()));
     expect(decision(missing)).toEqual({ kind: "pending" });

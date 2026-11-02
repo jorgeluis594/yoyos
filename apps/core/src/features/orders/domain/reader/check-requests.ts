@@ -626,6 +626,8 @@ function checkPrice(said: Said, env: Env): CheckedAction {
   const found = findItem(said.request, env);
   if (found.kind !== "found") return unfoundItem(said, found, env);
   const { price } = said.request;
+  // The price of a line that is asked for in another currency is a request the chat never does (it cannot keep it): the seller is told instead of nothing happening.
+  if (price?.currency === "other") return problem(said, { kind: "request_not_allowed", orderId: null }, "request_not_allowed", null, "named");
   const mentioned = price ? mentionedPriceOf(statedOf(price), found.item.quantity, found.item.unitPrice) : null;
   const doubt: DoubtReason | null = mentioned ? { kind: "price_noted", amount: mentioned.amount.amount, units: mentioned.units as PositiveInteger } : null;
   return checked(said, { kind: "set_mentioned_price", target: variantTarget(found.item), price: mentioned }, signalsOf(said, named(found)), { doubt });
