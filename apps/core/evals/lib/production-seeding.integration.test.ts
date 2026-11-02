@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { findProductIdsOfVariants } from "@core/src/features/products";
 import { findChatOrderTarget } from "@core/src/features/orders/infrastructure/order-repository";
-import { findChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { findChatMemory, findChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import { pendingLife } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import { evalCatalogSchema, productIdOf, variantIdOf } from "@core/evals/fixtures/catalog";
@@ -66,6 +66,13 @@ describe("seeding the start of a case", () => {
 
     expect(target.kind).toBe("open");
     expect(itemsOf(target)).toEqual([item("camisa", { Talla: "M", Color: "Negro" }, 2), item("gorra", { Color: "Rojo" }, 1)].sort());
+  });
+
+  test("the label photos that seed the order leave no photo just sent in the chat's memory", async () => {
+    const { chatId } = await seedChatStart(start({ order: [line("gorra", { Color: "Azul" })] }), "private");
+    const memory = await withTenantIsolation(privateCompanyId, () => findChatMemory(chatId as ChatId));
+
+    expect(memory).toMatchObject({ success: true, data: { lastIncomingPhoto: null, lastRequestAt: null } });
   });
 
   test("pendings are saved through the repository: a named product with its known values and a doubtful one with its candidates", async () => {
