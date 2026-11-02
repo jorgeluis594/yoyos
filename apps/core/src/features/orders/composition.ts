@@ -500,7 +500,7 @@ async function createConfiguredCatalogOrder(input: CreateCatalogOrderInput, acce
       if (found.success) return found;
       return err({ code: found.error.code === "PERSISTENCE_UNAVAILABLE" ? found.error.code : "INVALID_STORED_DATA" as const, message: found.error.message });
     },
-    findSellableVariants,
+    findOfferedVariants: products.findOfferedVariants,
     allocateNumber: allocateOrderNumber,
     saveCatalogOrder: async (order) => {
       const saved = await savePendingOrder(order);

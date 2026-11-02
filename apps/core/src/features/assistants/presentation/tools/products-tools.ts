@@ -7,14 +7,14 @@ import type { ToolModule } from "@core/src/features/assistants/presentation/tool
 import { maxCombination, maxProductName, type Display } from "@core/src/features/assistants/domain/order-projection";
 import {
   catalogLine, emptySearchMessage, maxDescription, maxSearchSku, moreProductsLine, toAssistantProduct, toAssistantProductSummary, vocabularyMessage,
-  type AssistantProduct, type AssistantProductSummary, type AssistantVariantMatch, type ProductProjectionContext, type ProjectableProduct, type ProjectableProductSummary, type ProjectableStorefront,
+  type AssistantProduct, type AssistantProductSummary, type InCatalogLine, type AssistantVariantMatch, type ProductProjectionContext, type ProjectableProduct, type ProjectableProductSummary, type ProjectableStorefront,
   type ProjectableValueRejection,
 } from "@core/src/features/assistants/domain/product-projection";
 import { page, unknownField } from "@core/src/features/assistants/presentation/tools/input-fields";
 import { display as defaultDisplay } from "@core/src/features/assistants/presentation/display";
 import {
   noProductMessage, pageOutOfRangeMessage, productReadFailureMessage, productToolsInstructions, reversedPriceMessage, searchProductsDescription,
-  variantFilterOutsideCatalogMessage, viewProductDescription,
+  viewProductDescription,
 } from "@core/src/features/assistants/presentation/tools/products-texts";
 
 type Failure = ToolRunError;
@@ -33,7 +33,6 @@ export type ProductSearchRequest = Readonly<{
 export type ProductSearchAnswer = Readonly<{ storefront: ProjectableStorefront }> & (
   | Readonly<{ kind: "page"; items: readonly ProjectableProductSummary[]; page: number; total: number; storeHasProducts: boolean }>
   | Readonly<{ kind: "price_range_reversed" }>
-  | Readonly<{ kind: "variant_filter_outside_catalog" }>
   | Readonly<{ kind: "value_rejected"; rejection: ProjectableValueRejection }>);
 export type ProductReferenceRequest = Readonly<{ by: "id"; id: string }> | Readonly<{ by: "sku"; sku: string }>;
 
@@ -77,7 +76,9 @@ const viewInput = z.strictObject({
 
 const text = z.string();
 const level = z.enum(["Agotado", "Stock bajo"]);
-const inCatalog = z.enum(["En el catálogo", "No está en el catálogo: sin variantes activas"]);
+const inCatalog = z.enum([
+  "En el catálogo", "No está en el catálogo: producto oculto", "No está en el catálogo: producto oculto y sin variantes activas", "No está en el catálogo: sin variantes activas",
+]) satisfies z.ZodType<InCatalogLine>;
 const matchSchema = z.strictObject({ combinacion: text, sku: text, precio: text, stock: z.number(), nivel: level.optional() });
 const summarySchema = z.strictObject({
   id: text, nombre: text, sku: text, precio: text, stock: text.optional(), en_catalogo: inCatalog, variantes: text, enlace: text, enlace_cliente: text.optional(),
@@ -130,7 +131,6 @@ export function createProductToolsModule(deps: ProductToolsDependencies, options
           const money = (cents: number | undefined) => display.money({ amount: (cents ?? 0) / 100, currency: storefront.currency });
           return err(invalid(reversedPriceMessage(money(request.priceToCents), money(request.priceFromCents))));
         }
-        case "variant_filter_outside_catalog": return err(invalid(variantFilterOutsideCatalogMessage));
         case "value_rejected": return err(invalid(vocabularyMessage(answer.data.rejection)));
         case "page": {
           const { items, page: current, total, storeHasProducts } = answer.data;

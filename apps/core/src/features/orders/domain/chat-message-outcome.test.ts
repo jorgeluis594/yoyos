@@ -32,7 +32,7 @@ describe("chatMessageOutcomesSchema", () => {
       { kind: "reader_doubt", orderId: id(4) },
       { kind: "request_not_allowed", orderId: null },
       { kind: "invalid_action", orderId: null, reason: "too_many_actions" },
-      { kind: "product_not_available", productId: null },
+      { kind: "product_not_available", productId: null, reason: "not_sold" },
       { kind: "variant_for_several_pendings", productIds: [id(2), id(3)], unnamed: 1 },
       { kind: "ready_with_pendings", orderId: null, productIds: [id(2)], unnamed: 0 },
       { kind: "caption_not_applied", productId: id(2), orderId: id(4) },
@@ -53,5 +53,11 @@ describe("chatMessageOutcomesSchema", () => {
     ["a missing split remainder", { kind: "pending_split", pendingId: id(10) }],
   ])("rejects %s", (_title, outcome) => {
     expect(chatMessageOutcomesSchema.safeParse([outcome]).success).toBe(false);
+  });
+
+  test("a stored product not available without reason reads as not sold", () => {
+    expect(chatMessageOutcomesSchema.parse([{ kind: "product_not_available", productId: id(2) }])).toEqual([{ kind: "product_not_available", productId: id(2), reason: "not_sold" }]);
+    expect(chatMessageOutcomesSchema.parse([{ kind: "product_not_available", productId: id(2), reason: "hidden" }])).toEqual([{ kind: "product_not_available", productId: id(2), reason: "hidden" }]);
+    expect(chatMessageOutcomesSchema.safeParse([{ kind: "product_not_available", productId: null, reason: "gone" }]).success).toBe(false);
   });
 });

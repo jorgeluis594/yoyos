@@ -6,7 +6,7 @@ import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared
 import { createVisualSearch, products, type ImageEmbedder } from "@core/src/features/products/composition";
 import { identifyProductsInImage, type IdentifyProductsDependencies, type ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import { catalogSearchReadiness } from "@core/src/features/products/application/catalog-search-readiness";
-import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
+import { productPresence } from "@core/src/features/products/infrastructure/catalog-search-readiness";
 import { hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
 import { readQrCodes } from "@core/src/shared/images/infrastructure/qr-code-reader";
 import { findSellableVariantsByQrCodes } from "@core/src/features/products/infrastructure/order-stock";
@@ -116,7 +116,7 @@ export function createProductionPath(env: Env) {
     },
     visual,
   };
-  const readiness = { visualModel: visual.model, hasActiveProducts, hasIndexedProducts };
+  const readiness = { visualModel: visual.model, productPresence, hasIndexedProducts };
   const limits = readChatMessageLimits(env);
   const wiring: Wiring = { readChatMessage, readiness, imageIdentification, limits };
 
@@ -486,7 +486,7 @@ export async function seedChatStart(start: ChatStart, scope: CatalogScope = "eva
   const company = companyOf(scope);
   const wiring: SeedWiring = {
     readChatMessage: async () => { throw new Error("Seeding a start calls no model"); },
-    readiness: { visualModel: "none" as never, hasActiveProducts, hasIndexedProducts },
+    readiness: { visualModel: "none" as never, productPresence, hasIndexedProducts },
     limits: readChatMessageLimits({}),
   };
   const chat = await newChat(company);

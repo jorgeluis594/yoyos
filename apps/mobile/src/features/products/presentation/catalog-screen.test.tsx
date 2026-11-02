@@ -35,7 +35,7 @@ test('creation remains available with an empty catalog and without search result
   expect(screen.getByLabelText('Buscar productos').props.value).toBe('');
 });
 
-const product = { id: 'product-1', name: 'Camisa de algodón de manga larga', sku: 'CAM-01', variantCount: 1, stock: 12, price: { amount: 59.9, currency: 'PEN' }, priceFrom: false };
+const product = { id: 'product-1', name: 'Camisa de algodón de manga larga', sku: 'CAM-01', variantCount: 1, stock: 12, hidden: false, price: { amount: 59.9, currency: 'PEN' }, priceFrom: false };
 
 test('product rows expose price, SKU and stock and open the product', async () => {
   mockLoadProducts.mockResolvedValue(ok({ items: [
@@ -140,4 +140,12 @@ test('the seller product list shows the dashed placeholder for a product without
   const screen = render(<CatalogScreen />);
   await screen.findByText('Camisa de algodón de manga larga');
   expect(screen.UNSAFE_getAllByType(View).filter((view) => StyleSheet.flatten(view.props.style)?.borderStyle === 'dashed')).toHaveLength(1);
+});
+
+test('the list shows Oculto under the stock line for a hidden product only', async () => {
+  mockLoadProducts.mockResolvedValue(ok({ items: [{ ...product, hidden: true, variantCount: 2, activeVariantCount: 0, price: null, stock: 0 }, { ...product, id: 'product-2', name: 'Casaca denim' }], total: 2, page: 1, pageSize: 20 }));
+  const screen = render(<CatalogScreen />);
+  await screen.findByText('Camisa de algodón de manga larga');
+  expect(screen.getAllByText('Oculto')).toHaveLength(1);
+  expect(screen.getByText('Sin variantes activas')).toBeTruthy();
 });

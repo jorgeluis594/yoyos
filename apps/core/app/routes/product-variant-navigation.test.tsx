@@ -17,7 +17,7 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")
 const [talla, l, m] = [1, 2, 3].map(id);
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const product: ProductDetailResponse["product"] = {
-  id: id(50), name: "Polo", description: null, photos: [], currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
+  id: id(50), name: "Polo", description: null, hidden: false, photos: [], currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
   options: [{ id: talla, name: "Talla", values: [{ id: l, name: "L" }, { id: m, name: "M" }] }],
   variants: [l, m].map((value, index) => ({ id: id(60 + index), combination: [{ optionId: talla, valueId: value }], sku: null, salePrice: money(10), purchasePrice: null, qrCode: id(70 + index), status: "active", stock: 0, hasOrders: false })),
 };

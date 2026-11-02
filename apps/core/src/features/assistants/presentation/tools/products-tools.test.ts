@@ -17,11 +17,11 @@ const published: ProjectableStorefront = { currency: "PEN", catalog: { kind: "pu
 const productId = "00000000-0000-4000-8000-000000000001";
 
 const summary = (overrides: Partial<ProjectableProductSummary> = {}): ProjectableProductSummary => ({
-  id: productId, name: "Polo básico", variantCount: 2, inactiveCount: 0, customerLink: `https://rosa.yoyos.lat/productos/${productId}`, matching: null,
+  id: productId, name: "Polo básico", hidden: false, variantCount: 2, inactiveCount: 0, customerLink: `https://rosa.yoyos.lat/productos/${productId}`, matching: null,
   active: { kind: "some", minSalePrice: pen(39.9), hasDifferentPrices: true, totalStock: 12, soldOut: 0, low: 1, onlyLevel: null, sku: { kind: "several" } }, ...overrides,
 });
 const detail = (variantCount = 1, text = "x"): ProjectableProduct => ({
-  id: productId, name: text.repeat(100), description: text.repeat(1000), options: [{ name: "Talla", values: ["M", "L"] }], customerLink: null,
+  id: productId, name: text.repeat(100), hidden: false, description: text.repeat(1000), options: [{ name: "Talla", values: ["M", "L"] }], customerLink: null,
   active: { kind: "some", minSalePrice: pen(39.9), hasDifferentPrices: false, totalStock: 99, soldOut: 0, low: 0, onlyLevel: null, sku: { kind: "several" } },
   variants: Array.from({ length: variantCount }, (_, index) => ({
     values: [text.repeat(24), text.repeat(25)], sku: text.repeat(95) + String(index).padStart(5, "0"), salePrice: pen(99_999_999), purchasePrice: pen(99_999_999), stock: 99_999,
@@ -107,8 +107,6 @@ describe("buscar_productos", () => {
     const answer = (partial: object) => async () => ok({ storefront: published, ...partial } as ProductSearchAnswer);
     const reversed = await dependencies({ search: answer({ kind: "price_range_reversed" }) }).run("buscar_productos", { precio_desde: 50, precio_hasta: 20 });
     expect(reversed.run).toEqual(err({ code: "INVALID_INPUT", message: "El precio hasta (S/ 20.00) es menor que el precio desde (S/ 50.00)." }));
-    const outside = await dependencies({ search: answer({ kind: "variant_filter_outside_catalog" }) }).run("buscar_productos", { en_catalogo: "no", stock: "agotado" });
-    expect(outside.run).toEqual(err({ code: "INVALID_INPUT", message: "Los filtros de variante (valores, precio y stock) solo miran variantes activas, y los productos que no están en el catálogo no tienen ninguna. Quita esos filtros o en_catalogo." }));
     const rejected = await dependencies({ search: answer({ kind: "value_rejected", rejection: { kind: "no_options" } }) }).run("buscar_productos", { valores: ["Azul"] });
     expect(rejected.run).toEqual(err({ code: "INVALID_INPUT", message: "Ningún producto de tu tienda tiene opciones (como color o talla). Busca con texto." }));
   });

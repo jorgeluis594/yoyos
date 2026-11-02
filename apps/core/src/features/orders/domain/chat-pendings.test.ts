@@ -431,14 +431,21 @@ describe("pending transitions", () => {
   test("ends a pending whose product was deleted with product not available without a name when a message addresses it", () => {
     const chat = createChat({ pendings: [pendingOf("polo")], deleted: ["polo"] });
     const said = chat.say(say(complete(1, { Talla: "M" })));
-    expect(said.outcomes).toEqual([{ kind: "pending_ended", pendingId: pendingOf("polo").id, reason: "product_not_available" }, { kind: "product_not_available", productId: null }]);
+    expect(said.outcomes).toEqual([{ kind: "pending_ended", pendingId: pendingOf("polo").id, reason: "product_not_available" }, { kind: "product_not_available", productId: null, reason: "not_sold" }]);
     expect(chat.pendings.pendings).toEqual([]);
   });
 
   test("ends a pending whose product is no longer sellable and reports product not available", () => {
     const chat = createChat({ pendings: [pendingOf("polo")], unsellable: ["polo"] });
     expect(chat.say(say(complete(1, M_NEGRO))).outcomes).toEqual([{ kind: "pending_ended", pendingId: pendingOf("polo").id, reason: "product_not_available" },
-      { kind: "product_not_available", productId: productIdOf("polo") }]);
+      { kind: "product_not_available", productId: productIdOf("polo"), reason: "not_sold" }]);
+    expect(chat.items()).toEqual([]);
+  });
+
+  test("completing a pending of a hidden product ends it with reason hidden", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")], hidden: ["polo"] });
+    expect(chat.say(say(complete(1, M_NEGRO))).outcomes).toEqual([{ kind: "pending_ended", pendingId: pendingOf("polo").id, reason: "product_not_available" },
+      { kind: "product_not_available", productId: productIdOf("polo"), reason: "hidden" }]);
     expect(chat.items()).toEqual([]);
   });
 

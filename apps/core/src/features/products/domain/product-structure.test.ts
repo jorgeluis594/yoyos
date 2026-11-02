@@ -18,7 +18,7 @@ function variant(id: string, combination: Record<string, string>): ProductVarian
 }
 
 function product(options: readonly ProductOption[], variants: readonly ProductVariant[]): Product {
-  return { id: "p" as ProductId, name: "Polo", photoIds: [] as unknown as Product["photoIds"], currency, qrCode: "q", status: "active", createdAt: new Date(0), updatedAt: new Date(0),
+  return { id: "p" as ProductId, name: "Polo", photoIds: [] as unknown as Product["photoIds"], currency, qrCode: "q", status: "active", hidden: false, createdAt: new Date(0), updatedAt: new Date(0),
     structureVersion: 1, options, variants: variants as Product["variants"] };
 }
 
@@ -353,5 +353,28 @@ describe("planProductSave", () => {
     const base = mirror(saved());
     const found = issues({ ...base, description: "x".repeat(5001), options: [...base.options, ...["a", "b"].map((name) => ({ id: `o-${name}`, name, values: [{ id: `v-${name}`, name }], valueForExistingVariants: `v-${name}` })), { id: "o-d", name: "d", values: [] }] });
     expect(new Set(found.map((issue) => issue.reason))).toEqual(new Set(["TOO_LONG", "TOO_MANY_OPTIONS", "OPTION_WITHOUT_VALUES", "MISSING_VALUE_FOR_EXISTING_VARIANTS"]));
+  });
+
+  test("plans the visibility only when the request sends a different value", () => {
+    const base = mirror(saved());
+    expect(change({ ...base, hidden: true }).product).toEqual({ hidden: true, updatedAt: now });
+    expect(change({ ...base, hidden: false }).product).toEqual({});
+    const hiddenProduct = { ...saved(), hidden: true };
+    expect(change({ ...mirror(hiddenProduct), hidden: true }, hiddenProduct).product).toEqual({});
+    expect(change({ ...mirror(hiddenProduct), hidden: false }, hiddenProduct).product).toEqual({ hidden: false, updatedAt: now });
+  });
+
+  test("a visibility-only change does not raise the structure version", () => {
+    const result = change({ ...mirror(saved()), hidden: true });
+    expect(isEmptyChange(result)).toBe(false);
+    expect(result.product.structureVersion).toBeUndefined();
+    expect(result.rekeyVariants).toEqual([]);
+  });
+
+  test("an omitted visibility keeps the stored one", () => {
+    const hiddenProduct = { ...saved(), hidden: true };
+    const result = change({ ...mirror(hiddenProduct), name: "Polo nuevo" }, hiddenProduct);
+    expect(result.product).toEqual({ name: "Polo nuevo", updatedAt: now });
+    expect("hidden" in result.product).toBe(false);
   });
 });

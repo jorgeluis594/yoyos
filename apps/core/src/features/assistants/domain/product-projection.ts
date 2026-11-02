@@ -14,9 +14,9 @@ export type ProjectableActive =
   | Readonly<{ kind: "some"; minSalePrice: Money; hasDifferentPrices: boolean; totalStock: number; soldOut: number; low: number;
       onlyLevel: ProjectableLevel | null; sku: ProjectableSku }>;
 export type ProjectableVariantLine = Readonly<{ values: readonly string[]; sku: string | null; salePrice: Money; stock: number; level: ProjectableLevel }>;
-export type ProjectableProductSummary = Readonly<{ id: string; name: string; variantCount: number; inactiveCount: number;
+export type ProjectableProductSummary = Readonly<{ id: string; name: string; hidden: boolean; variantCount: number; inactiveCount: number;
   active: ProjectableActive; customerLink: string | null; matching: Readonly<{ variants: readonly ProjectableVariantLine[]; total: number }> | null }>;
-export type ProjectableProduct = Readonly<{ id: string; name: string; description: string | null;
+export type ProjectableProduct = Readonly<{ id: string; name: string; hidden: boolean; description: string | null;
   options: readonly Readonly<{ name: string; values: readonly string[] }>[]; active: ProjectableActive; customerLink: string | null;
   variants: readonly (ProjectableVariantLine & Readonly<{ purchasePrice: Money | null; isActive: boolean; searched: boolean }>)[] }>;
 export type ProjectableStorefront = Readonly<{ currency: Currency; catalog:
@@ -36,7 +36,8 @@ export type AppliedFilters = Readonly<{
 }>;
 
 type Level = "Agotado" | "Stock bajo";
-export type InCatalogLine = "En el catálogo" | "No está en el catálogo: sin variantes activas";
+export type InCatalogLine =
+  | "En el catálogo" | "No está en el catálogo: producto oculto" | "No está en el catálogo: producto oculto y sin variantes activas" | "No está en el catálogo: sin variantes activas";
 export type AssistantVariantMatch = Readonly<{ combinacion: string; sku: string; precio: string; stock: number; nivel?: Level }>;
 export type AssistantProductSummary = Readonly<{
   id: string; nombre: string; sku: string; precio: string; stock?: string; en_catalogo: InCatalogLine; variantes: string; enlace: string; enlace_cliente?: string;
@@ -94,7 +95,12 @@ export function stockLine(active: ProjectableActive): string | undefined {
 const skuLabel = (sku: ProjectableSku, max: number): string => sku.kind === "several" ? "Varias variantes" : sku.sku === null ? noSku : clip(sku.sku, max);
 const priceLabel = (active: ProjectableActive, display: Display): string =>
   active.kind === "none" ? "Sin variantes activas" : `${active.hasDifferentPrices ? "Desde " : ""}${display.money(active.minSalePrice)}`;
-const inCatalogLine = (active: ProjectableActive): InCatalogLine => active.kind === "some" ? "En el catálogo" : "No está en el catálogo: sin variantes activas";
+/** «En el catálogo» means offered: not hidden and with an active variant; otherwise the line says why not. */
+export function inCatalogLine(product: Readonly<{ hidden: boolean; active: ProjectableActive }>): InCatalogLine {
+  const withVariants = product.active.kind === "some";
+  if (!product.hidden) return withVariants ? "En el catálogo" : "No está en el catálogo: sin variantes activas";
+  return withVariants ? "No está en el catálogo: producto oculto" : "No está en el catálogo: producto oculto y sin variantes activas";
+}
 const levelLabel = (level: ProjectableLevel): Level | undefined => level === "sold_out" ? "Agotado" : level === "low" ? "Stock bajo" : undefined;
 const withLevel = (level: ProjectableLevel) => { const label = levelLabel(level); return label ? { nivel: label } : {}; };
 const customerLinkField = (link: string | null) => link === null ? {} : { enlace_cliente: link };
@@ -110,7 +116,7 @@ export function toAssistantProductSummary(product: ProjectableProductSummary, co
   const more = matching === null ? 0 : matching.total - matching.variants.length;
   return {
     id: product.id, nombre: clip(product.name, maxProductName), sku: skuLabel(product.active.sku, maxSearchSku), precio: priceLabel(product.active, display),
-    ...stock === undefined ? {} : { stock }, en_catalogo: inCatalogLine(product.active), variantes: variantCountLine(product.variantCount, product.inactiveCount),
+    ...stock === undefined ? {} : { stock }, en_catalogo: inCatalogLine(product), variantes: variantCountLine(product.variantCount, product.inactiveCount),
     enlace: appLink(product.id), ...customerLinkField(product.customerLink),
     ...matching === null ? {} : { variantes_coincidentes: matching.variants.map((variant): AssistantVariantMatch => ({
       combinacion: combinationOf(variant.values), sku: variant.sku === null ? noSku : clip(variant.sku, maxSearchSku), precio: display.money(variant.salePrice),
@@ -130,7 +136,7 @@ export function toAssistantProduct(product: ProjectableProduct, storefront: Proj
     catalogo: catalogLine(storefront), id: product.id, nombre: clip(product.name, maxProductName),
     ...description === "" ? {} : { descripcion: characters.length > maxDescription ? `${characters.slice(0, maxDescription).join("")}${descriptionContinues}` : description },
     opciones: product.options.map((option) => ({ nombre: option.name, valores: [...option.values] })),
-    en_catalogo: inCatalogLine(product.active), ...stock === undefined ? {} : { stock }, enlace: appLink(product.id), ...customerLinkField(product.customerLink),
+    en_catalogo: inCatalogLine(product), ...stock === undefined ? {} : { stock }, enlace: appLink(product.id), ...customerLinkField(product.customerLink),
     variantes: product.variants.map((variant): AssistantProductVariant => ({
       combinacion: combinationOf(variant.values), sku: variant.sku ?? noSku, precio: display.money(variant.salePrice),
       precio_compra: variant.purchasePrice === null ? noPurchasePrice : display.money(variant.purchasePrice), stock: variant.stock,

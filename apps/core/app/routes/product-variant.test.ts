@@ -15,7 +15,7 @@ const post = (body: unknown) => ({ context, params: { productId, variantId }, re
 
 const detail = (options: readonly object[] = [{ id: color, name: "Color", values: [{ id: azul, name: "Azul" }] }], quantity = 0): Detail => ({
   product: {
-    id: productId, name: "Polo", currency: "PEN", qrCode: id(51), createdAt: new Date(0), updatedAt: new Date(0), structureVersion: 1, options,
+    id: productId, name: "Polo", hidden: false, currency: "PEN", qrCode: id(51), createdAt: new Date(0), updatedAt: new Date(0), structureVersion: 1, options,
     variants: [{ id: variantId, combination: options.length ? { [color]: azul } : {}, salePrice: { amount: 10, currency: "PEN" }, qrCode: id(70), status: "active", stock: { quantity } }],
   },
   orderedVariantIds: new Set<string>(),

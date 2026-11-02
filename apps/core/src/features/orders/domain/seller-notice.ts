@@ -24,7 +24,7 @@ type ProblemNotice =
   | Readonly<{ kind: "order_closed"; orderId: OrderId }>
   | Readonly<{ kind: "not_applied"; orderId: OrderId | null }>
   | Readonly<{ kind: "caption_not_applied"; productId: ProductId; orderId: OrderId | null }>
-  | Readonly<{ kind: "product_not_available"; productId: ProductId | null }>
+  | Readonly<{ kind: "product_not_available"; productId: ProductId | null; reason: "not_sold" | "hidden" }>
   /** `unnamed` counts the pendings the product list cannot name (doubtful product); a deleted product is counted by the texts. */
   | Readonly<{ kind: "variant_for_several_pendings"; productIds: readonly ProductId[]; unnamed: number }>
   /** `productIds` are up to three distinct identified products; the other `problemCount - productIds.length` problems are counted. */
@@ -59,7 +59,7 @@ function problemOf(outcome: ChatMessageOutcome): ProblemNotice | null {
     case "failed": return { kind: "failed" };
     case "reader_doubt": case "request_not_allowed": case "invalid_action": return { kind: "not_applied", orderId: outcome.orderId };
     case "caption_not_applied": return { kind: "caption_not_applied", productId: outcome.productId, orderId: outcome.orderId };
-    case "product_not_available": return { kind: "product_not_available", productId: outcome.productId };
+    case "product_not_available": return { kind: "product_not_available", productId: outcome.productId, reason: outcome.reason };
     case "variant_for_several_pendings": return { kind: "variant_for_several_pendings", productIds: [...new Set(outcome.productIds)], unnamed: outcome.unnamed };
     default: return null;
   }

@@ -153,7 +153,34 @@ test("returns a product without active variants for en_catalogo no and not for s
   expect(names(await pageOf(id, { inCatalog: true }))).toEqual(["Visible"]);
   const hidden = (await pageOf(id, { inCatalog: false })).items[0]!;
   expect(hidden).toMatchObject({ variantCount: 1, inactiveCount: 1, active: { kind: "none", sku: { kind: "single", sku: "OCU-1" } } });
-  expect(await search(id, { inCatalog: false, stock: "low" })).toMatchObject({ success: false, error: { code: "VARIANT_FILTER_OUTSIDE_CATALOG" } });
+});
+
+test("en_catalogo no lists hidden products with a matching active variant", async () => {
+  const id = await newStore();
+  await seed(id, { name: "Casaca jean", hidden: true, variants: [variant("M", "Azul", 120, 1, "CJ-M")] });
+  await seed(id, { name: "Polo visible", variants: [variant("M", "Azul", 40, 1)] });
+  await seed(id, { name: "Sin variantes", variants: [variant("M", "Azul", 40, 1, "SV-1", "inactive")] });
+  expect(names(await pageOf(id, { inCatalog: false })).sort()).toEqual(["Casaca jean", "Sin variantes"]);
+  expect(names(await pageOf(id, { inCatalog: false, stock: "low" }))).toEqual(["Casaca jean"]);
+  expect(names(await pageOf(id, { inCatalog: false, values: ["Azul"], priceToCents: 12000 }))).toEqual(["Casaca jean"]);
+  const hidden = (await pageOf(id, { text: "casaca" })).items[0]!;
+  expect(hidden).toMatchObject({ hidden: true, active: { kind: "some" } });
+});
+
+test("en_catalogo sí excludes hidden products", async () => {
+  const id = await newStore();
+  await seed(id, { name: "Casaca jean", hidden: true, variants: [variant("M", "Azul", 120, 1)] });
+  await seed(id, { name: "Polo visible", variants: [variant("M", "Azul", 40, 1)] });
+  expect(names(await pageOf(id, { inCatalog: true }))).toEqual(["Polo visible"]);
+  expect(names(await pageOf(id, { inCatalog: true, values: ["Azul"] }))).toEqual(["Polo visible"]);
+  expect(names(await pageOf(id, { inCatalog: true, text: "casaca" }))).toEqual([]);
+});
+
+test("Ver producto reads a hidden product as hidden", async () => {
+  const id = await newStore();
+  const { productId } = await seed(id, { name: "Casaca jean", hidden: true, variants: [variant("M", "Azul", 120, 1, "CJ-M")] });
+  const found = await find(id, { by: "id", id: productId as ProductId });
+  expect(found).toMatchObject({ success: true, data: { product: { hidden: true } } });
 });
 
 test("matches text on the name or any SKU ignoring case and accents, as one phrase", async () => {

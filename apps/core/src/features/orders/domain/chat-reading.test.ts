@@ -94,7 +94,7 @@ describe("checkReaderAnswer: adds and variants", () => {
 
   test("reports product not available for an add of a deactivated product", () => {
     const chat = createChat({ unsellable: ["gorra"] });
-    expect(chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } }))).outcomes).toEqual([{ kind: "product_not_available", productId: productId("gorra") }]);
+    expect(chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } }))).outcomes).toEqual([{ kind: "product_not_available", productId: productId("gorra"), reason: "not_sold" }]);
   });
 
   test("reports above-99 and drafts no pending for «150 polos»", () => {
@@ -107,6 +107,59 @@ describe("checkReaderAnswer: adds and variants", () => {
     const chat = createChat();
     chat.say(say(add({ product: "medias", quantity: 1 })));
     expect(chat.items()).toEqual(["Medias deportivas pack x3 · ×1"]);
+  });
+});
+
+describe("checkReaderAnswer: hidden products", () => {
+  const hiddenNotice = (key: ProductKey) => [{ kind: "product_not_available", productId: productId(key), reason: "hidden" }];
+  const withHiddenGorra = (quantity = 2) => createChat({ items: [["gorra", { Color: "Negro" }, quantity]], hidden: ["gorra"] });
+
+  test("adding a hidden product gives product not available with reason hidden", () => {
+    const chat = createChat({ hidden: ["gorra"] });
+    expect(chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } }))).outcomes).toEqual(hiddenNotice("gorra"));
+    expect(chat.items()).toEqual([]);
+  });
+
+  test("a QR label of a hidden product gives product not available with reason hidden", () => {
+    const chat = createChat({ hidden: ["snapback"] });
+    const context = chat.context({ shown: [["snapback", { Color: "Azul" }]] });
+    expect(chat.say(fixedShownAnswer(context), { shown: [["snapback", { Color: "Azul" }]] }).outcomes).toEqual(hiddenNotice("snapback"));
+    expect(chat.items()).toEqual([]);
+  });
+
+  test("one more of a hidden item changes nothing and gives product not available", () => {
+    const chat = withHiddenGorra();
+    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "increase", quantity: 1 })).outcomes).toEqual(hiddenNotice("gorra"));
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×2"]);
+  });
+
+  test("setting a hidden item above its quantity is refused", () => {
+    const chat = withHiddenGorra();
+    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "set", quantity: 3 })).outcomes).toEqual(hiddenNotice("gorra"));
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×2"]);
+  });
+
+  test("setting a hidden item at or below its quantity applies", () => {
+    const chat = withHiddenGorra();
+    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "set", quantity: 2 })).kinds).toEqual(["quantity_changed"]);
+    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "set", quantity: 1 })).kinds).toEqual(["quantity_changed"]);
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×1"]);
+  });
+
+  test("removing a hidden item applies", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 2], ["polo", { Talla: "M", Color: "Negro" }, 1]], hidden: ["gorra"] });
+    expect(chat.say(say({ kind: "remove", item: item("I1"), amount: "all" })).kinds).toEqual(["removed"]);
+  });
+
+  test("changing the variant of a hidden item is refused", () => {
+    const chat = withHiddenGorra();
+    expect(chat.say(say({ kind: "change_variant", item: item("I1"), attributes: [{ name: "Color", value: "Rojo" }], price: null })).outcomes).toEqual(hiddenNotice("gorra"));
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×2"]);
+  });
+
+  test("raising an item of a deactivated variant still applies", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], unsellable: ["gorra"] });
+    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "increase", quantity: 1 })).kinds).toEqual(["quantity_changed"]);
   });
 });
 

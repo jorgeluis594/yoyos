@@ -22,7 +22,7 @@ const decimal = z.string().regex(/^\d+(\.\d+)?$/);
 export const vocabularyRowSchema = z.strictObject({ optionName: z.string(), valueName: z.string(), productRank: z.number().int().min(1), position: z.number().int().min(0) });
 export const pageRowSchema = z.strictObject({ ids: z.array(uuid), total: z.number().int().min(0), storeHasProducts: z.boolean() });
 export const summaryRowSchema = z.strictObject({
-  id: uuid, name: z.string(), currency: z.custom<Currency>(isCurrency, "Stored currency is invalid"),
+  id: uuid, name: z.string(), hidden: z.boolean(), currency: z.custom<Currency>(isCurrency, "Stored currency is invalid"),
   variantCount: z.number().int().min(1), activeCount: z.number().int().min(0), soldOut: z.number().int().min(0), low: z.number().int().min(0),
   minPrice: decimal.nullable(), hasDifferentPrices: z.boolean(), totalStock: safeInteger,
   activeSku: z.string().nullable(), allSku: z.string().nullable(),
@@ -101,9 +101,13 @@ export function pageSql(companyId: string, query: ProductSearchQuery): Prisma.Sq
     product.push(Prisma.sql`EXISTS (SELECT 1 FROM "ProductVariant" v
       JOIN "ProductStock" s ON s."companyId" = v."companyId" AND s."variantId" = v.id
       WHERE ${and([Prisma.sql`v."companyId" = p."companyId"`, Prisma.sql`v."productId" = p.id`, Prisma.sql`v.status = 'active'`, ...variantConditions(query)])})`);
-  } else if (query.inCatalog !== undefined) {
-    product.push(Prisma.sql`${query.inCatalog ? Prisma.empty : Prisma.sql`NOT `}EXISTS (SELECT 1 FROM "ProductVariant" a
-      WHERE a."companyId" = p."companyId" AND a."productId" = p.id AND a.status = 'active')`);
+  }
+  if (query.inCatalog !== undefined) {
+    // Offered = not hidden and with an active variant; a variant filter already requires an active variant, so only the hidden test is left.
+    const offered = hasVariantFilters(query)
+      ? Prisma.sql`NOT p.hidden`
+      : Prisma.sql`(NOT p.hidden AND EXISTS (SELECT 1 FROM "ProductVariant" a WHERE a."companyId" = p."companyId" AND a."productId" = p.id AND a.status = 'active'))`;
+    product.push(query.inCatalog ? offered : Prisma.sql`NOT ${offered}`);
   }
   return Prisma.sql`WITH matching AS (SELECT p.id, p.name, p."createdAt" FROM "Product" p WHERE ${and(product)})
     SELECT ARRAY(SELECT id FROM matching ORDER BY ${orders[query.sort]} LIMIT ${query.limit} OFFSET ${query.offset}) AS ids,
@@ -116,7 +120,7 @@ export function pageSql(companyId: string, query: ProductSearchQuery): Prisma.Sq
  * Every variant has a stock row (it is created with the variant), so the join is inner like the filters'; a page product without one reads as invalid stored data.
  */
 export function summariesSql(companyId: string, ids: readonly string[], lowStockThreshold: number): Prisma.Sql {
-  return Prisma.sql`SELECT p.id::text AS id, p.name, p.currency,
+  return Prisma.sql`SELECT p.id::text AS id, p.name, p.hidden, p.currency,
       count(v.id)::int AS "variantCount",
       (count(v.id) FILTER (WHERE v.status = 'active'))::int AS "activeCount",
       (count(v.id) FILTER (WHERE v.status = 'active' AND s.quantity = 0))::int AS "soldOut",
@@ -198,7 +202,7 @@ export async function searchPage(query: ProductSearchQuery): Promise<Result<Prod
     if (!row) return invalid("summaries", "a page product has no variants");
     const currency = row.currency;
     const variants = matching?.data.filter((variant) => variant.productId === id) ?? [];
-    items.push({ id: id as ProductId, name: row.name, currency, variantCount: row.variantCount, inactiveCount: row.variantCount - row.activeCount, active: toActive(row),
+    items.push({ id: id as ProductId, name: row.name, hidden: row.hidden, currency, variantCount: row.variantCount, inactiveCount: row.variantCount - row.activeCount, active: toActive(row),
       matching: matching ? { variants: variants.map((variant) => toVariant(variant, currency)), total: variants[0]?.total ?? 0 } : null });
   }
   return ok({ items, page: pageNumber, total, storeHasProducts });

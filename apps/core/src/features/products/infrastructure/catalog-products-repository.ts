@@ -24,7 +24,7 @@ const cardSchema = z.object({
 });
 type CardRow = Readonly<{ id: string; name: string; imageId: string | null; currency: string; minPrice: Prisma.Decimal; maxPrice: Prisma.Decimal; soldOut: boolean }>;
 
-const sellable = { status: "active", variants: { some: { status: "active" } } } as const;
+const offered = { status: "active", hidden: false, variants: { some: { status: "active" } } } as const;
 const include = {
   variants: { where: { status: "active" }, include: { stock: true }, orderBy: { id: "asc" } },
   photos: { orderBy: { position: "asc" }, select: { imageId: true } },
@@ -58,7 +58,7 @@ export const catalogProductRepository: CatalogProductRepository = {
       rows = await prisma.$queryRaw<CardRow[]>(Prisma.sql`SELECT p.id, p.name, pp."imageId", p.currency,
           a."minPrice", a."maxPrice", COALESCE(a."inStock", false) = false AS "soldOut"
         FROM (SELECT p.id, p.name, p.currency, p."companyId", p."createdAt" FROM "Product" p
-          WHERE p."companyId" = ${companyId}::uuid AND p.status = 'active' AND p.currency = ${currency}
+          WHERE p."companyId" = ${companyId}::uuid AND p.status = 'active' AND NOT p.hidden AND p.currency = ${currency}
             AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')
             ${pattern === null ? Prisma.empty : Prisma.sql`AND unaccent(lower(p.name)) LIKE unaccent(lower(${pattern}))`}
           ORDER BY p."createdAt" DESC, p.id ASC LIMIT ${limit + 1} OFFSET ${offset}) p
@@ -81,7 +81,7 @@ export const catalogProductRepository: CatalogProductRepository = {
     let options: Option[];
     try {
       ({ row, attributes, options } = await withinReadSnapshot(async () => {
-        const row = await prisma.product.findFirst({ where: { id, currency, ...sellable }, include });
+        const row = await prisma.product.findFirst({ where: { id, currency, ...offered }, include });
         if (!row) return { row, attributes: new Map<string, Record<string, string>>(), options: [] };
         const options = await prisma.productOption.findMany({ where: { productId: row.id }, orderBy: { position: "asc" },
           include: { values: { orderBy: { position: "asc" } } } });

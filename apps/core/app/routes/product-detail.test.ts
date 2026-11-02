@@ -2,7 +2,10 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ActionFunctionArgs, ClientActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { action, clientAction, loader } from "@core/app/routes/product-detail";
+import { catalogStorefront } from "@core/src/features/catalog";
+import * as presenter from "@core/src/features/products/presentation/product-presenter";
 import { productEditing } from "@core/src/features/products/product-editing";
+import type { SavedProduct } from "@core/src/features/products/application/save-product";
 
 const id = "00000000-0000-4000-8000-000000000099";
 const context = { get: () => ({ company: { id: "00000000-0000-4000-8000-000000000001", country: "PE" } }) } as unknown as ActionFunctionArgs["context"];
@@ -63,4 +66,28 @@ test("a rejection from the server passes through and a client error still reache
   expect(await clientRun(async () => answer)).toBe(answer);
   const refused = new Response("nope", { status: 403 });
   await expect(clientRun(async () => { throw refused; })).rejects.toBe(refused);
+});
+
+const savedProduct = (hidLastOffered: boolean) => ({ hidLastOffered, detail: { product: { id, currency: "PEN" } } }) as unknown as SavedProduct;
+const location = (response: unknown) => (response as Response).headers.get("Location");
+
+test("a save that hid the last offered product of a published catalog redirects with the last-visible flag", async () => {
+  vi.spyOn(productEditing, "save").mockResolvedValue({ success: true, data: savedProduct(true) });
+  vi.spyOn(catalogStorefront, "describe").mockResolvedValue({ success: true, data: { currency: "PEN", catalog: { kind: "published" } } } as never);
+  expect(location(await run(put(valid)))).toBe(`/es-PE/products/${id}?saved=1&catalogEmptied=1`);
+});
+
+test("a save that left the catalog as it was redirects without the last-visible flag and reads no storefront", async () => {
+  vi.spyOn(productEditing, "save").mockResolvedValue({ success: true, data: savedProduct(false) });
+  const describe = vi.spyOn(catalogStorefront, "describe");
+  expect(location(await run(put(valid)))).toBe(`/es-PE/products/${id}?saved=1`);
+  expect(describe).not.toHaveBeenCalled();
+});
+
+test("the loader exposes the saved and last-visible flags from the query", async () => {
+  vi.spyOn(productEditing, "get").mockResolvedValue({ success: true, data: {} } as never);
+  vi.spyOn(presenter, "toProductDetailResponse").mockReturnValue({ product: { id, name: "Casaca", hidden: true } } as never);
+  const load = (query: string) => loader({ context, params: { productId: id }, request: new Request(`http://localhost/es-PE/products/${id}${query}`) } as unknown as LoaderFunctionArgs);
+  expect(await load("?saved=1&catalogEmptied=1")).toMatchObject({ saved: true, catalogEmptied: true });
+  expect(await load("?saved=1")).toMatchObject({ saved: true, catalogEmptied: false });
 });

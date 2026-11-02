@@ -1,6 +1,6 @@
 import { ok } from "@shared/functional";
 import { orders, type CompanyId, type OrderId } from "@core/src/features/orders";
-import { findSellableVariants } from "@core/src/features/products";
+import { products } from "@core/src/features/products/composition";
 import { resolvePublicImage } from "@core/src/shared/images";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { continueToCheckout, type ContinueToCheckoutInput } from "@core/src/features/catalog/application/continue-to-checkout";
@@ -14,7 +14,7 @@ export type CartVariant = Readonly<{ variantId: string; productId: string; produ
 
 async function refreshCart(companyId: CompanyId, variantIds: readonly VariantId[]) {
   return withTenantIsolation(companyId, async () => {
-    const found = await findSellableVariants(variantIds);
+    const found = await products.findOfferedVariants(variantIds);
     if (!found.success) return found;
     const images = new Map<string, string | null>();
     for (const imageId of new Set(found.data.flatMap((variant) => variant.primaryImageId ? [variant.primaryImageId] : []))) {

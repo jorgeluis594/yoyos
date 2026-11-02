@@ -680,3 +680,32 @@ test("two concurrent runs of one message write one item and one outcome", async 
     expect(await inTenant(f, () => prisma.chatMessageOutcome.count({ where: { messageId } }))).toBe(1);
   } finally { await f.cleanup(); }
 });
+
+const hideProduct = (f: Fixture, productId: string, hidden = true) => inTenant(f, () => prisma.product.update({ where: { id: productId }, data: { hidden } }));
+const outcomesOf = (messageId: string, f: Fixture) => inTenant(f, () => prisma.chatMessageOutcome.findFirstOrThrow({ where: { messageId } })).then((row) => row.outcomes);
+
+test("a photo of a hidden product's QR label gives the hidden notice and adds nothing", async () => {
+  const f = await fixture();
+  try {
+    await hideProduct(f, f.productId);
+    const messageId = await message(f, { codes: [f.variantIds[0]!] });
+    expect(await apply(f, messageId)).toMatchObject({ success: true, data: { kind: "applied", noticeDue: true } });
+    expect(await outcomesOf(messageId, f)).toEqual([{ kind: "product_not_available", productId: f.productId, reason: "hidden" }]);
+    expect(await inTenant(f, () => prisma.orderItem.count())).toBe(0);
+  } finally { await f.cleanup(); }
+});
+
+test("a buyer cannot raise a hidden item by message", async () => {
+  const f = await fixture();
+  try {
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    await hideProduct(f, f.productId);
+    const raise: Reader = (context) => actions({ kind: "change_quantity", item: { kind: "ref", ref: context.items[0]!.ref }, mode: "increase", quantity: 1 });
+    const done = await say(f, "uno más", raise);
+    expect(outcomeKindsOf(done)).toEqual(["product_not_available"]);
+    expect(noticeDue(done)).toBe(true);
+    expect(await outcomesOf(done.messageId, f)).toEqual([{ kind: "product_not_available", productId: f.productId, reason: "hidden" }]);
+    const [order] = await chatOrders(f);
+    expect(quantities(order!)).toEqual({ [f.variantIds[0]!]: 1 });
+  } finally { await f.cleanup(); }
+});

@@ -5,6 +5,7 @@ import { maxPendingCandidates, type ChatPending, type ChatPendingId } from "@cor
 import { mentionedPriceOf, type StatedPrice } from "@core/src/features/orders/domain/mentioned-price";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import { conflictsWithKnown, describePendings, normalizeValue, pendingPriceOf, resolveVariant, type AdvanceRequest, type AttributeChoice } from "@core/src/features/orders/domain/pending-transitions";
+import { notAvailableReason, refusesRaise } from "@core/src/features/orders/domain/product-availability";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 
@@ -238,8 +239,16 @@ const readingItem = (item: ReaderItem, world: World): ReadingItem | null =>
 function changeQuantity(action: Extract<ReaderAction, { kind: "change_quantity" }>, world: World): readonly ResolvedChatAction[] {
   const target = itemTarget(action.item, world);
   const whole = Number.isInteger(action.quantity);
-  if (action.mode === "increase") return whole && action.quantity >= 1 ? [{ kind: "increase_quantity", target, quantity: action.quantity as PositiveInteger }] : [invalid("quantity_not_whole")];
-  return whole && action.quantity >= 0 ? [{ kind: "set_quantity", target, quantity: action.quantity }] : [invalid("quantity_not_whole")];
+  const resolved: ResolvedChatAction | null = action.mode === "increase"
+    ? (whole && action.quantity >= 1 ? { kind: "increase_quantity", target, quantity: action.quantity as PositiveInteger } : null)
+    : (whole && action.quantity >= 0 ? { kind: "set_quantity", target, quantity: action.quantity } : null);
+  if (!resolved) return [invalid("quantity_not_whole")];
+  const item = readingItem(action.item, world);
+  const product = item?.productId ? world.byProductId.get(item.productId) ?? null : null;
+  if (item && (resolved.kind === "increase_quantity" || resolved.kind === "set_quantity") && refusesRaise(product, item, resolved)) {
+    return [report({ kind: "product_not_available", productId: item.productId, reason: "hidden" })];
+  }
+  return [resolved];
 }
 
 function changeVariant(action: Extract<ReaderAction, { kind: "change_variant" }>, world: World): readonly ResolvedChatAction[] {
@@ -248,7 +257,7 @@ function changeVariant(action: Extract<ReaderAction, { kind: "change_variant" }>
   if (!item) return unclear(null);
   const product = item.productId ? world.byProductId.get(item.productId) : undefined;
   if (!product) return unclear(item.productId);
-  if (!product.sellable) return [report({ kind: "product_not_available", productId: product.productId })];
+  if (!product.sellable) return [report({ kind: "product_not_available", productId: product.productId, reason: notAvailableReason(product) })];
   const resolution = resolveVariant(product, item.variantAttributes, action.attributes);
   const target = itemTarget(action.item, world);
   if (resolution.kind === "resolved") {
@@ -259,7 +268,7 @@ function changeVariant(action: Extract<ReaderAction, { kind: "change_variant" }>
 
 /** The action for a product that has no pending to advance: an item, a new pending, or the reason it cannot be either. */
 function freshAdd(product: ReadingProduct, choices: readonly AttributeChoice[], quantity: number, price: StatedPrice | null): ResolvedChatAction {
-  if (!product.sellable) return report({ kind: "product_not_available", productId: product.productId });
+  if (!product.sellable) return report({ kind: "product_not_available", productId: product.productId, reason: notAvailableReason(product) });
   const identification = identificationOf(product);
   const resolution = resolveVariant(product, {}, choices);
   if (resolution.kind === "resolved") {

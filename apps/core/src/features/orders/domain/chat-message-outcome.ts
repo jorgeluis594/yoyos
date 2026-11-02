@@ -27,7 +27,7 @@ export type ChatMessageOutcome =
   | Readonly<{ kind: "pending_ended"; pendingId: ChatPendingId; reason: "declined" | "order_closed" | "expired" | "limit" | "product_not_available" }>
   | Readonly<{ kind: "reader_doubt" | "request_not_allowed"; orderId: OrderId | null }>
   | Readonly<{ kind: "invalid_action"; orderId: OrderId | null; reason: "unknown_reference" | "not_the_shown_product" | "quantity_not_whole" | "text_too_long" | "too_many_actions" }>
-  | Readonly<{ kind: "product_not_available"; productId: ProductId | null }>
+  | Readonly<{ kind: "product_not_available"; productId: ProductId | null; reason: "not_sold" | "hidden" }>
   | Readonly<{ kind: "variant_for_several_pendings"; productIds: readonly ProductId[]; unnamed: number }>
   | Readonly<{ kind: "ready_with_pendings"; orderId: OrderId | null; productIds: readonly ProductId[]; unnamed: number }>
   | Readonly<{ kind: "caption_not_applied"; productId: ProductId; orderId: OrderId | null }>
@@ -67,7 +67,7 @@ const outcomeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("pending_ended"), pendingId, reason: z.enum(["declined", "order_closed", "expired", "limit", "product_not_available"]) }),
   z.strictObject({ kind: z.enum(["reader_doubt", "request_not_allowed"]), orderId: orderId.nullable() }),
   z.strictObject({ kind: z.literal("invalid_action"), orderId: orderId.nullable(), reason: z.enum(["unknown_reference", "not_the_shown_product", "quantity_not_whole", "text_too_long", "too_many_actions"]) }),
-  z.strictObject({ kind: z.literal("product_not_available"), productId: productId.nullable() }),
+  z.strictObject({ kind: z.literal("product_not_available"), productId: productId.nullable(), reason: z.enum(["not_sold", "hidden"]).default("not_sold") }),
   z.strictObject({ kind: z.literal("variant_for_several_pendings"), productIds: z.array(productId), unnamed: count }),
   z.strictObject({ kind: z.literal("ready_with_pendings"), orderId: orderId.nullable(), productIds: z.array(productId), unnamed: count }),
   z.strictObject({ kind: z.literal("caption_not_applied"), productId, orderId: orderId.nullable() }),

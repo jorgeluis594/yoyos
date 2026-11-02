@@ -5,7 +5,9 @@ import type { CatalogItem } from "@core/src/features/products/domain/image-ident
 export type ProductForReading = Readonly<{
   productId: ProductId;
   name: string;
-  /** Product active with at least one active variant. */
+  /** The seller hid the product from buyers: a hidden product is never sellable here and has no variants or attributes. */
+  hidden: boolean;
+  /** Product active, not hidden, with at least one active variant. */
   sellable: boolean;
   /** Values of active variants, in stored option order. */
   attributes: readonly Readonly<{ name: string; values: readonly string[] }>[];

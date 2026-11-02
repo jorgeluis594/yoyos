@@ -208,6 +208,10 @@ export default function CatalogScreen() {
               {item.stock === 0 ? <ThemedText type="small" style={{ color: theme.error, fontWeight: "600" }}>{t('catalogSoldOut')}</ThemedText> : t('catalogStock', { count: item.stock })}
               {` · ${detail(item)}`}
             </ThemedText>
+            {item.hidden ? <View style={styles.hiddenMark}>
+              <SymbolView name={{ ios: "eye.slash", android: "visibility_off" }} size={14} tintColor={theme.textSecondary} />
+              <ThemedText type="small" themeColor="textSecondary">{t('hiddenProduct')}</ThemedText>
+            </View> : null}
           </View>
           <View style={styles.price}>
             {item.activeVariantCount === 0 ? <ThemedText type="small" themeColor="textSecondary" style={styles.noActive}>{t('noActiveVariants')}</ThemedText> : <>
@@ -250,6 +254,7 @@ const styles = StyleSheet.create({
   noPhoto: { borderWidth: 1, borderStyle: "dashed", alignItems: "center", justifyContent: "center" },
   productText: { flex: 1, minWidth: 0, gap: 2 },
   productName: { fontWeight: "600" },
+  hiddenMark: { flexDirection: "row", alignItems: "center", gap: 4 },
   price: { alignItems: "flex-end", maxWidth: "40%" },
   noActive: { textAlign: "right" },
   amount: { fontVariant: ["tabular-nums"], fontWeight: "600", textAlign: "right" },

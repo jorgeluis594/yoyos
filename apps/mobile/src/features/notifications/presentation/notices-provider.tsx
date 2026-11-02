@@ -2,11 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState } from "react-native";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
+import type { CatalogSearchReadinessState } from "@shared/contracts/catalog-search-readiness";
 import type { NoticeDestination } from "../domain/notice-destination";
 import type { NoticesController } from "../application/notices-controller";
 import type { NoticePermission } from "../application/ports";
 
-export type CatalogReadinessLoader = () => Promise<Result<"no_active_products" | "no_searchable_photos" | "ready", TransportError>>;
+export type CatalogReadinessLoader = () => Promise<Result<CatalogSearchReadinessState, TransportError>>;
 
 type NoticesContextValue = Readonly<{
   /** `null` until the first read. */

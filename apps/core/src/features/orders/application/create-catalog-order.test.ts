@@ -19,7 +19,7 @@ function dependencies(variants: readonly SellableVariant[] = [variant(black, 45,
   const allocateNumber = vi.fn(async () => ok(1042 as OrderNumber));
   let item = 10;
   const deps: CreateCatalogOrderDependencies = { transaction: async (_companyId, work) => work(), findOrder: async () => ok(null),
-    findSellableVariants: async () => ok(variants), allocateNumber, saveCatalogOrder,
+    findOfferedVariants: async () => ok(variants), allocateNumber, saveCatalogOrder,
     newItemId: () => id(item++) as OrderItemId, clock: () => new Date("2026-10-17T12:00:00Z") };
   return { deps, saveCatalogOrder, allocateNumber };
 }
@@ -36,7 +36,7 @@ test("builds a numbered catalog order without seller and with checkout enabled",
 test("rejects every unavailable line at once and creates nothing", async () => {
   const { deps, saveCatalogOrder, allocateNumber } = dependencies([variant(black, 45, 0)]);
   const result = await createCatalogOrder({ ...input, lines: [...input.lines, { variantId: red, quantity: 1 as CartQuantity }] }, { companyId },
-    { ...deps, findSellableVariants: async () => ok([variant(black, 45, 0), variant(red, 20, 5)]) });
+    { ...deps, findOfferedVariants: async () => ok([variant(black, 45, 0), variant(red, 20, 5)]) });
   expect(result).toMatchObject({ success: false, error: { code: "LINES_UNAVAILABLE", issues: [
     { variantId: black, reason: "sold_out" }, { variantId: beige, reason: "unavailable" }] } });
   expect(allocateNumber).not.toHaveBeenCalled();
