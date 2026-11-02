@@ -51,6 +51,9 @@ export const extractionAnswerSchema = z.strictObject({
   requests: z.array(request).max(maxListedRequests).describe("One entry for each request listed in the input, with its reference."),
 });
 export type ExtractionAnswer = z.output<typeof extractionAnswerSchema>;
+/** One entry of the answer: the parser checks entries one by one, so that a defective one leaves out its own request only. */
+export const extractionEntrySchema = request;
+export type ExtractionEntry = z.output<typeof request>;
 
 /** The JSON schema sent as the strict output format. */
 export const extractionJsonSchema: Record<string, unknown> = (() => {
