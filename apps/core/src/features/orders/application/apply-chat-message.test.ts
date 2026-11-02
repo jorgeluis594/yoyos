@@ -312,6 +312,41 @@ describe("applyChatMessage: the staged pipeline", () => {
     expect(h.stageLog).toEqual(["intent:primary"]);
   });
 
+  describe("a product photo whose caption the intent reads as a question", () => {
+    const question = { kind: "no_intent", reason: "question", language: "es", addresses: [] } as const;
+    const asked = (extraction: readonly ExtractedRequest[], resolutions: readonly ProductResolution[], over: Partial<Options> = {}) =>
+      harness({ message: photoMessage({ caption: "¿la tienen en negro?" }), identification: visual(productCap), script: { intent: question, extraction, resolutions }, ...over });
+    const negro = { attributeWords: null, valueWords: current("negro") };
+
+    test("reads the caption as the photo's add and does not add silently a value the product does not sell", async () => {
+      const h = asked([extracted("R1", "add", { target: { kind: "photo_same_message" }, values: [negro] })], [{ request: "R1" as RequestRef, kind: "chosen", productId: productCap, values: [], unmatched: [current("negro")] }]);
+      const applied = await succeeded(h.run());
+
+      expect(quantityOf(h.store, cap.variantId)).toBeUndefined();
+      expect(applied).toMatchObject({ noticeDue: true, outcomes: expect.arrayContaining([expect.objectContaining({ kind: "variant_not_available" })]) });
+      expect(h.stageLog).toEqual(["intent:primary", "extraction:primary", "resolution:primary"]);
+    });
+
+    test("adds the shown product as without a caption when the question asks for no value", async () => {
+      const h = asked([extracted("R1", "add", { target: { kind: "photo_same_message" } })], []);
+
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }] });
+    });
+
+    test("falls back to the shown product added as without a caption when the extraction cannot be read", async () => {
+      const h = asked([], [], { overrides: { stages: { ...stagesOf({ intent: question }, [], []), extractRequests: async () => err({ code: "INVALID_AI_RESPONSE", stage: "extraction", call: null, message: "x" }) } } });
+
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }], trace: { answer: "fixed" } });
+    });
+
+    test("does not read the other reasons for a value", async () => {
+      const h = harness({ message: photoMessage({ caption: "qué linda se ve" }), identification: visual(productCap), script: { intent: { ...question, reason: "other" } } });
+      await succeeded(h.run());
+
+      expect(h.stageLog).toEqual(["intent:primary"]);
+    });
+  });
+
   test("leaves a pending for a product photo with several variants when its caption reads as no intent", async () => {
     const h = harness({ message: photoMessage({ caption: "qué linda se ve" }), identification: visual(productPolo) });
 
