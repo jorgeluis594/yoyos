@@ -1105,6 +1105,34 @@ describe("checkRequests: a quantity among several pendings", () => {
   });
 });
 
+describe("checkRequests: a decline whose name found no product", () => {
+  const poloPending = pendingOf("polo");
+  const polera = pendingOf("polera");
+  const decline = request({ kind: "decline", target: { kind: "named", words: say("ese polo") } });
+  const unresolved = [[], [{ request: "R1" as RequestRef, kind: "none" } as ProductResolution]];
+
+  test("ends the only pending «Con duda» instead of being lost as no intent", () => {
+    for (const resolutions of unresolved) {
+      const checked = only(checkRequests([decline], resolutions, snapshot({ pendings: [pendingRef(1, poloPending)] })));
+      expect(checked.action).toEqual({ kind: "decline_pending", pendingId: poloPending.id });
+      expect(decision(checked)).toEqual({ kind: "doubtful", reason: { kind: "removed", product: catalog.polo.name } });
+    }
+  });
+
+  test("ends the pending the photo just sent left, and asks which one when the chat has several pendings and no photo just sent", () => {
+    const two = [pendingRef(1, poloPending), pendingRef(2, polera)];
+    const left = only(checkRequests([decline], [], snapshot({ pendings: two, photoJustSent: { kind: "pending", pendingId: polera.id } })));
+    expect(left.action).toEqual({ kind: "decline_pending", pendingId: polera.id });
+    const unclear = only(checkRequests([decline], [], snapshot({ pendings: two })));
+    expect(decision(unclear)).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+  });
+
+  test("still sends nothing for a decline with no pending or whose resolved product is in none", () => {
+    expect(decision(only(checkRequests([decline], [], snapshot())))).toEqual({ kind: "silent" });
+    expect(decision(only(checkRequests([decline], [chosen("polera")], snapshot({ pendings: [pendingRef(1, poloPending)] }))))).toEqual({ kind: "silent" });
+  });
+});
+
 describe("checkRequests: a pending that ended before the message", () => {
   test("a detail for an ended pending is urgent variant_only, never applied", () => {
     const completes = request({ kind: "complete_pending", target: { kind: "pending", ref: "Q2" as PendingRef, named: null }, values: [] });

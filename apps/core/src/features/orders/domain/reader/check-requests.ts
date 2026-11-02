@@ -1018,14 +1018,28 @@ function checkComplete(said: Said, env: Env, targetNamed: Named = "named"): Chec
   return checked(said, { kind: "advance_pending", request: advance, otherwise: report({ kind: "variant_only" }) }, signalsOf(said, targetNamed, over), { doubt });
 }
 
+/**
+ * A decline whose name the resolution found no product for (a demonstrative, a word the catalog search missed) is a reference without a name: it is about what the chat is waiting on,
+ * as a context target. The pending the photo just sent left, or the only pending, ends «Con duda»; with several pendings it asks which. A name that did resolve, and a decline with
+ * no pending to end, change nothing and send no notice (the buyer declining what the chat does not have). A decline never ends in silence while the chat has something to end.
+ */
 function checkDecline(said: Said, env: Env): CheckedAction {
   const { target } = said.request;
   const { snapshot } = env;
-  const signals = signalsOf(said, "named");
   const { photoJustSent: left } = snapshot;
+  const named = said.request.target.kind === "named";
+  const resolution = resolutionOf(said.request, env);
+  const unresolved = named && (resolution === undefined || resolution.kind === "none");
   const pending = target.kind === "pending" ? snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending
     : target.kind === "named" ? namedPending(said.request, env)
     : left?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === left.pendingId)?.pending : undefined;
-  if (!pending) return checked(said, report({ kind: "no_intent" }), signals);
-  return checked(said, { kind: "decline_pending", pendingId: pending.id }, signals);
+  if (pending) return checked(said, { kind: "decline_pending", pendingId: pending.id }, signalsOf(said, "named"));
+  if (!unresolved || snapshot.pendings.length === 0) return checked(said, report({ kind: "no_intent" }), signalsOf(said, "named"));
+  const photoPending = left?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === left.pendingId)?.pending : undefined;
+  const [only, ...more] = snapshot.pendings;
+  const aimed = photoPending ?? (more.length === 0 ? only?.pending : undefined);
+  const [productId] = aimed ? productsOfPending(aimed) : [];
+  const product = snapshot.products.find((candidate) => candidate.productId === productId);
+  if (!aimed || !product) return problem(said, { kind: "unclear_item", orderId: null, namedItem: false, namedProductId: null }, "unclear_item", null);
+  return checked(said, { kind: "decline_pending", pendingId: aimed.id }, signalsOf(said, "context"), { doubt: { kind: "removed", product: product.name } });
 }
