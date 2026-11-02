@@ -123,7 +123,7 @@ function justSentRetargeted(verified: VerifiedRequest, extracted: VerifiedReques
   if (snapshot.photoJustSent === null || request.kind !== "change_quantity" || request.quantity?.mode !== "set") return verified;
   const { target } = extracted.request;
   // A context target with a concrete other source (a product mentioned in a recent message) is the model's own choice: it is not retargeted.
-  const unnamed = (target.kind === "context" && target.basis !== "mentioned_product") || target.kind === "none" || (target.kind === "item" && target.named === null);
+  const unnamed = (target.kind === "context" && target.basis !== "mentioned_product") || target.kind === "none" || ((target.kind === "item" || target.kind === "pending") && target.named === null);
   return unnamed ? { ...verified, request: { ...request, target: { kind: "photo_just_sent" } } } : verified;
 }
 
@@ -212,7 +212,7 @@ function foldSameMessage(requests: readonly VerifiedRequest[], resolutions: read
   const named = foldIntoNamedAdds(requests, resolutions, snapshot, absorbedBy);
   const photo = foldIntoPhotoAdd(named, resolutions, snapshot, absorbedBy);
   const pending = foldIntoCompletions(photo, snapshot, absorbedBy, contextual);
-  return { requests: foldOtherCurrency(pending, snapshot, absorbedBy), absorbedBy, contextual };
+  return { requests: foldOtherCurrency(foldSameQuantity(pending, absorbedBy), snapshot, absorbedBy), absorbedBy, contextual };
 }
 
 const photoKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["mention_price", "change_quantity", "change_variant"]);
@@ -303,6 +303,32 @@ function foldIntoCompletions(requests: readonly VerifiedRequest[], snapshot: Che
   return requests.filter((entry) => !gone.has(entry)).map((entry) => rewritten.get(entry) ?? entry);
 }
 
+const quantityKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["add", "change_quantity"]);
+/** The same line, pending or kind of target, whatever words each request used to name it. */
+const sameTarget = (one: ExtractedRequest["target"], other: ExtractedRequest["target"]): boolean => {
+  const refOf = (target: ExtractedRequest["target"]): string | undefined => ("ref" in target ? target.ref : undefined);
+  return one.kind === other.kind && refOf(one) === refOf(other) && one.kind !== "named";
+};
+/**
+ * Two quantity requests of one message that point at the same target and carry the very same quantity words and mode are the same words read twice (an intent «2» and an intent «pásame 2 de esos»):
+ * the first answers for both, so the quantity is applied, or asked about, once. Values and prices make a request its own, and a different target is another request.
+ */
+function foldSameQuantity(requests: readonly VerifiedRequest[], absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
+  const plain = (entry: VerifiedRequest): boolean => quantityKinds.has(entry.request.kind) && entry.request.quantity !== null && entry.request.values.length === 0 && entry.request.price === null;
+  const gone = new Set<VerifiedRequest>();
+  requests.forEach((entry, index) => {
+    if (gone.has(entry) || !plain(entry)) return;
+    for (const other of requests.slice(index + 1)) {
+      const { quantity } = other.request;
+      if (gone.has(other) || !plain(other) || !quantity || !entry.request.quantity) continue;
+      if (quantity.value !== entry.request.quantity.value || quantity.mode !== entry.request.quantity.mode || !sameQuote(quantity.quote, entry.request.quantity.quote) || !sameTarget(entry.request.target, other.request.target)) continue;
+      gone.add(other);
+      absorb(absorbedBy, entry.request.request, other.request.request);
+    }
+  });
+  return requests.filter((entry) => !gone.has(entry));
+}
+
 /** A price in another currency is dropped: when the order has no line for it to land on, another request of the message answers for it instead of reporting «no open order». */
 function foldOtherCurrency(requests: readonly VerifiedRequest[], snapshot: CheckSnapshot, absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
   if (snapshot.order === "open") return requests;
@@ -384,9 +410,27 @@ function onPending(request: ExtractedRequest, env: Env): boolean {
   return request.kind === "remove" && (request.target.kind === "pending" || request.target.kind === "named") && pendingOfRequest(request, env) !== undefined;
 }
 
+/**
+ * A quantity that names neither a product nor the photo just sent, while the chat has several pendings and no line to fall back on, is about one of them and the code cannot tell which
+ * (the model citing one pending for wording that names none is a guess, like a line picked from context): it asks, never updating a pending silently. A pending the buyer did name is not this.
+ */
+function unnamedAmongPendings(said: Said, env: Env): CheckedAction | null {
+  const { request } = said;
+  const { snapshot } = env;
+  const { target } = request;
+  if ((request.kind !== "change_quantity" && request.kind !== "add") || !request.quantity || request.values.length > 0 || snapshot.photoJustSent !== null || snapshot.pendings.length < 2) return null;
+  // In a photo message the photo names the pending of the product it shows: a caption quantity cited to it is not unnamed.
+  const shown = snapshot.messageKind === "photo_product" && target.kind === "pending" && snapshot.pendings.some((entry) => entry.ref === target.ref && productsOfPending(entry.pending).some((id) => shownProductIds(snapshot).has(id)));
+  const unnamed = (target.kind === "pending" && target.named === null && !shown) || (snapshot.items.length === 0 && (target.kind === "none" || (target.kind === "context" && target.basis !== "mentioned_product")));
+  if (!unnamed) return null;
+  return problem(said, { kind: "unnamed_add" }, "unnamed_add", { language: snapshot.language, kind: "another_of_which" });
+}
+
 function checkOne(said: Said, env: Env): readonly CheckedAction[] {
   const { request } = said;
   const { snapshot } = env;
+  const several = unnamedAmongPendings(said, env);
+  if (several) return [several];
   if (itemKinds.has(request.kind) && snapshot.order !== "open" && !onPending(request, env)) {
     const blocked = snapshot.order === "closed" ? "order_closed" : "no_open_order";
     return [checked(said, { kind: "change_unfound_item", target: { kind: "unnamed" } }, signalsOf(said, "context"), { blocked })];
@@ -974,14 +1018,36 @@ function checkComplete(said: Said, env: Env, targetNamed: Named = "named"): Chec
   return checked(said, { kind: "advance_pending", request: advance, otherwise: report({ kind: "variant_only" }) }, signalsOf(said, targetNamed, over), { doubt });
 }
 
+/**
+ * A decline that points at no pending by itself (a context or no target, a reference to a line, a name the resolution found no product for or left between several) is about what the chat
+ * is waiting on or holds (a pending cited without a name included): the pending the photo just sent left, or the only pending that fits, ends «Con duda» (a cited pending only when it is that one); with several that fit, or a line it could mean, it is urgent `unclear_item`.
+ * A decline ends in silence only when nothing could be meant: the chat has nothing to end, the name resolved to a product the chat neither waits on nor holds, or the pending already ended.
+ */
 function checkDecline(said: Said, env: Env): CheckedAction {
   const { target } = said.request;
   const { snapshot } = env;
-  const signals = signalsOf(said, "named");
   const { photoJustSent: left } = snapshot;
-  const pending = target.kind === "pending" ? snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending
+  const resolution = resolutionOf(said.request, env);
+  const cited = target.kind === "pending" ? snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending : undefined;
+  // Only a pending the buyer named, a product the resolution found in one, or a photo the model itself aimed at is ended with certainty.
+  const pending = target.kind === "pending" ? (target.named !== null ? cited : undefined)
     : target.kind === "named" ? namedPending(said.request, env)
-    : left?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === left.pendingId)?.pending : undefined;
-  if (!pending) return checked(said, report({ kind: "no_intent" }), signals);
-  return checked(said, { kind: "decline_pending", pendingId: pending.id }, signals);
+    : target.kind === "photo_just_sent" && left?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === left.pendingId)?.pending : undefined;
+  if (pending) return checked(said, { kind: "decline_pending", pendingId: pending.id }, signalsOf(said, "named"));
+  const nothing = (): CheckedAction => checked(said, report({ kind: "no_intent" }), signalsOf(said, "named"));
+  const unclear = (): CheckedAction => problem(said, { kind: "unclear_item", orderId: null, namedItem: false, namedProductId: null }, "unclear_item", null);
+  if (target.kind === "photo_same_message" || (target.kind === "pending" && snapshot.endedPendings?.includes(target.ref))) return nothing();
+  const ids = resolution?.kind === "chosen" ? [resolution.productId] : resolution?.kind === "between" ? resolution.productIds : [];
+  const named = target.kind === "named";
+  const held = ids.length > 0 && snapshot.items.some((item) => item.productId !== null && ids.includes(item.productId));
+  const fitting = snapshot.pendings.filter((entry) => !named || ids.length === 0 || productsOfPending(entry.pending).some((id) => ids.includes(id))).map((entry) => entry.pending);
+  if (held) return unclear();
+  if (fitting.length === 0) return (named && ids.length > 0) || snapshot.items.length === 0 ? nothing() : unclear();
+  const photoPending = left?.kind === "pending" ? fitting.find((candidate) => candidate.id === left.pendingId) : undefined;
+  const [only, ...more] = fitting;
+  const aimed = photoPending ?? (more.length === 0 ? only : undefined);
+  const [productId] = aimed ? productsOfPending(aimed) : [];
+  const product = snapshot.products.find((candidate) => candidate.productId === productId);
+  if (!aimed || !product || (cited && cited.id !== aimed.id)) return unclear();
+  return checked(said, { kind: "decline_pending", pendingId: aimed.id }, signalsOf(said, "context"), { doubt: { kind: "removed", product: product.name } });
 }

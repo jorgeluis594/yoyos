@@ -776,3 +776,16 @@ describe("applyChatMessage: founder decision 5", () => {
     expect(h.traces[0]!.records.map(({ call }) => `${call?.stage}:${call?.provider}`)).toEqual(["intent:openai", "extraction:fake", "resolution:openai"]);
   });
 });
+
+describe("applyChatMessage: a set quantity right after a photo that left a pending", () => {
+  test("goes to the pending of the photo just sent, not to the only line the model chose", async () => {
+    const aimed = extracted("R1", "change_quantity", { target: { kind: "item", ref: "I1" as ItemRef, named: null }, quantity: { value: 3, mode: "set", quote: current("sean 3") } });
+    const photoPending = pointOf({ doubt: null, quantity: 1 as PositiveInteger, order: null });
+    const h = harness({ message: textMessage("que sean 3"), target: poloTarget(), pendings: pendingSet(photoPending), memory: { lastIncomingPhoto: { left: { kind: "pending", pendingId: photoPending.id } }, lastRequestAt: null },
+      script: { intent: requestsOf(intent("R1", "change_quantity", "sean 3")), extraction: [aimed] } });
+    await succeeded(h.run());
+
+    expect(h.store.pendings.pendings[0]).toMatchObject({ quantity: 3, doubt: { reason: { kind: "quantity_set", quantity: 3 } } });
+    expect(h.changeSaves[0]?.changes ?? []).toHaveLength(0);
+  });
+});

@@ -39,7 +39,7 @@ import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate,
 import { settleUnreviewedChanges } from "@core/src/features/orders/infrastructure/order-review-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
-import { findChatMemory, findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { findChatMemory, findChatPendings, findChatPendingsForUpdate, noChatMemory, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPending, ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
@@ -310,9 +310,12 @@ async function addOrderLines(chat: Chat, lines: readonly OrderLine[], wiring: Se
   }
 }
 
-/** Saves the pendings through the repository, attached to the chat's order when it has one (a pending created while the order was open). */
+/**
+ * Saves the pendings through the repository, attached to the chat's order when it has one (a pending created while the order was open).
+ * The start is a state, not a conversation: the label photos that seeded the order must not leave a photo just sent, or the first photo of the case
+ * would count as a photo right after another photo and leave nothing. So the chat's photo memory is saved empty, with or without pendings.
+ */
 async function seedPendings(chat: Chat, pendings: readonly PendingSeed[], company: EvalCompany): Promise<void> {
-  if (!pendings.length) return;
   const order = await orderOfChat(chat.chatId, company);
   const now = new Date();
   const productId = (product: ProductKey) => productIdOf(product, company.scope) as ProductId;
@@ -327,7 +330,7 @@ async function seedPendings(chat: Chat, pendings: readonly PendingSeed[], compan
       lastChangedAt: now, sourceMessageId: randomUUID() as ChatMessageId, requestId: id, doubt: null, pointSince: now, acknowledgedAt: null,
     };
   });
-  const saved = await inTenant(company, () => withinTransaction(() => saveChatPendings(chat.chatId as ChatId, { pendings: seeded, readyRemembered: false })));
+  const saved = await inTenant(company, () => withinTransaction(() => saveChatPendings(chat.chatId as ChatId, { pendings: seeded, readyRemembered: false }, noChatMemory)));
   if (!saved.success) throw new Error(`Seeding the pendings failed: ${saved.error.code}`);
 }
 
