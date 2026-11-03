@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { MessageTrace } from "@core/src/features/orders/domain/reader/trace";
-import { decisionOf, expectedStagesOf } from "@core/evals/lib/stage-facts";
+import { decisionOf, expectedStagesOf, scoreStages } from "@core/evals/lib/stage-facts";
 import { legacyAnswerOf, stagedAnswerOf } from "@core/evals/lib/staged-answer";
 
 const quote = (text: string) => ({ source: "current" as const, text });
@@ -34,6 +34,34 @@ describe("the staged answer read from the reading trace", () => {
     const expected = expectedStagesOf({ stages: { fields: { quantity: "3", price: "55", Talla: "L", Color: "Blanco" } }, outcomes: ["quantity_changed"] });
     const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request])] }), expected });
     expect(answer.fields).toEqual({ quantity: "3", price: "55", Talla: "L", Color: "Blanco" });
+  });
+
+  test("compares the catalog values the resolution chose, not the buyer's words, and counts an add with no quantity as one", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: null, valueWords: quote("negros") }, { attributeWords: quote("talla"), valueWords: quote("eme") }], changeVerb: null };
+    const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "chosen", productId: "id-polo", unmatched: [],
+      values: [{ attribute: "Color", value: "Negro", quote: quote("negros") }, { attribute: "Talla", value: "M", quote: quote("eme") }] }] } };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M", Color: "Negro" } }, outcomes: ["added"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", Color: "Negro", Talla: "M" });
+    expect(scoreStages(expected, answer).fields).toBe(true);
+  });
+
+  test("a quantity the buyer stated is kept, and a request that does not add an item gets no implicit quantity", () => {
+    const request = (kind: string, quantity: object | null) => ({ request: "r1", kind, target: { kind: "none" }, quantity, price: null, values: [], changeVerb: null });
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "2" } }, outcomes: ["added"] });
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [extractionStage([request("add", { value: 2, mode: "add", quote: quote("dos") })])] }), expected }).fields).toEqual({ quantity: "2" });
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [extractionStage([request("remove", null)])] }), expected }).fields).toEqual({});
+  });
+
+  test("without a resolution it falls back to the words, and a preposition is never the name of an attribute", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "none" }, quantity: { value: 1, mode: "add", quote: quote("una") }, price: null,
+      values: [{ attributeWords: quote("en"), valueWords: quote("L") }, { attributeWords: quote("a"), valueWords: quote("Crema") }], changeVerb: null };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "L", Color: "Crema" } }, outcomes: ["added"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [extractionStage([request])] }), expected });
+    expect(Object.keys(answer.fields ?? {})).not.toContain("en");
+    expect(Object.keys(answer.fields ?? {})).not.toContain("a");
+    expect(answer.fields).toEqual({ quantity: "1", Talla: "L", Color: "Crema" });
   });
 
   test("reads no fields when the extraction stage did not run and ignores the confirming extraction", () => {

@@ -84,3 +84,10 @@ test("an urgent notice that goes out makes the decision urgent even beside a pen
   expect(decisionOf(expectation({ outcomes: ["pending_created", "variant_missing"] }))).toBe("pending");
   expect(decisionOf(expectation({ outcomes: ["pending_created", "unclear_item"] }))).toBe("urgent");
 });
+
+test("compares the fields folding case and accents, in names and values", () => {
+  const expected = expectedStagesOf(expectation({ notice: null, outcomes: ["added"], stages: { fields: { quantity: "1", Talla: "M", Color: "Crema" } } }));
+  expect(scoreStages(expected, answer({ fields: { quantity: "1", talla: "m", Color: "CREMÁ" } })).fields).toBe(true);
+  expect(scoreStages(expected, answer({ fields: { quantity: "1", Talla: "M", Color: "Negro" } })).fields).toBe(false);
+  expect(scoreStages(expected, answer({ fields: { quantity: "1", Talla: "M" } })).fields).toBe(false);
+});

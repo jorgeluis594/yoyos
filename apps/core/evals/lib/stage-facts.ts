@@ -107,8 +107,17 @@ export type StageAnswer = Readonly<{
   stageCostsUsd: Readonly<Record<string, number>>;
 }>;
 
-const sameFields = (a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>> | null): boolean =>
-  b !== null && Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([name, value]) => b[name] === value);
+/** The text without accents, case or edge spaces: how values and names are compared. */
+export const fold = (text: string): string => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+const foldedFields = (fields: Readonly<Record<string, string>>): ReadonlyMap<string, string> => new Map(Object.entries(fields).map(([name, value]) => [fold(name), fold(value)]));
+
+/** Same names and values, folding case and accents: the answer holds catalog values, and a label may spell them with another case. */
+const sameFields = (expected: Readonly<Record<string, string>>, answered: Readonly<Record<string, string>> | null): boolean => {
+  if (answered === null) return false;
+  const wanted = foldedFields(expected);
+  const found = foldedFields(answered);
+  return wanted.size === found.size && [...wanted].every(([name, value]) => found.get(name) === value);
+};
 
 export function scoreStages(expected: ExpectedStages, answer: StageAnswer): StageFacts {
   return {
