@@ -43,9 +43,14 @@ export type ExpectedStages = Readonly<{
   decision: DecisionKind;
 }>;
 
+/** A step that states nothing but a silent decision (no outcomes, no notice, no order): the buyer asked nothing, so there is no request the reader could ignore. */
+const onlySilent = (expectation: MessageExpectation): boolean =>
+  expectation.decision === "silent" && expectation.outcomes === undefined && expectation.notice == null && expectation.order === undefined;
+
 export function expectedStagesOf(expectation: MessageExpectation): ExpectedStages {
   const outcomes = expectation.outcomes ?? [];
-  const intent: IntentKind = expectation.stages?.intent ?? (expectation.outcomes !== undefined && outcomes.every((kind) => kind === "no_intent" || kind === "questions") ? "no_intent" : "requests");
+  const asksNothing = onlySilent(expectation) || (expectation.outcomes !== undefined && outcomes.every((kind) => kind === "no_intent" || kind === "questions"));
+  const intent: IntentKind = expectation.stages?.intent ?? (asksNothing ? "no_intent" : "requests");
   return { intent, requested: intent === "requests", fields: expectation.stages?.fields ?? null, product: expectation.stages?.product ?? null, decision: decisionOf(expectation) };
 }
 

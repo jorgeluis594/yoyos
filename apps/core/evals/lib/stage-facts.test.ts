@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { decisionOf, expectedStagesOf, scoreStages, type StageAnswer } from "@core/evals/lib/stage-facts";
 import { messageExpectation } from "@core/evals/cases/schema";
+import { ignoredRequestOf } from "@core/evals/lib/metrics";
 
 const expectation = (input: object) => messageExpectation.parse(input);
 
@@ -51,4 +52,20 @@ test("states the count of changed lines, of those with no mark and of those sile
 
 test("a pending that a decline ended is a change the buyer asked for", () => {
   expect(decisionOf({ outcomes: ["pending_ended"] })).toBe("applied");
+});
+
+test("a step whose only expectation is a silent decision asks nothing: no intent, not a request that could be ignored", () => {
+  expect(expectedStagesOf(expectation({ notice: null, decision: "silent" }))).toMatchObject({ intent: "no_intent", requested: false, decision: "silent" });
+  expect(expectedStagesOf(expectation({ notice: null, decision: "silent", stages: { intent: "requests" } }))).toMatchObject({ intent: "requests", requested: true });
+  expect(expectedStagesOf(expectation({ notice: null, decision: "silent", order: [] }))).toMatchObject({ intent: "requests", requested: true });
+  expect(expectedStagesOf(expectation({ notice: "not_applied", decision: "urgent" }))).toMatchObject({ intent: "requests", requested: true });
+  expect(expectedStagesOf(expectation({ notice: null, decision: "doubtful", order: [] }))).toMatchObject({ intent: "requests", requested: true });
+});
+
+test("a silent step the reader left alone is neither an ignored request nor a wrong intent", () => {
+  const expected = expectedStagesOf(expectation({ notice: null, decision: "silent" }));
+  const facts = scoreStages(expected, { intent: "no_intent", fields: null, product: null, decision: "silent", changeApplied: false, marked: false, point: false, noticed: false,
+    changedNotice: false, orderMatches: null, readingMs: 900, queuedMs: 0, stageCostsUsd: {} });
+  expect(facts).toMatchObject({ intent: true, requested: false });
+  expect(ignoredRequestOf(facts)).toBe(false);
 });
