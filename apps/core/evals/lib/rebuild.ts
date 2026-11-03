@@ -13,6 +13,10 @@ import { scoreMessage, type MessageActual } from "@core/evals/lib/scorers";
 
 export type ResultFile = Readonly<{ report: EvalReport; records: readonly CaseRecord[]; extraCalls?: readonly ModelCall[] }>;
 
+/** The expectations of a message record that state a notice or outcomes: the ones `expectationIndex` points into. */
+export const messageExpectationsOf = (record: CaseRecord): readonly MessageExpectation[] =>
+  Array.isArray(record.expected) ? (record.expected as readonly MessageExpectation[]).filter((expectation) => "notice" in expectation || "outcomes" in expectation) : [];
+
 /**
  * Scores a message record again under the current rules, from its stored expectations, actual result and earlier order. The unit
  * price check stays as recorded (it depends on the catalog the run used), and a judge rescue stays.
@@ -20,7 +24,7 @@ export type ResultFile = Readonly<{ report: EvalReport; records: readonly CaseRe
 export function rescoreMessage(record: CaseRecord): CaseRecord {
   const actual = record.actual as Partial<MessageActual>;
   if (record.pass === "image" || !Array.isArray(record.expected) || !actual.outcomes) return record;
-  const expectations = (record.expected as readonly MessageExpectation[]).filter((expectation) => "notice" in expectation || "outcomes" in expectation);
+  const expectations = messageExpectationsOf(record);
   if (!expectations.length) return record;
   const scored = scoreMessage({ outcomes: actual.outcomes, notice: actual.notice ?? null, noticeProducts: actual.noticeProducts ?? [], order: actual.order ?? [] },
     expectations, record.previousOrder as readonly OrderLine[]);
