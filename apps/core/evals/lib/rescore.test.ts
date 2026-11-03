@@ -3,7 +3,7 @@ import type { OrderLine } from "@core/evals/cases/schema";
 import type { CaseRecord, ReadingRecord, StageFacts } from "@core/evals/lib/case-record";
 import { messageRecord } from "@core/evals/lib/record-fixture";
 import { buildReport } from "@core/evals/lib/report";
-import { changeRowsOf, comparisonOf, formatComparison, rescoreFile, rescoreRecord } from "@core/evals/lib/rescore";
+import { changeRowsOf, comparisonOf, formatComparison, rescoreArgumentsOf, rescoreFile, rescoreRecord } from "@core/evals/lib/rescore";
 
 const meta = { runId: "run", startedAt: "", finishedAt: "", settings: {} };
 const quote = (text: string) => ({ source: "current" as const, text });
@@ -38,6 +38,26 @@ describe("changeRowsOf", () => {
 
   test("an order that did not change leaves no row", () => {
     expect(changeRowsOf([polo], [actualLine(polo)])).toEqual([]);
+  });
+
+  test("an earlier price the record does not store is unknown, not none: a quantity change keeps the price it ends with", () => {
+    const priced = { ...actualLine(polo, 2), mentionedPrice: { amount: 63, units: 1 } };
+
+    const [row] = changeRowsOf([polo], [priced]);
+
+    expect(row).toMatchObject({ before: { quantity: 1, mentionedPrice: { amount: { amount: 63 }, units: 1 } }, after: { quantity: 2, mentionedPrice: { amount: { amount: 63 }, units: 1 } } });
+  });
+
+  test("a price change on a line whose earlier price is unknown leaves no row, but a stored earlier price, or a price the message states, does", () => {
+    const priced = { ...actualLine(polo), mentionedPrice: { amount: 63, units: 1 } };
+
+    expect(changeRowsOf([polo], [priced])).toEqual([]);
+    expect(changeRowsOf([{ ...polo, mentionedPrice: null }], [priced])).toHaveLength(1);
+    expect(changeRowsOf([polo], [priced], { priceStated: true })).toHaveLength(1);
+  });
+
+  test("a product the earlier order stores as unknown is the null product of the actual order", () => {
+    expect(changeRowsOf([{ ...polo, product: "unknown" as never }], [{ ...actualLine(polo), product: null }])).toEqual([]);
   });
 });
 
@@ -116,14 +136,38 @@ describe("rescoreRecord", () => {
     expect(kept).toEqual(["changedLines"]);
   });
 
-  test("leaves an event record, a record with no facts and a legacy record alone", () => {
+  test("a quantity change on a line an earlier step priced is not judged on the price: the earlier price is not stored, so this message did not touch it", () => {
+    const priced = { ...actualLine(polo, 2), mentionedPrice: { amount: 63, units: 1 } };
+    const record = addedPolo({ previousOrder: [polo], expected: [{ notice: null, outcomes: ["quantity_changed"], order: [{ ...polo, quantity: 2, mentionedPrice: null }] }],
+      actual: { outcomes: ["quantity_changed"], notice: null, noticeProducts: [], order: [priced] } });
+
+    const { record: rescored, kept } = rescoreRecord(record, { hasReadings: true });
+
+    expect(rescored.facts).toMatchObject({ changedLines: 1, silentLines: 0 });
+    expect(kept).toEqual([]);
+  });
+
+  test("a price change the stored data cannot place keeps the stored lines; one the message states is judged", () => {
+    const priced = { ...actualLine(polo), mentionedPrice: { amount: 63, units: 1 } };
+    const expected = [{ notice: null, outcomes: ["mentioned_price_set" as const], order: [{ ...polo, mentionedPrice: null }] }];
+    const unplaced = addedPolo({ previousOrder: [polo], expected, actual: { outcomes: ["mentioned_price_set"], notice: null, noticeProducts: [], order: [priced] } });
+    const pricedRequest = { request: "r1", kind: "set_price", quantity: null, price: { amount: 63 }, values: [] };
+    const stated = { ...unplaced, reading: reading([intentStage("requests"), extractionStage([pricedRequest])], "applied") };
+
+    expect(rescoreRecord(unplaced, { hasReadings: true }).kept).toEqual(["changedLines"]);
+    const { record, kept } = rescoreRecord(stated, { hasReadings: true });
+    expect(record.facts).toMatchObject({ changedLines: 1, silentLines: 1 });
+    expect(kept).toEqual([]);
+  });
+
+  test("leaves an event record and a record with no facts alone, and counts a legacy record apart from the ones missing data", () => {
     const event = messageRecord({ caseId: "c#event1", conversationId: "c", event: { name: "report_payment", after: 1 }, expected: null, actual: { error: "x" } });
     const failed = messageRecord({ caseId: "c#2", conversationId: "c", step: 2, expected: [{ notice: null, outcomes: ["added"] }], actual: { error: "no order" } });
     const legacy = addedPolo({ facts: { ...staleFacts, decision: null, decisionActual: "silent" } });
 
     expect(rescoreRecord(event, { hasReadings: true })).toEqual({ record: event, kept: [] });
     expect(rescoreRecord(failed, { hasReadings: true })).toEqual({ record: failed, kept: [] });
-    expect(rescoreRecord(legacy, { hasReadings: true }).kept).toEqual(["facts"]);
+    expect(rescoreRecord(legacy, { hasReadings: true }).kept).toEqual(["legacy"]);
   });
 });
 
@@ -140,7 +184,7 @@ describe("rescoreFile", () => {
     expect(file).toEqual(before);
     expect(result.report.runs.metrics.silentWrongChanges).toMatchObject({ mean: 1 });
     expect(result.report.runs.metrics.intentAccuracy).toMatchObject({ mean: 1 });
-    expect(kept).toEqual({ messages: 2, facts: 0, changedLines: 0, withoutFacts: 0 });
+    expect(kept).toEqual({ messages: 2, facts: 0, legacy: 0, changedLines: 0, withoutFacts: 0 });
   });
 
   test("a run with no reading at all keeps every stored fact, and the count says so", () => {
@@ -148,8 +192,39 @@ describe("rescoreFile", () => {
 
     const { kept, result } = rescoreFile({ report: buildReport(old, meta), records: old });
 
-    expect(kept).toEqual({ messages: 2, facts: 2, changedLines: 0, withoutFacts: 0 });
+    expect(kept).toEqual({ messages: 2, facts: 2, legacy: 0, changedLines: 0, withoutFacts: 0 });
     expect(result.report.runs.metrics.intentAccuracy).toMatchObject({ mean: 0 });
+  });
+});
+
+describe("rescoreFile and the legacy baseline", () => {
+  test("legacy records are counted apart, not as records missing data", () => {
+    const legacy = addedPolo({ caseId: "l", facts: { ...staleFacts, decision: null, decisionActual: "silent" } });
+
+    const { kept } = rescoreFile({ report: buildReport([legacy, addedPolo({ caseId: "g" })], meta), records: [legacy, addedPolo({ caseId: "g" })] });
+
+    expect(kept).toEqual({ messages: 2, facts: 0, legacy: 1, changedLines: 0, withoutFacts: 0 });
+    expect(formatComparison([], kept)).toContain("1 legacy baseline");
+  });
+});
+
+describe("the arguments of the command", () => {
+  const dir = "/repo/apps/core/eval-results";
+
+  test("the run alone gets the default output under the results folder, beside no input", () => {
+    expect(rescoreArgumentsOf(["/x/run-1.json"], dir)).toEqual({ input: "/x/run-1.json", target: "/repo/apps/core/eval-results/run-1.rescored.json" });
+  });
+
+  test("--out gives the target whichever side of the run it is on", () => {
+    expect(rescoreArgumentsOf(["/x/run.json", "--out", "/y/z.json"], dir)).toEqual({ input: "/x/run.json", target: "/y/z.json" });
+    expect(rescoreArgumentsOf(["--out", "/y/z.json", "/x/run.json"], dir)).toEqual({ input: "/x/run.json", target: "/y/z.json" });
+  });
+
+  test("a missing path after --out, no run, two runs and an --out that is the input are errors", () => {
+    expect(rescoreArgumentsOf(["/x/run.json", "--out"], dir)).toMatchObject({ error: expect.stringContaining("--out") });
+    expect(rescoreArgumentsOf([], dir)).toMatchObject({ error: expect.stringContaining("Usage") });
+    expect(rescoreArgumentsOf(["/x/a.json", "/x/b.json"], dir)).toMatchObject({ error: expect.stringContaining("Usage") });
+    expect(rescoreArgumentsOf(["/x/run.json", "--out", "/x/run.json"], dir)).toMatchObject({ error: expect.stringContaining("never overwritten") });
   });
 });
 
@@ -158,30 +233,44 @@ describe("the before and after table", () => {
   const file = { report: buildReport(stale, meta), records: stale };
 
   test("has one row per audited metric, the stored report before and the recomputation after", () => {
-    const rows = comparisonOf(file.report, rescoreFile(file).result.report);
+    const { result } = rescoreFile(file);
+    const rows = comparisonOf(file.report, result.report, { stored: file.records, rescored: result.records });
 
     expect(rows.map(({ metric }) => metric)).toEqual(["false urgent share", "urgent recall", "urgent precision", "silent wrong changes per run", "ignored requests per run",
-      "intent precision (intentAccuracy)", "variant and quantity (fields accuracy)", "final order variant (first run)", "final order quantity (first run)", "resolution accuracy", "decision accuracy", "end-to-end mean", "end-to-end range",
+      "intent precision (intentAccuracy)", "variant and quantity (fields accuracy)", "final order variant", "final order quantity", "resolution accuracy", "decision accuracy", "end-to-end mean", "end-to-end range",
       "conversation failures own", "conversation failures carried"]);
     const intent = rows.find(({ metric }) => metric.startsWith("intent"))!;
     expect(intent).toMatchObject({ before: "0.0% (min 0.0%, max 0.0%)", after: "100.0% (min 100.0%, max 100.0%)" });
   });
 
-  test("an older report with no end-to-end range or conversation counts is read from its stored records, and says so", () => {
+  test("the order-level variant and quantity are the mean and range over all runs, the before from the stored records and their stored scores", () => {
+    const run = (repeat: number, quantity: boolean) => addedPolo({ caseId: `o${repeat}`, repeat, fields: { variant: true, quantity } });
+    const stored = [run(0, true), run(1, false)];
+    const rescored = [run(0, true), run(1, true)];
+
+    const rows = comparisonOf(buildReport(stored, meta), buildReport(rescored, meta), { stored, rescored });
+
+    expect(rows.find(({ metric }) => metric === "final order variant")).toMatchObject({ before: "100.0% (min 100.0%, max 100.0%)", after: "100.0% (min 100.0%, max 100.0%)" });
+    expect(rows.find(({ metric }) => metric === "final order quantity")).toMatchObject({ before: "50.0% (min 0.0%, max 100.0%)", after: "100.0% (min 100.0%, max 100.0%)" });
+    expect(rows.find(({ metric }) => metric === "final order quantity")!.note).toContain("stored records");
+  });
+
+  test("an older report shows what it stored (the end-to-end of its first run, labelled) and counts the rest from its stored records, and says so", () => {
     const e2e = [addedPolo({ caseId: "e", pass: "end_to_end", passed: true }), addedPolo({ caseId: "e", pass: "end_to_end", repeat: 1, passed: false })];
     const report = buildReport(e2e, meta);
-    const old = { ...report, endToEnd: { photo: report.endToEnd.photo, text: report.endToEnd.text } as never, conversationSteps: undefined as never };
+    const old = { ...report, endToEnd: { photo: report.endToEnd.photo, text: report.endToEnd.text } as never, conversationSteps: undefined as never,
+      byPass: { end_to_end: { total: 1, passed: 1, accuracy: 1 } } };
 
-    const rows = comparisonOf(old, report, e2e);
+    const rows = comparisonOf(old, report, { stored: e2e, rescored: e2e });
 
-    expect(rows.find(({ metric }) => metric === "end-to-end mean")).toMatchObject({ before: "50.0%", after: "50.0%" });
-    expect(rows.find(({ metric }) => metric === "end-to-end range")).toMatchObject({ before: "0.0%–100.0%", after: "0.0%–100.0%" });
-    expect(rows.find(({ metric }) => metric === "conversation failures own")!.note).toContain("stored records");
+    expect(rows.find(({ metric }) => metric === "end-to-end mean")).toMatchObject({ before: "100.0% (stored report: first run only)", after: "50.0%" });
+    expect(rows.find(({ metric }) => metric === "end-to-end range")).toMatchObject({ before: "n/a in stored report; recount with stored scores: 0.0%–100.0%", after: "0.0%–100.0%" });
+    expect(rows.find(({ metric }) => metric === "conversation failures own")).toMatchObject({ before: "n/a in stored report; recount with stored scores: 0", after: "0" });
   });
 
   test("prints aggregates only: no case id and no input", () => {
     const secret = addedPolo({ caseId: "secret-case", input: "text «numero privado»" });
-    const text = formatComparison(comparisonOf(buildReport([secret], meta), buildReport([secret], meta)), { messages: 1, facts: 0, changedLines: 0, withoutFacts: 0 });
+    const text = formatComparison(comparisonOf(buildReport([secret], meta), buildReport([secret], meta)), { messages: 1, facts: 0, legacy: 0, changedLines: 0, withoutFacts: 0 });
 
     expect(text).not.toContain("secret-case");
     expect(text).not.toContain("privado");

@@ -213,7 +213,7 @@ tags applied; Claude's error groups and cost are kept. The first rebuild keeps t
 `pnpm --dir apps/core eval:rescore <run.json> [--out <path>]` scores a saved run again with the current code and prints what moved. It makes no model
 call and needs no database, network or API key: it runs with a clean environment (`env -i PATH="$PATH" HOME="$HOME" pnpm ...`). Unlike `eval:report`
 it **never writes the input**: the rescored file (report and records, the same format) goes to `--out`, by default `eval-results/<run>.rescored.json`
-(git-ignored); it refuses an `--out` that is the input, and it writes into a private folder only when `--out` says so. The rescored file holds the
+(git-ignored); relative paths (the run and `--out`) resolve from `apps/core`, where `pnpm --dir apps/core` runs the script, so absolute paths are safer; it refuses an `--out` that is the input, and it writes into a private folder only when `--out` says so. The rescored file holds the
 run's case inputs like the input does, so keep it where the input would be kept. The table printed holds aggregate numbers only, never a case id or an input.
 
 From the stored expectations, reading trace (`reading`), actual result and earlier order (`previousOrder`) it computes again, for every message
@@ -226,13 +226,17 @@ What it cannot compute stays as stored, and the output counts it («Kept as stor
 - A run saved before the trace was kept (no record has a `reading`) keeps all the actual-side facts. In a run that has readings, a message with none is one
   that read nothing (skipped), and its outcomes give the facts.
 - The change rows are not stored: they are rebuilt from the order before and after the message. When the rebuilt rows do not number the lines the record
-  counted (an event between two messages changed the order), or only some of them were marked, the stored changed lines stay.
+  counted (an event between two messages changed the order), or only some of them were marked, the stored changed lines stay. The earlier order does not
+  store the prices the buyer mentioned, so an earlier price is unknown: a line keeps the price it ends with unless the message states one, and a price-only change
+  the data cannot place keeps the stored lines too.
+- Legacy baseline records (`EVAL_READER=legacy`) state an intent and no decision by design: they are counted apart, not as missing data.
 - The product the reader chose (`resolution`) cannot be named again, because the catalog ids are not stored; the timings and costs are those of the run.
 
-The table has one row per audited metric: «before» is the report stored in the file, «after» the recomputation. A report older than the end-to-end range and
-the own and carried conversation failures has no stored value for them, so «before» is counted from the stored records with their stored scores (the row says so).
-The «final order variant / quantity» rows are the first run's order-level fields (`report.fields`), apart from the stage `fields accuracy` row, which scores
-the fields the reader extracted and resolved against the case.
+The table has one row per audited metric: «before» is the report stored in the file, «after» the recomputation. «Before» shows what
+the stored report says where it has the metric: the end-to-end of a report older than the range is its first run only and is labelled so. Where it has no value
+(the end-to-end range, the own and carried conversation failures) the cell says «n/a in stored report» and adds a recount from the stored records with their stored scores.
+The «final order variant / quantity» rows are the order-level fields as mean and range over all runs, counted from the records (the before with its stored scores, noted
+under the table), apart from the stage `fields accuracy` row, which scores the fields the reader extracted and resolved against the case.
 
 ## Private runs
 
