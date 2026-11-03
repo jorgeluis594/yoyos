@@ -92,6 +92,18 @@ describe("the staged answer read from the reading trace", () => {
     expect(scoreStages(expected, answer)).toMatchObject({ fields: true, fieldsBetween: true });
   });
 
+  test("a between that mapped no value never passes the fields through the buyer's words, even when they spell the label's value; with no resolution at all the words still stand in", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: quote("talla"), valueWords: quote("M") }], changeVerb: null };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M" } }, outcomes: ["added"] });
+    const between = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "between", productIds: ["id-polo", "id-gorra"] }] } };
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), between] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", M: "M" });
+    expect(scoreStages(expected, answer)).toMatchObject({ fields: false, fieldsBetween: true });
+    const unresolved = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request])] }), expected });
+    expect(scoreStages(expected, unresolved)).toMatchObject({ fields: true, fieldsBetween: false });
+  });
+
   test("a chosen resolution is not between, and a case that states no fields records no between", () => {
     const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null, values: [], changeVerb: null };
     const trace = traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolutionStage("id-polo")] });

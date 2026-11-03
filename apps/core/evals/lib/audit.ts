@@ -71,7 +71,7 @@ function decisionsIfReadyUrgent(record: CaseRecord): Decisions {
   return { expected: expectedUrgent ? "urgent" : facts.decisionExpected, actual: saysReadyWithPendings(record.actual as Said | null) ? "urgent" : facts.decisionActual };
 }
 
-/** Records of a run that state a decision (the legacy baseline states none), with the decision of both sides under `decisions`. */
+/** The records of a run that state a decision (the legacy baseline states none). */
 const decided = (run: readonly CaseRecord[]) => run.filter(({ facts }) => facts !== undefined && facts.decision !== null);
 
 function readyWithPendingsOf(records: readonly CaseRecord[]): AuditReport["readyWithPendings"] {

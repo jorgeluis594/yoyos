@@ -22,7 +22,7 @@ const connectors: ReadonlySet<string> = new Set(["en", "a", "de", "del", "la", "
 /**
  * The fields of the message under the names the case gives them: `quantity`, `price`, and the catalog attribute of each value. The values are the
  * catalog's (the resolution stage's `values`, e.g. Color=Negro for «negros»), not the buyer's words. A request with no resolved values falls back to its
- * words, under the case's own spelling when they fold to a stated value. A request that adds an item with no quantity adds one.
+ * words, under the case's own spelling when they fold to a stated value (not a `between`, whose unmapped words never take the label's spelling). A request that adds an item with no quantity adds one.
  * A value word the resolution did not map to a catalog value (listed in `unmatched` or silently dropped, whether it chose a product or stayed `between`
  * several) stays in the answer as a word of its own: an extra field, so the comparison fails unless the label states that very word.
  * `between` tells that some request was left undecided between products, which the strict reading of the fields never passes.
@@ -44,7 +44,9 @@ function fieldsOf(extraction: StageOutput<"extraction">, resolution: StageOutput
     if (resolved?.kind === "between") between = true;
     const values = resolved && resolved.kind !== "none" ? resolved.values ?? [] : [];
     if (values.length === 0) {
-      request.values.forEach(addWord);
+      // A between that mapped nothing leaves the words unresolved: they stand as they were said, never under the label's spelling.
+      if (resolved?.kind === "between") request.values.forEach(({ valueWords }) => { fields[valueWords.text] = valueWords.text; });
+      else request.values.forEach(addWord);
       continue;
     }
     for (const { attribute, value } of values) fields[attribute] = value;

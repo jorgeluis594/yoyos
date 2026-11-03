@@ -481,7 +481,7 @@ const rangeText = (value: RunsTally) => `${percent(value.accuracy)} (min ${perce
 const rangeLine = (range: MetricRange | null, show: (value: number) => string) =>
   range ? `${show(range.mean)} (min ${show(range.min)}, max ${show(range.max)})` : "not measured";
 
-/** The stage fields as a stricter reading and the messages left between products, labelled apart from the main `fieldsAccuracy` metric. */
+/** The audit views, labelled apart from the gate's own metrics: the false urgent and silent wrong change variants, the `ready_with_pendings` what-if, and the stage fields between and strict. */
 function auditLines({ stageFields, readyWithPendings, falseUrgent, silentWrongChanges }: AuditReport): readonly string[] {
   const count = (value: number) => String(Math.round(value * 10) / 10);
   return [
