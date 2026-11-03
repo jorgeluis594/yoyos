@@ -1,9 +1,14 @@
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { OrderLine } from "@core/evals/cases/schema";
 import type { CaseRecord, ReadingRecord, StageFacts } from "@core/evals/lib/case-record";
 import { messageRecord } from "@core/evals/lib/record-fixture";
 import { buildReport } from "@core/evals/lib/report";
-import { changeRowsOf, comparisonOf, formatComparison, rescoreArgumentsOf, rescoreFile, rescoreRecord } from "@core/evals/lib/rescore";
+import { changeRowsOf, comparisonOf, formatComparison, isPrivateRunFile, rebuildSavedRun, rescoreArgumentsOf, rescoreFile, rescoreRecord } from "@core/evals/lib/rescore";
+import { rebuildResult } from "@core/evals/lib/rebuild";
+import { splitOf } from "@core/evals/cases/split";
 
 const meta = { runId: "run", startedAt: "", finishedAt: "", settings: {} };
 const quote = (text: string) => ({ source: "current" as const, text });
@@ -262,6 +267,55 @@ describe("the arguments of the command", () => {
     expect(rescoreArgumentsOf([], dir)).toMatchObject({ error: expect.stringContaining("Usage") });
     expect(rescoreArgumentsOf(["/x/a.json", "/x/b.json"], dir)).toMatchObject({ error: expect.stringContaining("Usage") });
     expect(rescoreArgumentsOf(["/x/run.json", "--out", "/x/run.json"], dir)).toMatchObject({ error: expect.stringContaining("never overwritten") });
+  });
+});
+
+describe("a private run needs an explicit --out", () => {
+  const dir = "/repo/apps/core/eval-results";
+  const privateRun = () => true;
+
+  test("a run that is private and no --out is an error that says what to do; with --out it goes where it says", () => {
+    expect(rescoreArgumentsOf(["/p/run.json"], dir, privateRun)).toMatchObject({ error: expect.stringMatching(/private run.*--out/s) });
+    expect(rescoreArgumentsOf(["/p/run.json", "--out", "/tmp/x.json"], dir, privateRun)).toEqual({ input: "/p/run.json", target: "/tmp/x.json" });
+    expect(rescoreArgumentsOf(["/repo/run.json"], dir, () => false)).toEqual({ input: "/repo/run.json", target: "/repo/apps/core/eval-results/run.rescored.json" });
+  });
+
+  test("a file outside the repository, or under EVAL_PRIVATE_DIR, or reached by a link from outside, is a private run; one inside the repository is not", () => {
+    const outside = mkdtempSync(join(tmpdir(), "eval-private-"));
+    writeFileSync(join(outside, "run.json"), "{}");
+    expect(isPrivateRunFile(join(outside, "run.json"), {})).toBe(true);
+    expect(isPrivateRunFile(join(outside, "run.json"), { EVAL_PRIVATE_DIR: outside })).toBe(true);
+    expect(isPrivateRunFile(join(outside, "missing.json"), {})).toBe(true);
+    const inside = join(import.meta.dirname, "rescore.ts");
+    expect(isPrivateRunFile(inside, {})).toBe(false);
+    expect(isPrivateRunFile(join(import.meta.dirname, "nothing.json"), {})).toBe(false);
+    const link = join(mkdtempSync(join(tmpdir(), "eval-link-")), "link.json");
+    symlinkSync(inside, link);
+    expect(isPrivateRunFile(link, {})).toBe(false);
+  });
+});
+
+describe("eval:report and eval:rescore give the same numbers", () => {
+  test("the report command rebuilds a saved run with the full recomputation of the rescore, not only the expected side", () => {
+    const stale = [addedPolo({ caseId: "a" }), addedPolo({ caseId: "b", repeat: 1 })];
+    const file = { report: buildReport(stale, meta), records: stale };
+
+    const rebuilt = rebuildSavedRun(file, new Set(), null);
+
+    expect(rebuilt.report).toEqual(rescoreFile(file).result.report);
+    expect(rebuilt.report.runs.metrics.intentAccuracy).toMatchObject({ mean: 1 });
+    // The partial rebuild left the actual-side facts as stored.
+    expect(rebuildResult(file).report.runs.metrics.intentAccuracy).toMatchObject({ mean: 0 });
+  });
+
+  test("a split is read after the same recomputation", () => {
+    const records = [addedPolo({ caseId: "a", baseId: "a" }), addedPolo({ caseId: "b", baseId: "b" })];
+    const file = { report: buildReport(records, meta), records };
+    const split = splitOf("a");
+    const part = rebuildSavedRun(file, new Set(), split);
+    expect(part.records.map(({ baseId }) => baseId)).toEqual(records.filter(({ baseId }) => splitOf(baseId) === split).map(({ baseId }) => baseId));
+    expect(part.report.settings).toMatchObject({ split });
+    expect(part.report.runs.metrics.intentAccuracy).toMatchObject({ mean: 1 });
   });
 });
 

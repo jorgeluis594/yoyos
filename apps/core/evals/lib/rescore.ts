@@ -1,9 +1,11 @@
-import { basename, join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { OrderLine } from "@core/evals/cases/schema";
 import type { ProductKey } from "@core/evals/fixtures/catalog";
 import type { CaseRecord, ReadingRecord, StageFacts } from "@core/evals/lib/case-record";
 import { changedLinesOf, scoredLinesOf, type ChangeRow, type ScoredChangedLine } from "@core/evals/lib/changed-lines";
-import { messageExpectationsOf, rebuildResult, rescoreMessage, type ResultFile } from "@core/evals/lib/rebuild";
+import { messageExpectationsOf, rebuildResult, rescoreMessage, splitResult, type ResultFile } from "@core/evals/lib/rebuild";
+import type { EvalSplit } from "@core/evals/cases/split";
 import type { AuditReport } from "@core/evals/lib/audit";
 import { buildReport, type EvalReport, type RunsTally } from "@core/evals/lib/report";
 import { runsOfRecords, type MetricName, type MetricRange } from "@core/evals/lib/metrics";
@@ -265,16 +267,51 @@ export function formatComparison(rows: readonly ComparisonRow[], kept: KeptCount
 }
 
 /**
- * The input and the target of the command from its arguments: the run, and `--out` (anywhere among them) or by default `<resultsDir>/<run>.rescored.json`. The
- * input is never the target.
+ * The saved run as the report command rebuilds it: the full recomputation of `rescoreFile`, the same the rescore command prints, so both give the same numbers
+ * on the same file. A split (`EVAL_SPLIT`) is cut first and rescored after.
  */
-export function rescoreArgumentsOf(args: readonly string[], resultsDir: string): Readonly<{ input: string; target: string }> | Readonly<{ error: string }> {
+export function rebuildSavedRun(file: ResultFile, knownLimitations: ReadonlySet<string>, split: EvalSplit | null): ResultFile {
+  return rescoreFile(split ? splitResult(file, split) : file, knownLimitations).result;
+}
+
+const repositoryRoot = realpathSync(resolve(import.meta.dirname, "../../../.."));
+const isInside = (parent: string, child: string) => {
+  const path = relative(parent, child);
+  return path === "" || (!path.startsWith("..") && !isAbsolute(path) && !path.startsWith(`..${sep}`));
+};
+/** The real path of a file that may not exist: its folder's real path with the name. */
+const realPathOf = (path: string): string => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return join(realpathSync(dirname(resolve(path))), basename(path));
+  }
+};
+
+/**
+ * A private run is a file whose real path (symlinks followed) is outside the repository or under `EVAL_PRIVATE_DIR`: its records hold the private cases' inputs, so
+ * nothing about it is written anywhere by default.
+ */
+export function isPrivateRunFile(path: string, env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  const real = realPathOf(path);
+  const privateDir = env.EVAL_PRIVATE_DIR ? realPathOf(env.EVAL_PRIVATE_DIR) : null;
+  return !isInside(repositoryRoot, real) || (privateDir !== null && isInside(privateDir, real));
+}
+
+/**
+ * The input and the target of the command from its arguments: the run, and `--out` (anywhere among them) or by default `<resultsDir>/<run>.rescored.json`. The
+ * input is never the target, and a private run (`isPrivateRun`) has no default target: `--out` is required.
+ */
+export function rescoreArgumentsOf(args: readonly string[], resultsDir: string, isPrivateRun: (input: string) => boolean = () => false): Readonly<{ input: string; target: string }> | Readonly<{ error: string }> {
   const outIndex = args.indexOf("--out");
   if (outIndex >= 0 && (args[outIndex + 1] === undefined || args[outIndex + 1]!.startsWith("--"))) return { error: "--out needs a path" };
   const out = outIndex >= 0 ? args[outIndex + 1] : undefined;
   const inputs = args.filter((arg, index) => !arg.startsWith("--") && !(outIndex >= 0 && index === outIndex + 1));
   if (inputs.length !== 1) return { error: "Usage: pnpm eval:rescore <run.json> [--out <path>]" };
   const input = resolve(inputs[0]!);
+  if (out === undefined && isPrivateRun(input)) {
+    return { error: "The input is a private run (its real path is outside the repository or under EVAL_PRIVATE_DIR): pass --out <path> to say where the rescored file goes; it holds the run's case inputs, so nothing is written by default" };
+  }
   const target = resolve(out ?? join(resultsDir, `${basename(input).replace(/\.json$/, "")}.rescored.json`));
   return target === input ? { error: "--out is the input file: the input is never overwritten" } : { input, target };
 }

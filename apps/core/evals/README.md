@@ -218,16 +218,18 @@ certainties with their gate, the counts above, latency, retries, model calls wit
   tokens and estimated cost per model and role;
 - Claude's grouping of the failed cases by cause, from the records: hypotheses, not verified causes.
 
-`pnpm --dir apps/core eval:report eval-results/<run>.json [...]` rebuilds a saved run's report from its records with no model call
-(`lib/rebuild.ts`): messages are rescored under the current rules, the visual calibration regraded and current `known-limitation`
-tags applied; Claude's error groups and cost are kept. The first rebuild keeps the original file as `<run>.orig.json`.
+`pnpm --dir apps/core eval:report eval-results/<run>.json [...]` rebuilds a saved run's report from its records with no model call: it makes
+the **same full recomputation as `eval:rescore`** (`rebuildSavedRun` in `lib/rescore.ts`; the facts of every message under the current rules, then the report, the visual calibration
+regraded and the current `known-limitation` tags applied), so both commands give the same numbers on the same file. Claude's error groups and cost are kept. The first rebuild keeps the
+original file as `<run>.orig.json` and **rewrites the file in place**, so never run it on a private run: run it on a copy, or use `eval:rescore`.
 
 ### Rescoring a saved run
 
 `pnpm --dir apps/core eval:rescore <run.json> [--out <path>]` scores a saved run again with the current code and prints what moved. It makes no model
 call and needs no database, network or API key: it runs with a clean environment (`env -i PATH="$PATH" HOME="$HOME" pnpm ...`). Unlike `eval:report`
 it **never writes the input**: the rescored file (report and records, the same format) goes to `--out`, by default `eval-results/<run>.rescored.json`
-(git-ignored); relative paths (the run and `--out`) resolve from `apps/core`, where `pnpm --dir apps/core` runs the script, so absolute paths are safer; it refuses an `--out` that is the input, and it writes into a private folder only when `--out` says so. The rescored file holds the
+(git-ignored); relative paths (the run and `--out`) resolve from `apps/core`, where `pnpm --dir apps/core` runs the script, so absolute paths are safer; it refuses an `--out` that is the input. **A private run needs `--out`**: when the input's real path (symlinks followed) is outside the repository or under `EVAL_PRIVATE_DIR`, the command stops with a message
+instead of writing by default into `eval-results/`, and it writes into a private folder only when `--out` says so. The rescored file holds the
 run's case inputs like the input does, so keep it where the input would be kept. The table printed holds aggregate numbers only, never a case id or an input.
 
 From the stored expectations, reading trace (`reading`), actual result and earlier order (`previousOrder`) it computes again, for every message
@@ -250,7 +252,11 @@ The table has one row per audited metric: «before» is the report stored in the
 the stored report says where it has the metric: the end-to-end of a report older than the range is its first run only and is labelled so. Where it has no value
 (the end-to-end range, the own and carried conversation failures) the cell says «n/a in stored report» and adds a recount from the stored records with their stored scores.
 The «stage fields, strict» and «messages with a between» rows are the audit lines above. The «final order variant / quantity» rows are the order-level fields as mean and range over all runs, counted from the records (the before with its stored scores, noted
-under the table), apart from the stage `fields accuracy` row, which scores the fields the reader extracted and resolved against the case.
+under the table), apart from the stage `fields accuracy` row, which scores the fields the reader extracted and resolved against the case. The stage fields cover only the cases
+that state fields (20 in the holdout v5 run): widening that coverage needs more labels, which this harness does not write, so it is **out of scope** here and the figure is read with that base in mind.
+The rows after the stage rows are the other audited ones: false urgent in its four readings and the `ready_with_pendings` what-if, silent wrong changes with and without cascades, ignored requests,
+intent, resolution (the product), the cost per message (mean of the stored stage costs, which a rescore keeps), the end to end as the overall accuracy (mean and range, with and without cascades) and the
+`end_to_end` pass alone. The «before» of a row the stored report does not hold is a recount from the stored records with their stored scores, and says so.
 
 ## Private runs
 
