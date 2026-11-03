@@ -201,10 +201,10 @@ export function comparisonOf(before: EvalReport, after: EvalReport, records?: Co
   const stage = (report: EvalReport | null) => (report as Readonly<{ audit?: AuditReport }> | null)?.audit;
   /** A row of the audit views: the stored report's value when it has them, else (when `recount`) a recount from the stored records, labelled; they are new, so the stored scores never held them. */
   const auditRow = (metric: string, pick: (audit: AuditReport) => MetricRange | null | undefined, show: (value: number) => string, recount = false): ComparisonRow => {
-    const stored_ = stage(before);
+    const storedAudit = stage(before);
     const counted = stage(stored);
     return { metric, after: rangeText(pick(stage(after)!), show),
-      before: stored_ ? rangeText(pick(stored_), show) : recount && counted ? `${rangeText(pick(counted), show)} (recount with stored scores)` : "n/a in stored report" };
+      before: storedAudit ? rangeText(pick(storedAudit), show) : recount && counted ? `${rangeText(pick(counted), show)} (recount with stored scores)` : "n/a in stored report" };
   };
   const storedOverall = (before as Readonly<{ overallRuns?: EvalReport["overallRuns"] }>).overallRuns;
   const countedOverall = stored?.overallRuns;
@@ -224,9 +224,9 @@ export function comparisonOf(before: EvalReport, after: EvalReport, records?: Co
   ];
   return [
     metricRow("false urgent share", "falseUrgentShare", before, after, percent, stored),
-    auditRow("false urgent share without the impossible labels", ({ falseUrgent }) => falseUrgent.withoutImpossibleLabels, percent, true),
-    auditRow("false urgent share without carried failures (cascades)", ({ falseUrgent }) => falseUrgent.withoutCascades, percent, true),
-    auditRow("false urgent share without both", ({ falseUrgent }) => falseUrgent.withoutBoth, percent, true),
+    auditRow("false urgent share without the impossible labels (excluded messages not counted, denominator unchanged)", ({ falseUrgent }) => falseUrgent.withoutImpossibleLabels, percent, true),
+    auditRow("false urgent share without carried failures (cascades) (excluded messages not counted, denominator unchanged)", ({ falseUrgent }) => falseUrgent.withoutCascades, percent, true),
+    auditRow("false urgent share without both (excluded messages not counted, denominator unchanged)", ({ falseUrgent }) => falseUrgent.withoutBoth, percent, true),
     auditRow("false urgent share if «listo» with pendings counted as urgent (what-if)", ({ readyWithPendings }) => readyWithPendings.falseUrgentShare, percent, true),
     metricRow("urgent recall", "urgentRecall", before, after, percent, stored),
     auditRow("urgent recall if «listo» with pendings counted as urgent (what-if)", ({ readyWithPendings }) => readyWithPendings.urgentRecall, percent, true),

@@ -486,9 +486,9 @@ function auditLines({ stageFields, readyWithPendings, falseUrgent, silentWrongCh
   const count = (value: number) => String(Math.round(value * 10) / 10);
   return [
     `False urgent share, as is: ${rangeLine(falseUrgent.asIs, percent)}`,
-    `  without the ${impossibleLabelCaseIds.size} impossible labels: ${rangeLine(falseUrgent.withoutImpossibleLabels, percent)}`,
-    `  without carried failures (cascades): ${rangeLine(falseUrgent.withoutCascades, percent)}`,
-    `  without both: ${rangeLine(falseUrgent.withoutBoth, percent)}`,
+    `  without the ${impossibleLabelCaseIds.size} impossible labels (excluded messages not counted, denominator unchanged): ${rangeLine(falseUrgent.withoutImpossibleLabels, percent)}`,
+    `  without carried failures (cascades) (excluded messages not counted, denominator unchanged): ${rangeLine(falseUrgent.withoutCascades, percent)}`,
+    `  without both (excluded messages not counted, denominator unchanged): ${rangeLine(falseUrgent.withoutBoth, percent)}`,
     `Silent wrong changes per run, as is: ${rangeLine(silentWrongChanges.asIs, count)}; without carried failures (cascades): ${rangeLine(silentWrongChanges.withoutCascades, count)}`,
     `Stage fields, messages with a between resolution: ${rangeLine(stageFields.between, count)} per run, of ${rangeLine(stageFields.labelled, count)} messages with fields stated`,
     `Stage fields, strict (a between never passes): ${rangeLine(stageFields.strictAccuracy, percent)}`,

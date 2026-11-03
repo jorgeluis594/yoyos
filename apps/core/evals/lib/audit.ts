@@ -10,11 +10,9 @@ import { rangeOfValues, runsOfRecords, silentWrongRecord, type MetricRange } fro
  */
 
 /**
- * Labels of the holdout v5 that no reader can match, so a false urgent on them is an artefact of the label, not a reader error. Each one states `decision: "pending"`
- * beside an urgent notice (`not_clear`, `variant_missing`, `variant_not_available`): the notice interrupts the seller, so under the one criterion of
- * `decisionFromEvidence` the message is urgent, and a reader cannot send that notice and be a silent pending. Only the false urgent view without them uses this
- * set; the cases and their labels are not edited, and no other metric excludes them. Matched by the base id of the record, so paraphrases and the steps
- * of a conversation follow their case.
+ * Labels of the private holdout that no reader can match, so a false urgent on them is an artefact of the label, not a reader error: labels whose stated decision
+ * cannot follow from their own notice under `decisionFromEvidence`. Only the false urgent view without them uses this set; the cases and their labels are not
+ * edited, and no other metric excludes them. Matched by the base id of the record, so paraphrases and the steps of a conversation follow their case.
  */
 export const impossibleLabelCaseIds: ReadonlySet<string> = new Set(["h5-100", "h5-103", "h5-104"]);
 
@@ -58,12 +56,15 @@ function stageFieldsOf(records: readonly CaseRecord[]): AuditReport["stageFields
   };
 }
 
+/** The decision of the label and of the answer of one message. */
+type Decisions = Readonly<{ expected: DecisionKind; actual: DecisionKind }>;
+
 const readyWithPendings = "ready_with_pendings";
 type Said = Readonly<{ notice?: string | null; outcomes?: readonly string[] }>;
 const saysReadyWithPendings = (said: Said | null | undefined): boolean => said?.notice === readyWithPendings || (said?.outcomes ?? []).includes(readyWithPendings);
 
 /** The decision of each side if `ready_with_pendings` were urgent: urgent when the label (with no `decision` of its own) or the answer says it, else as scored. */
-function decisionsIfReadyUrgent(record: CaseRecord): Readonly<{ expected: DecisionKind; actual: DecisionKind }> {
+function decisionsIfReadyUrgent(record: CaseRecord): Decisions {
   const facts = record.facts!;
   const expectation = messageExpectationsOf(record)[record.expectationIndex];
   const expectedUrgent = expectation !== undefined && expectation.decision === undefined && saysReadyWithPendings(expectation);
@@ -75,12 +76,12 @@ const decided = (run: readonly CaseRecord[]) => run.filter(({ facts }) => facts 
 
 function readyWithPendingsOf(records: readonly CaseRecord[]): AuditReport["readyWithPendings"] {
   const runs = runsWithFacts(records).map((run) => decided(run).map(decisionsIfReadyUrgent));
-  const share = (run: ReturnType<typeof decisionsIfReadyUrgent>[]) => run.length ? run.filter(({ expected, actual }) => actual === "urgent" && expected !== "urgent").length / run.length : null;
-  const recall = (run: ReturnType<typeof decisionsIfReadyUrgent>[]) => {
+  const share = (run: Decisions[]) => run.length ? run.filter(({ expected, actual }) => actual === "urgent" && expected !== "urgent").length / run.length : null;
+  const recall = (run: Decisions[]) => {
     const urgent = run.filter(({ expected }) => expected === "urgent");
     return urgent.length ? urgent.filter(({ actual }) => actual === "urgent").length / urgent.length : null;
   };
-  const measured = (measure: (run: ReturnType<typeof decisionsIfReadyUrgent>[]) => number | null) => rangeOfValues(runs.flatMap((run) => measure(run) ?? []));
+  const measured = (measure: (run: Decisions[]) => number | null) => rangeOfValues(runs.flatMap((run) => measure(run) ?? []));
   return { falseUrgentShare: measured(share), urgentRecall: measured(recall) };
 }
 
