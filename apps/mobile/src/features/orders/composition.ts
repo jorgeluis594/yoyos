@@ -7,4 +7,4 @@ import { request } from "@mobile/composition/auth";
 
 const api = createOrderApi(request);
 export const orders = { ...createCancellationOperations({ cancel: api.cancel, readState: api.readCancellationState }), ...createOrderOperations(api, createPendingOrderConfirmationStore(SecureStore)),
-  get: api.get, ship: api.ship, deliver: api.deliver, registerPayment: api.registerPayment, voidPayment: api.voidPayment, receiptUrl: api.receiptUrl, getDispatchSender: api.getDispatchSender };
+  get: api.get, editOrderItems: api.editOrderItems, loadOrderReview: api.loadOrderReview, confirmOrderReview: api.confirmOrderReview, undoMessage: api.undoMessage, recordLinkAction: api.recordLinkAction, ship: api.ship, deliver: api.deliver, registerPayment: api.registerPayment, voidPayment: api.voidPayment, receiptUrl: api.receiptUrl, getDispatchSender: api.getDispatchSender };

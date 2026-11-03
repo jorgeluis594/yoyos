@@ -35,6 +35,7 @@ function fixture(outcome: DeductionOutcome, initial = pendingOrder(), stock: unk
     savePayment: async (payment) => { saved.push(payment); order.push("save"); return ok(null); },
     updatePayment: async () => { throw new Error("Manual payment must be created"); },
     saveCompletion: async () => { throw new Error("Undelivered order cannot be completed"); },
+    settleUnreviewedChanges: async () => { throw new Error("Only a completing payment settles the changes"); },
     publishPaymentConfirmed: async (event) => { events.push(event); order.push("publish"); return ok(outcome); },
     findVariantStock: async () => ok(new Map([[variantId, stock]])),
     clock: () => new Date("2026-09-30T12:00:00Z"),

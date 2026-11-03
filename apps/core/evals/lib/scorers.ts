@@ -8,13 +8,13 @@ import type { SellerNoticeKind } from "@core/src/features/orders/domain/seller-n
  */
 
 export type FieldScores = Readonly<Record<string, boolean | null>>;
-/** `Scored` of a message also says how a miss misled the seller (see `ignoredActionsOf`, `wrongSilentChange`, `extraNotice`). */
+/** `Scored` of a message also says how a miss misled the seller (see `ignoredActionsOf`, `wrongVisibleField`, `extraNotice`). */
 export type Scored = Readonly<{ passed: boolean; fields: FieldScores; expectationIndex: number }>;
 export type MessageScored = Scored & Readonly<{
   /** Actions the buyer asked for that produced neither their effect nor a notice, counted per action. */
   ignoredActions: number;
-  /** The order is wrong and the seller got no notice. */
-  wrongSilentChange: boolean;
+  /** A visible field of the order is wrong and the seller got no notice, marked or not: a diagnostic, not the founder's silent-change gate (`silentWrongChangeOf`, per changed line). */
+  wrongVisibleField: boolean;
   /** A notice was sent where the expectation says the message is silent. */
   extraNotice: boolean;
   expectedSilent: boolean;
@@ -116,7 +116,7 @@ const orderFields = ["product", "variant", "quantity", "mentionedPrice"] as cons
 
 const statusOf = (fields: FieldScores, actual: MessageActual, expectation: MessageExpectation, initial: readonly OrderLine[]) => ({
   ignoredActions: ignoredActionsOf(actual, expectation, initial),
-  wrongSilentChange: actual.notice === null && orderFields.some((name) => fields[name] === false),
+  wrongVisibleField: actual.notice === null && orderFields.some((name) => fields[name] === false),
   extraNotice: expectation.notice === null && actual.notice !== null,
   expectedSilent: expectation.notice === null,
 });

@@ -47,8 +47,9 @@ export function createChatMessageHandler(deps: ChatMessageHandlerDependencies): 
       const outcome = result.data;
       if (outcome.kind === "skipped") log.info({ event: "orders_chat_message_skipped", ...base(), reason: outcome.reason }, "orders_chat_message_skipped");
       else if (outcome.kind === "applied") log.info({ event: "orders_chat_message_applied", ...base(), chatId: payload.chatId, orderId: outcome.orderId, createdOrder: outcome.createdOrder,
-        outcomeKinds: outcome.outcomes.map(({ kind }) => kind), readerCalls: outcome.trace.readerCalls, answer: outcome.trace.answer, actionKinds: outcome.trace.actionKinds,
-        contextTruncated: outcome.trace.contextTruncated, pendingsBefore: outcome.pendingsBefore, pendingsAfter: outcome.pendingsAfter, candidateMs: outcome.trace.candidateMs,
+        outcomeKinds: outcome.outcomes.map(({ kind }) => kind), answer: outcome.trace.answer, actionKinds: outcome.trace.actionKinds, stageCalls: outcome.trace.stageCalls,
+        decisionKinds: outcome.trace.decisionKinds, doubtfulCount: outcome.trace.doubtfulCount, urgentCount: outcome.trace.urgentCount, confirmingRun: outcome.trace.confirmingRun,
+        contextMessages: outcome.trace.contextMessages, queuedMs: outcome.trace.queuedMs, decidedMs: outcome.trace.decidedMs, costUsd: outcome.trace.costUsd, pendingsBefore: outcome.pendingsBefore, pendingsAfter: outcome.pendingsAfter, candidateMs: outcome.trace.candidateMs,
         candidateMatchCount: outcome.trace.candidateMatchCount, candidatesTimedOut: outcome.trace.candidatesTimedOut, noticeDue: outcome.noticeDue, durationMs: durationMs() }, "orders_chat_message_applied");
       else log.info({ event: "orders_chat_message_skipped", ...base(), reason: "already_processed" }, "orders_chat_message_skipped");
       if (outcome.kind !== "skipped" && outcome.noticeDue) await publishNotice(deps, payload, metadata);

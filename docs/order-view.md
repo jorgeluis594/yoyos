@@ -86,6 +86,8 @@ A late response from an earlier attempt does not change the screen.
 
 ## Productos
 
+On WhatsApp orders, items with a «Con duda» change carry the badge and its reason, and «Por resolver» points, **Revisar pedido** and **Cambios por mensajes** (with **Deshacer**) appear below **Productos**; with unsaved changes **Deshacer** and **Revisar pedido** are `aria-disabled` under the note «Tienes cambios sin guardar. Guarda o descarta los cambios primero.» ([order-review](order-review.md)).
+
 - **Card header:** title, the count «3 productos · 3 unidades», **Agregar producto** with the «/» hint, and on a non-cancelled saved order the stock state «Stock descontado» or «Stock pendiente» ([Orders · Order detail: waiting for stock](orders.md#order-detail-waiting-for-stock)).
 - **Each line (one per variant):** initials (no photo), name, the combination in web format («Talla M · S/ 89.00 c/u») or «Variante única», the mentioned-price note when it applies ([Orders · Mentioned price](orders.md#mentioned-price)), a stepper and the line subtotal, and a remove icon named after the line («Quitar Traje de Príncipe Azul, M»). A line above the shown stock keeps «Disponible: 3. Si lo cobras, el pedido quedará esperando stock.». With the stock unknown the warning is omitted.
 - **Typed quantity:** whole numbers only. Empty or 0 marks the line «Escribe una cantidad de 1 o más.» and saving is refused as an invalid field; leaving the field empty restores the previous quantity. Typing 0 never removes the line: removing is the trash icon. Above 9999: «Máximo 9999 unidades.».
@@ -133,7 +135,7 @@ Saved orders only, at the top of the right column (right after the header on nar
 ## Enlace del pedido
 
 - Before saving: grey, with the input, copy and open buttons disabled and a lock next to «Disponible al guardar».
-- Saved: the card of [Checkout · Link and access](checkout.md#link-and-access). Without a subdomain: «Elige el link de tu tienda para compartir este pedido.» and **Ir a Apariencia de la tienda**. Cancelled: «Pedido cancelado».
+- Saved: the card of [Checkout · Link and access](checkout.md#link-and-access). On a WhatsApp order open for messages with something to review, the URL is replaced by the review entry ([order-review](order-review.md#screens)). Without a subdomain: «Elige el link de tu tienda para compartir este pedido.» and **Ir a Apariencia de la tienda**. Cancelled: «Pedido cancelado».
 
 ## Entrega
 

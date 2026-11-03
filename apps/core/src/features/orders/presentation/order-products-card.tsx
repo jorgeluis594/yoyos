@@ -8,6 +8,7 @@ import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { formatCurrency } from "@core/app/format-currency";
 import { cn } from "@core/app/lib/utils";
+import { DoubtMark } from "@core/src/features/orders/presentation/doubt-mark";
 import { joinNames, shortItemLines } from "@core/src/features/orders/presentation/stock-due";
 import { ProductPickerDialog, initialsOf, type PickerChoice } from "@core/src/features/orders/presentation/product-picker-dialog";
 import type { CatalogSearch } from "@core/src/features/orders/presentation/use-catalog-search";
@@ -55,9 +56,11 @@ type Props = Readonly<{
   search: CatalogSearch; pickerOpen: boolean; onPickerOpenChange: (open: boolean) => void; createProductHref: string;
   /** The variant that a save answered «ya no está disponible» for: its line carries the message. */
   unavailableVariantId?: string | null;
+  /** The reasons of the «Con duda» marks, by saved item id. */
+  doubts?: ReadonlyMap<string, readonly string[]>;
 }>;
 
-export function OrderProductsCard({ state, onChange, search, pickerOpen, onPickerOpenChange, createProductHref, unavailableVariantId = null }: Props) {
+export function OrderProductsCard({ state, onChange, search, pickerOpen, onPickerOpenChange, createProductHref, unavailableVariantId = null, doubts }: Props) {
   const { t, i18n } = useTranslation();
   const lastValid = useRef(new Map<string, string>());
   const addRef = useRef<HTMLButtonElement>(null);
@@ -99,6 +102,7 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium">{line.productName}</p>
           <p className="text-sm text-muted-foreground">{t("orderView.products.lineDetail", { variant, price })}</p>
+          {savedItem && doubts?.get(savedItem.id) && <DoubtMark reasons={doubts.get(savedItem.id)!} />}
           {note && <p className="text-sm text-muted-foreground">{t("orderDetail.mentionedPrice", { count: note.units, amount: money(note.amount, line.unitPrice.currency) })}</p>}
         </div>
         <Button type="button" variant="ghost" size="icon" className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent" aria-label={t("orderView.products.removeLine", { name: line.productName, variant })}

@@ -78,6 +78,8 @@ Application code must not construct concrete repositories or import HTTP request
 
 `application/ports/` holds contracts for supplied repositories or external capabilities when named contracts are useful. A small dependency may be described inline with the use case. A port does not require a class, generic base repository, or dependency injection framework.
 
+Model-backed steps are ports named by what they mean (for example `readIntent`, `extractRequests`, `chooseProducts` in `orders`), not by provider; the model, prompt version and provider clients are chosen by configuration in infrastructure, so replacing one step's model touches no other step and no business rule. Reason: the decisions stay pure and reviewable whatever model reads the words ([message-reader](message-reader.md)).
+
 ### Infrastructure
 
 `features/<feature>/infrastructure/` implements the data access and external capabilities required by that feature. It owns queries, persistence, remote requests, serialization, source-specific mapping, and technical error translation.

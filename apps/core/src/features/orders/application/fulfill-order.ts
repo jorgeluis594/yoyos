@@ -15,6 +15,8 @@ export type FulfillOrderDependencies = Readonly<{
   lockVariantStock: (variantIds: readonly VariantId[], mode: "wait") => Promise<Result<ReadonlyMap<VariantId, unknown>, FulfillOrderError>>;
   deductStockBulk: (lines: readonly StockLine[]) => Promise<Result<number, FulfillOrderError>>;
   saveStockDeduction: (id: OrderId, companyId: CompanyId, stockDeductedAt: Date) => Promise<Result<null, FulfillOrderError>>;
+  /** Delivering a paid order completes it and fixes `not_reviewed` on the changes nobody judged. */
+  settleUnreviewedChanges: (orderId: OrderId, at: Date) => Promise<Result<null, FulfillOrderError>>;
   clock: () => Date;
 }>;
 
@@ -62,7 +64,11 @@ export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: Fu
 /** Delivering needs a confirmed payment, partial or full, and deducts the pending stock like shipping does. */
 export async function deliverOrder(order: OrderAggregate, deliveredAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
   const deducted = await deductForFulfillment(order, deliveredAt, deps);
-  return deducted.success ? orderStateMachine.registerDelivery(deducted.data, deliveredAt) : deducted;
+  if (!deducted.success) return deducted;
+  const delivered = orderStateMachine.registerDelivery(deducted.data, deliveredAt);
+  if (!delivered.success || !delivered.data.completedAt) return delivered;
+  const settled = await deps.settleUnreviewedChanges(order.id, delivered.data.completedAt);
+  return settled.success ? delivered : settled;
 }
 
 export async function registerShipment(id: OrderId, context: OrderAccess, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {

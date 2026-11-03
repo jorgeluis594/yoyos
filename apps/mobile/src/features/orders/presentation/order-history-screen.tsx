@@ -255,6 +255,10 @@ export default function OrderHistoryScreen() {
                 <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={styles.statusText}>{deliveryStatusLabel(item.deliveryStatus, language)}</ThemedText>
               </View>
             </View>}
+            {item.toReview && item.status === "active" ? <View style={styles.statusLine}>
+              <SymbolView name={{ ios: "exclamationmark.triangle", android: "warning" }} size={16} tintColor={theme.warning} />
+              <ThemedText type="small" style={{ color: theme.warning }}>{t('orderListToReview')}</ThemedText>
+            </View> : null}
             {item.scheduledDispatchDate || item.courier ? <ThemedText type="small" themeColor="textSecondary">{[item.scheduledDispatchDate && t('orderListScheduledOn', { date: item.scheduledDispatchDate }), item.courier?.name].filter(Boolean).join(" · ")}</ThemedText> : null}
           </View>
           <ThemedText style={styles.amount}>{money(item.total.amount, item.total.currency, locale)}</ThemedText>

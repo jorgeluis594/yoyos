@@ -4,7 +4,7 @@ import { after, kept, line, M_NEGRO } from "@core/evals/cases/builders";
 /**
  * The first holdout (written fresh by the T16 reviewer, 2026-10-24): other products, idioms and sentence shapes for the rules of
  * docs/message-to-order.md. It judged T16 once and is an ordinary interpretation table since T18. Rows tagged `probe` target
- * risks found in that review and may expect more than the design delivers.
+ * risks found in that review and may expect more than the product delivers.
  */
 
 const hPolo = line("polo-basico", M_NEGRO);
@@ -87,7 +87,8 @@ export const holdoutV1Cases: readonly EvalCaseInput[] = [
   { id: "hold-variant-cambiamela", pass: "interpretation", criterion: 1, kind: "variant-change", input: { text: "cámbiamela a negro", order: [hPolera] },
     expected: [{ outcomes: ["variant_changed"], order: [after("polera-capucha", { Talla: "M", Color: "Negro" })] }] },
   { id: "hold-variant-named-of-two", pass: "interpretation", criterion: 1, kind: "variant-change", input: { text: "la gorra mejor que sea roja", order: [hPolo, hGorra] },
-    expected: [{ outcomes: ["variant_changed"], order: [kept(hPolo), after("gorra-trucker", { Color: "Rojo" })] }] },
+    ambiguous: "the gorra is named, but «mejor que sea» is not a change verb; the urgent answer is accepted (coordinator 2026-11-01).",
+    expected: [{ outcomes: ["variant_changed"], order: [kept(hPolo), after("gorra-trucker", { Color: "Rojo" })] }, { outcomes: ["unclear_item"] }, { outcomes: ["reader_doubt"] }] },
   { id: "hold-variant-mejor-en", pass: "interpretation", criterion: 1, kind: "variant-change", input: { text: "mejor en S", order: [hRayas2] },
     ambiguous: "docs list «mejor en talla L» as an explicit change; with one item it changes that item.",
     expected: [{ outcomes: ["variant_changed"], order: [after("polo-rayas", { Talla: "S", Color: "Azul" }, 2)] }] },

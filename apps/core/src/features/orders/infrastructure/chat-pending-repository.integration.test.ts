@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { findChatMemory, findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import type { ChatPending, ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
@@ -33,6 +33,7 @@ const variantPending: ChatPending = {
   id: pendingId, subject: { kind: "variant", productId: randomUUID() as ProductId }, known: { Talla: "M" }, quantity: 2 as PositiveInteger,
   price: { amount: { amount: 70, currency: "PEN" }, per: "lot", forQuantity: 2 as PositiveInteger },
   order: null, lastChangedAt: new Date("2026-10-28T12:00:00.000Z"), sourceMessageId: randomUUID() as ChatMessageId, requestId: pendingId,
+  doubt: null, pointSince: new Date("2026-10-28T12:00:00.000Z"), acknowledgedAt: null,
 };
 const empty: ChatPendings = { pendings: [], readyRemembered: false };
 
@@ -95,6 +96,35 @@ test("rejects a stored row that fails its schema as invalid stored data", async 
       await prisma.chatPendings.create({ data: { chatId: f.chatId, pendings: [stored], readyRemembered: false, updatedAt: new Date() } });
       expect(await findChatPendings(f.chatId)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
       expect(await withinTransaction(() => findChatPendingsForUpdate(f.chatId))).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("keeps the photo memory and the last request time with an empty set of pendings and reads them back", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await findChatMemory(f.chatId)).toEqual({ success: true, data: { lastIncomingPhoto: null, lastRequestAt: null } });
+      const memory = { lastIncomingPhoto: { left: null }, lastRequestAt: new Date("2026-10-30T12:00:00.000Z") };
+      expect(await withinTransaction(() => saveChatPendings(f.chatId, empty, memory))).toEqual({ success: true, data: null });
+      expect(await prisma.chatPendings.count()).toBe(1);
+      expect(await findChatMemory(f.chatId)).toEqual({ success: true, data: memory });
+      // Saving the pendings without a memory leaves the memory as it was.
+      await withinTransaction(() => saveChatPendings(f.chatId, { pendings: [variantPending], readyRemembered: false }));
+      expect(await findChatMemory(f.chatId)).toEqual({ success: true, data: memory });
+      // Clearing the memory with nothing else left removes the row.
+      await withinTransaction(() => saveChatPendings(f.chatId, empty, { lastIncomingPhoto: null, lastRequestAt: null }));
+      expect(await prisma.chatPendings.count()).toBe(0);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("rejects a stored photo memory that fails its schema as invalid stored data", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      await prisma.chatPendings.create({ data: { chatId: f.chatId, pendings: [], readyRemembered: false, lastIncomingPhoto: { left: { kind: "other" } }, updatedAt: new Date() } });
+      expect(await findChatMemory(f.chatId)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
     });
   } finally { await f.cleanup(); }
 });

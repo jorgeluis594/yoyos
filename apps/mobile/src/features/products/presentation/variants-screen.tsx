@@ -24,7 +24,7 @@ import { useProductEditor } from "./product-editor-state";
 import { variantPath } from "./product-routes";
 import { useProductDraft } from "./draft-guard";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
-import { QuantityStepper } from "./quantity-stepper";
+import { QuantityStepper } from "@mobile/components/ui/quantity-stepper";
 import tokens from "../../../../../../docs/design-tokens.json";
 
 type Bulk = "salePrice" | "stock" | "purchasePrice";

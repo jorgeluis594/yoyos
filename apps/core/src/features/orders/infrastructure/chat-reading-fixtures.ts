@@ -26,6 +26,7 @@ export const readingProduct = (n: number, name: string, combinations: [Record<st
 });
 export const pending = (n: number, over: Partial<ChatPending>): ChatPending => ({
   id: id(5000 + n) as ChatPendingId, subject: { kind: "variant", productId: productId(1) }, known: {}, quantity: 1 as PositiveInteger, price: null,
-  order: null, lastChangedAt: new Date("2026-10-28T10:00:00Z"), sourceMessageId: id(9) as ChatMessageId, requestId: id(5000 + n) as ChatPendingId, ...over,
+  order: null, lastChangedAt: new Date("2026-10-28T10:00:00Z"), sourceMessageId: id(9) as ChatMessageId, requestId: id(5000 + n) as ChatPendingId,
+  doubt: null, pointSince: new Date("2026-10-28T10:00:00Z"), acknowledgedAt: null, ...over,
 });
 export const context = (over: Partial<ChatReadingContext>): ChatReadingContext => ({ kind: "text", text: "hola", items: [], pendings: [], products: [], truncated: false, ...over });

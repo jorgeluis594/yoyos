@@ -1,0 +1,242 @@
+import { describe, expect, test } from "vitest";
+import type { MessageTrace } from "@core/src/features/orders/domain/reader/trace";
+import { decisionOf, expectedStagesOf, scoreStages } from "@core/evals/lib/stage-facts";
+import { legacyAnswerOf, stagedAnswerOf } from "@core/evals/lib/staged-answer";
+
+const quote = (text: string) => ({ source: "current" as const, text });
+const call = (stage: string, reading: "primary" | "confirming", costUsd: number | null) => ({ stage, reading, provider: "fake", model: "m", promptVersion: "v", usage: null, costUsd, durationMs: 1, attempts: 1 });
+const intentStage = (kind: "requests" | "no_intent" | "unsure") => ({ call: call("intent", "primary", 0.0003),
+  output: { stage: "intent", kind, ...(kind === "no_intent" ? { reason: "other" } : {}), ...(kind === "requests" ? { requests: [] } : {}), language: "es", addressSpans: [] } });
+const extractionStage = (requests: readonly object[], reading: "primary" | "confirming" = "primary") => ({ call: call("extraction", reading, 0.0004), output: { stage: "extraction", requests } });
+const resolutionStage = (productId: string) => ({ call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "chosen", productId, values: [] }] } });
+const decision = (kind: string, productId: string | null = null) => ({ action: { kind: "set_quantity", request: "r1", item: null, pending: null, productId, variantId: null }, decision: kind });
+const traceOf = (parts: Partial<Record<"stages" | "decisions" | "photo", unknown>>): MessageTrace =>
+  ({ stages: [], decisions: [], photo: null, ...parts }) as unknown as MessageTrace;
+
+const keys: Readonly<Record<string, string>> = { "id-polo": "polo-basico", "id-gorra": "gorra-trucker" };
+const base = { outcomes: [] as readonly string[], notice: null as string | null, orderMatches: true as boolean | null, latencyMs: 1200, productKeyOf: (id: string) => keys[id] ?? null };
+
+describe("the staged answer read from the reading trace", () => {
+  test("reads the intent of the primary intent stage and ignores the confirming reading", () => {
+    const trace = traceOf({ stages: [intentStage("no_intent")] });
+    const answer = stagedAnswerOf({ ...base, trace, expected: expectedStagesOf({ outcomes: ["no_intent"] }) });
+    expect(answer.intent).toBe("no_intent");
+  });
+
+  test("derives the intent from the outcomes when no intent stage ran", () => {
+    expect(stagedAnswerOf({ ...base, trace: null, outcomes: ["added"], expected: expectedStagesOf({ outcomes: ["added"] }) }).intent).toBe("requests");
+    expect(stagedAnswerOf({ ...base, trace: null, outcomes: ["questions"], expected: expectedStagesOf({ outcomes: ["questions"] }) }).intent).toBe("no_intent");
+  });
+
+  test("names the extracted fields the way the case states them, folding case and accents", () => {
+    const request = { request: "r1", kind: "change_quantity", target: { kind: "none" }, quantity: { value: 3, mode: "set", quote: quote("3") }, price: { amount: 55, currency: "order", basis: "unit", quote: quote("55") },
+      values: [{ attributeWords: quote("talla"), valueWords: quote("l") }, { attributeWords: null, valueWords: quote("BLANCO") }], changeVerb: null };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "3", price: "55", Talla: "L", Color: "Blanco" } }, outcomes: ["quantity_changed"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request])] }), expected });
+    expect(answer.fields).toEqual({ quantity: "3", price: "55", Talla: "L", Color: "Blanco" });
+  });
+
+  test("compares the catalog values the resolution chose, not the buyer's words, and counts an add with no quantity as one", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: null, valueWords: quote("negros") }, { attributeWords: quote("talla"), valueWords: quote("eme") }], changeVerb: null };
+    const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "chosen", productId: "id-polo", unmatched: [],
+      values: [{ attribute: "Color", value: "Negro", quote: quote("negros") }, { attribute: "Talla", value: "M", quote: quote("eme") }] }] } };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M", Color: "Negro" } }, outcomes: ["added"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", Color: "Negro", Talla: "M" });
+    expect(scoreStages(expected, answer).fields).toBe(true);
+  });
+
+  test("a value word the resolution left unmatched is an extra field, so the comparison fails", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: quote("talla"), valueWords: quote("eme") }, { attributeWords: null, valueWords: quote("canalé") }], changeVerb: null };
+    const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "chosen", productId: "id-polo", unmatched: [quote("canalé")],
+      values: [{ attribute: "Talla", value: "M", quote: quote("eme") }] }] } };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M" } }, outcomes: ["added"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", Talla: "M", canalé: "canalé" });
+    expect(scoreStages(expected, answer).fields).toBe(false);
+  });
+
+  test("an unmatched word the label states as the value (a variant the catalog lacks) still matches, under the case's spelling", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: quote("talla"), valueWords: quote("xxl") }], changeVerb: null };
+    const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "chosen", productId: "id-polo", unmatched: [quote("xxl")], values: [] }] } };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "XXL" } }, outcomes: ["variant_not_available"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", Talla: "XXL" });
+    expect(scoreStages(expected, answer).fields).toBe(true);
+  });
+
+  test("a word the resolution dropped without listing it is an extra field too, in a chosen product and in a between", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: quote("talla"), valueWords: quote("eme") }, { attributeWords: null, valueWords: quote("rib negro") }], changeVerb: null };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M" } }, outcomes: ["added"] });
+    for (const resolved of [{ kind: "chosen", productId: "id-polo", unmatched: [] }, { kind: "between", productIds: ["id-polo", "id-gorra"] }]) {
+      const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", ...resolved, values: [{ attribute: "Talla", value: "M", quote: quote("eme") }] }] } };
+      const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+      expect(answer.fields, resolved.kind).toEqual({ quantity: "1", Talla: "M", "rib negro": "rib negro" });
+      expect(scoreStages(expected, answer).fields, resolved.kind).toBe(false);
+    }
+  });
+
+  test("a between whose words are all mapped passes the fields on its values, and says it was between so the strict reading can leave it out", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: quote("talla"), valueWords: quote("eme") }], changeVerb: null };
+    const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "between", productIds: ["id-polo", "id-gorra"],
+      values: [{ attribute: "Talla", value: "M", quote: quote("eme") }] }] } };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M" } }, outcomes: ["added"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", Talla: "M" });
+    expect(answer.fieldsBetween).toBe(true);
+    expect(scoreStages(expected, answer)).toMatchObject({ fields: true, fieldsBetween: true });
+  });
+
+  test("a between that mapped no value never passes the fields through the buyer's words, even when they spell the label's value; with no resolution at all the words still stand in", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: quote("talla"), valueWords: quote("M") }], changeVerb: null };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M" } }, outcomes: ["added"] });
+    const between = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "between", productIds: ["id-polo", "id-gorra"] }] } };
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), between] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", M: "M" });
+    expect(scoreStages(expected, answer)).toMatchObject({ fields: false, fieldsBetween: true });
+    const unresolved = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request])] }), expected });
+    expect(scoreStages(expected, unresolved)).toMatchObject({ fields: true, fieldsBetween: false });
+  });
+
+  test("a chosen resolution is not between, and a case that states no fields records no between", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null, values: [], changeVerb: null };
+    const trace = traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolutionStage("id-polo")] });
+    const withFields = expectedStagesOf({ stages: { fields: { quantity: "1" } }, outcomes: ["added"] });
+    expect(scoreStages(withFields, stagedAnswerOf({ ...base, trace, expected: withFields }))).toMatchObject({ fields: true, fieldsBetween: false });
+    const without = expectedStagesOf({ outcomes: ["added"] });
+    expect(scoreStages(without, stagedAnswerOf({ ...base, trace, expected: without }))).not.toHaveProperty("fieldsBetween");
+  });
+
+  test("a quantity the buyer stated is kept, and a request that does not add an item gets no implicit quantity", () => {
+    const request = (kind: string, quantity: object | null) => ({ request: "r1", kind, target: { kind: "none" }, quantity, price: null, values: [], changeVerb: null });
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "2" } }, outcomes: ["added"] });
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [extractionStage([request("add", { value: 2, mode: "add", quote: quote("dos") })])] }), expected }).fields).toEqual({ quantity: "2" });
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [extractionStage([request("remove", null)])] }), expected }).fields).toEqual({});
+  });
+
+  test("without a resolution it falls back to the words, and a preposition is never the name of an attribute", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "none" }, quantity: { value: 1, mode: "add", quote: quote("una") }, price: null,
+      values: [{ attributeWords: quote("en"), valueWords: quote("L") }, { attributeWords: quote("a"), valueWords: quote("Crema") }], changeVerb: null };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "L", Color: "Crema" } }, outcomes: ["added"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [extractionStage([request])] }), expected });
+    expect(Object.keys(answer.fields ?? {})).not.toContain("en");
+    expect(Object.keys(answer.fields ?? {})).not.toContain("a");
+    expect(answer.fields).toEqual({ quantity: "1", Talla: "L", Color: "Crema" });
+  });
+
+  test("reads no fields when the extraction stage did not run and ignores the confirming extraction", () => {
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1" } }, outcomes: ["added"] });
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests")] }), expected }).fields).toBeNull();
+    const confirming = extractionStage([{ request: "r1", kind: "add", target: { kind: "none" }, quantity: { value: 9, mode: "add", quote: quote("9") }, price: null, values: [], changeVerb: null }], "confirming");
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), confirming] }), expected }).fields).toBeNull();
+  });
+
+  test("takes the product of the decision, else of the resolution", () => {
+    const expected = expectedStagesOf({ stages: { product: "polo-basico" }, outcomes: ["added"] });
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [resolutionStage("id-gorra")], decisions: [decision("applied", "id-polo")] }), expected }).product).toBe("polo-basico");
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [resolutionStage("id-gorra")] }), expected }).product).toBe("gorra-trucker");
+    expect(stagedAnswerOf({ ...base, trace: traceOf({}), expected }).product).toBeNull();
+  });
+
+  test("the decision is the notice when there is one, else the most severe decision of the trace", () => {
+    const expected = expectedStagesOf({ outcomes: ["added"] });
+    expect(stagedAnswerOf({ ...base, notice: "variant_only", trace: traceOf({ decisions: [decision("applied")] }), expected }).decision).toBe("urgent");
+    expect(stagedAnswerOf({ ...base, notice: "ready", trace: traceOf({}), expected }).decision).toBe("notice");
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("applied"), decision("doubtful")] }), expected }).decision).toBe("doubtful");
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("applied"), decision("pending")] }), expected }).decision).toBe("pending");
+    expect(stagedAnswerOf({ ...base, trace: null, outcomes: ["no_intent"], expected }).decision).toBe("silent");
+  });
+
+  test("expected and actual decisions follow one criterion: the same notice and outcomes give the same decision on both sides", () => {
+    const expected = expectedStagesOf({ outcomes: ["added"] });
+    const cases: readonly Readonly<{ notice: string | null; outcomes: readonly string[]; decisions: readonly string[]; decision: string }>[] = [
+      { notice: "not_clear", outcomes: ["pending_created", "not_clear"], decisions: ["pending"], decision: "urgent" },
+      { notice: "several_problems", outcomes: ["pending_created", "variant_missing", "invalid_action"], decisions: ["pending", "urgent"], decision: "urgent" },
+      { notice: "ready_with_pendings", outcomes: ["ready_with_pendings"], decisions: ["applied"], decision: "notice" },
+      { notice: null, outcomes: ["added", "pending_completed"], decisions: ["pending"], decision: "applied" },
+      { notice: null, outcomes: ["pending_updated"], decisions: ["pending"], decision: "pending" },
+    ];
+    for (const { notice, outcomes, decisions, decision: wanted } of cases) {
+      const trace = traceOf({ decisions: decisions.map((kind) => decision(kind)) });
+      expect(stagedAnswerOf({ ...base, notice, outcomes, trace, expected }).decision, outcomes.join("+")).toBe(wanted);
+      expect(decisionOf({ notice, outcomes } as Parameters<typeof decisionOf>[0]), outcomes.join("+")).toBe(wanted);
+    }
+  });
+
+  test("a change the trace doubted stays doubtful when the outcomes say it was applied", () => {
+    const expected = expectedStagesOf({ outcomes: ["added"] });
+    expect(stagedAnswerOf({ ...base, outcomes: ["quantity_changed"], trace: traceOf({ decisions: [decision("doubtful")] }), expected }).decision).toBe("doubtful");
+  });
+
+  test("a doubtful change to a pending stays doubtful when the trace holds no pending action, and a real pending action beside it stays pending", () => {
+    const expected = expectedStagesOf({ outcomes: ["pending_updated"] });
+    const doubtful = stagedAnswerOf({ ...base, outcomes: ["pending_updated"], trace: traceOf({ decisions: [decision("doubtful")] }), expected });
+    expect(doubtful.decision).toBe("doubtful");
+    const mixed = stagedAnswerOf({ ...base, outcomes: ["pending_updated"], trace: traceOf({ decisions: [decision("pending"), decision("doubtful")] }), expected });
+    expect(mixed.decision).toBe("pending");
+  });
+
+  test("takes the changed lines from the change rows: a completion is a change and a line mark counts as a mark", () => {
+    const expected = expectedStagesOf({ outcomes: ["added"] });
+    const completion = stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("pending")] }), expected, changedLines: [{ marked: false, wrong: false }] });
+    expect(completion).toMatchObject({ changeApplied: true, marked: false, point: true, changedLines: [{ marked: false, wrong: false }] });
+    const inherited = stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("pending")] }), expected, changedLines: [{ marked: true, wrong: true }, { marked: false, wrong: false }] });
+    expect(inherited).toMatchObject({ changeApplied: true, marked: true });
+    expect(stagedAnswerOf({ ...base, trace: null, expected, changedLines: [] })).toMatchObject({ changeApplied: false, changedLines: [] });
+    expect(stagedAnswerOf({ ...base, trace: null, expected })).not.toHaveProperty("changedLines");
+  });
+
+  test("with the rows read, a message that changed no line left no change, whatever the decision derived from its outcomes", () => {
+    const expected = expectedStagesOf({ outcomes: ["added"] });
+    // «pending_ended» with no trace decisions derives `applied`, but no line changed: an ignored request, not a change.
+    const ended = { ...base, trace: null, outcomes: ["pending_ended", "no_intent"], expected };
+    expect(stagedAnswerOf({ ...ended, changedLines: [] }).changeApplied).toBe(false);
+    expect(stagedAnswerOf(ended).changeApplied).toBe(true);
+  });
+
+  test("states what the message left for the silent-change and ignored-request counts", () => {
+    const expected = expectedStagesOf({ outcomes: ["added"] });
+    const doubtful = stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("doubtful")] }), expected });
+    expect(doubtful).toMatchObject({ changeApplied: true, marked: true, point: false, noticed: false });
+    const pending = stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("pending")] }), expected });
+    expect(pending).toMatchObject({ changeApplied: false, marked: false, point: true });
+    const changed = stagedAnswerOf({ ...base, notice: "order_changed_after_link", trace: null, expected });
+    expect(changed).toMatchObject({ noticed: true, changedNotice: true });
+    expect(stagedAnswerOf({ ...base, orderMatches: null, trace: null, expected }).orderMatches).toBeNull();
+  });
+
+  test("adds the cost of every stage by name, the confirming ones apart, and of the photo by method", () => {
+    const trace = traceOf({ stages: [intentStage("requests"), extractionStage([]), extractionStage([], "confirming"), resolutionStage("id-polo")],
+      photo: { method: "visual", costUsd: 0.0008 } });
+    const answer = stagedAnswerOf({ ...base, trace, expected: expectedStagesOf({ outcomes: ["added"] }) });
+    expect(answer.stageCostsUsd).toEqual({ intent: 0.0003, extraction: 0.0004, confirming_extraction: 0.0004, resolution: 0.0003, photo_visual: 0.0008 });
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ photo: { method: "none", costUsd: null } }), expected: expectedStagesOf({ outcomes: ["added"] }) }).stageCostsUsd).toEqual({});
+  });
+
+  test("reports the wall time of the reading and no queue wait", () => {
+    const answer = stagedAnswerOf({ ...base, latencyMs: 4321, trace: null, expected: expectedStagesOf({ outcomes: ["added"] }) });
+    expect(answer).toMatchObject({ readingMs: 4321, queuedMs: 0 });
+  });
+});
+
+describe("the legacy answer read from the shadow reader", () => {
+  const expected = expectedStagesOf({ outcomes: ["added"] });
+  const shadow = (answer: "actions" | "no_intent" | "doubt" | "fixed", costUsd: number | null) => ({ answer, actionKinds: answer === "actions" ? ["add"] : [], usage: null, costUsd });
+
+  test("answers the intent and the cost, and states no field, product or decision", () => {
+    const actions = legacyAnswerOf({ shadow: shadow("actions", 0.0011), expected, latencyMs: 900 });
+    expect(actions).toMatchObject({ intent: "requests", fields: null, product: null, changeApplied: true, readingMs: 900, stageCostsUsd: { legacy: 0.0011 } });
+    expect(legacyAnswerOf({ shadow: shadow("no_intent", 0.0009), expected, latencyMs: 900 })).toMatchObject({ intent: "no_intent", changeApplied: false });
+    expect(legacyAnswerOf({ shadow: shadow("doubt", 0.001), expected, latencyMs: 900 }).intent).toBe("unsure");
+  });
+
+  test("a legacy reading that failed costs nothing and leaves nothing", () => {
+    expect(legacyAnswerOf({ shadow: null, expected, latencyMs: 900 })).toMatchObject({ intent: "unsure", changeApplied: false, stageCostsUsd: {} });
+  });
+});

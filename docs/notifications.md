@@ -1,6 +1,6 @@
 # Notifications
 
-Yoyos sends push notices to the seller's phone when a chat message needs them ([message-to-order](message-to-order.md#notices) decides which notice and its text). Notices are standard alert pushes drawn by the operating system; they only display information.
+Yoyos sends push notices to the seller's phone when a chat message needs them ([message-to-order](message-to-order.md#notices) decides which notice and its text). The notice kinds are those of the choice order in [message-to-order](message-to-order.md#notices), including the payment request («Revisa el chat») and «Pedido #N cambió» (non-urgent, [order-review](order-review.md#after-the-link-was-taken)); a problem notice ends with the first suggested question and, when the order changed after the link was taken, with «El pedido cambió después de enviar el enlace.». Notices are standard alert pushes drawn by the operating system; they only display information.
 
 Sources of truth:
 

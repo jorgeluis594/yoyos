@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { editOrderRequestSchema, editOrderResultSchema, orderRevisionSchema } from "@core/src/features/orders/presentation/order-edit-schemas";
+import { orderRevisionSchema } from "@shared/contracts/order-revisions";
+import { editOrderRequestSchema, editOrderResultSchema } from "@core/src/features/orders/presentation/order-edit-schemas";
 
 const revision = "A".repeat(43);
 const variantId = "00000000-0000-4000-8000-000000000101";

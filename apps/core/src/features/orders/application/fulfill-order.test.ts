@@ -23,11 +23,12 @@ function deductedOrder(deducted: readonly [number, number]): OrderAggregate {
 }
 
 function setup(stock: ReadonlyMap<VariantId, number>, bulkResult?: number) {
-  const calls = { lock: vi.fn(), deduct: vi.fn(), save: vi.fn() };
+  const calls = { lock: vi.fn(), deduct: vi.fn(), save: vi.fn(), settle: vi.fn() };
   const deps = {
     lockVariantStock: async (variantIds: readonly VariantId[]) => { calls.lock(variantIds); return ok(new Map([...stock].filter(([variant]) => variantIds.includes(variant)))); },
     deductStockBulk: async (lines: readonly unknown[]) => { calls.deduct(lines); return ok(bulkResult ?? lines.length); },
     saveStockDeduction: async () => { calls.save(); return ok(null); },
+    settleUnreviewedChanges: async (orderId: OrderId, settledAt: Date) => { calls.settle(orderId, settledAt); return ok(null); },
   } as unknown as FulfillOrderDependencies;
   return { deps, calls };
 }
@@ -79,6 +80,21 @@ test("deliverOrder takes the pending part before delivering", async () => {
   const f = setup(new Map([[variantA, 2]]));
   expect(await deliverOrder(paidOrder([1, 2]), at, f.deps)).toMatchObject({ success: true, data: { deliveryStatus: "delivered" } });
   expect(f.calls.deduct).toHaveBeenCalledWith([{ variantId: variantA, quantity: 2 }]);
+});
+
+test("delivering a paid order fixes not_reviewed on its unverdicted changes", async () => {
+  const f = setup(new Map([[variantA, 2]]));
+  const order = paidOrder([1, 2]);
+  const delivered = await deliverOrder(order, at, f.deps);
+  expect(delivered).toMatchObject({ success: true, data: { completedAt: at } });
+  expect(f.calls.settle).toHaveBeenCalledWith(order.id, at);
+});
+
+test("delivering an unpaid order settles nothing", async () => {
+  const f = setup(new Map([[variantA, 2]]));
+  const unpaid = deductedOrder([3, 2]);
+  await deliverOrder(unpaid, at, f.deps);
+  expect(f.calls.settle).not.toHaveBeenCalled();
 });
 
 test("deliverOrder fails with INSUFFICIENT_STOCK when the pending part is short and deducts nothing", async () => {

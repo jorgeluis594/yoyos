@@ -97,6 +97,7 @@ export default function OrderList() {
       {item.source === "catalog" && <Badge variant="secondary">{t("orders.fromCatalog")}</Badge>}
       <OrderStatusIndicators order={item} />
       {checkoutLabel(item) && <span className="text-xs font-normal text-muted-foreground">{t(checkoutLabel(item)!)}</span>}
+      {item.toReview && item.status === "active" && <span className="text-xs font-medium text-[var(--warning)]">{t("orders.toReview")}</span>}
       <SkipWarning item={item} selected={!!labels.selection[item.id]} />
     </div> },
     { id: "customer", header: t("orders.customer"), mobile: "description", cell: (item) => <div className="flex flex-col gap-1">

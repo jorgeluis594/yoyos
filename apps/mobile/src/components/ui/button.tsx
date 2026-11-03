@@ -14,9 +14,10 @@ export type ButtonProps = {
   disabled?: boolean;
   loading?: boolean;
   accessibilityLabel?: string;
+  accessibilityHint?: string;
 };
 
-export function Button({ children, onPress, variant = 'default', disabled = false, loading = false, accessibilityLabel }: ButtonProps) {
+export function Button({ children, onPress, variant = 'default', disabled = false, loading = false, accessibilityLabel, accessibilityHint }: ButtonProps) {
   const theme = useTheme();
   const [focused, setFocused] = useState(false);
   const blocked = disabled || loading;
@@ -28,6 +29,7 @@ export function Button({ children, onPress, variant = 'default', disabled = fals
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? children}
+      accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: blocked, busy: loading }}
       disabled={blocked}
       onPress={onPress}

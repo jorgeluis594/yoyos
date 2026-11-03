@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { fixedShownAnswer } from "@core/src/features/orders/domain/chat-reading";
 import { createChat, doubtfulPendingOf, pendingOf, productId as productIdOf, reader, t0 as scenarioStart } from "@core/src/features/orders/domain/chat-reading-fixtures";
-import { chatPendingsSchema, pendingLife, type ChatPending, type ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
+import { chatPendingsSchema, lastIncomingPhotoSchema, pendingLife, pendingsSnapshotSchema, type ChatPending, type ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order-target";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
@@ -16,6 +16,7 @@ const variantPending = {
   id: id(1), subject: { kind: "variant", productId: id(2) }, known: { Talla: "M" }, quantity: 2,
   price: { amount: { amount: 70, currency: "PEN" }, per: "lot", forQuantity: 2 },
   order: null, lastChangedAt: "2026-10-28T12:00:00.000Z", sourceMessageId: id(3), requestId: id(1),
+  doubt: null, pointSince: "2026-10-28T12:00:00.000Z", acknowledgedAt: null,
 };
 
 describe("chatPendingsSchema", () => {
@@ -47,8 +48,66 @@ describe("chatPendingsSchema", () => {
     expect(chatPendingsSchema.safeParse(stored).success).toBe(false);
   });
 
+  test("parses a pending with a doubt, the date it became a point and its acknowledgement", () => {
+    const doubtful = { ...variantPending, doubt: { reason: { kind: "variant_changed", attribute: "Talla", from: "M", to: "L" } },
+      pointSince: "2026-10-28T13:00:00.000Z", acknowledgedAt: "2026-10-28T14:00:00.000Z" };
+    expect(chatPendingsSchema.parse({ pendings: [doubtful], readyRemembered: false }).pendings[0]).toMatchObject({
+      doubt: { reason: { kind: "variant_changed", attribute: "Talla", from: "M", to: "L" } },
+      pointSince: new Date("2026-10-28T13:00:00.000Z"), acknowledgedAt: new Date("2026-10-28T14:00:00.000Z") });
+  });
+
+  test("parses an inherited doubt that holds the doubt it comes from", () => {
+    const inherited = { kind: "inherited", from: { kind: "quantity_set", quantity: 3 } };
+    expect(chatPendingsSchema.parse({ pendings: [{ ...variantPending, doubt: { reason: inherited } }], readyRemembered: false }).pendings[0]!.doubt).toEqual({ reason: inherited });
+  });
+
+  test.each([
+    ["an unknown doubt kind", { reason: { kind: "bad_feeling" } }],
+    ["a doubt with an extra field", { reason: { kind: "caption_unread" }, text: "quiero una polera" }],
+    ["a doubt without its reason", {}],
+    ["a doubt reason missing its fields", { reason: { kind: "variant_changed", attribute: "Talla" } }],
+  ])("rejects a pending with %s", (_title, doubt) => {
+    expect(chatPendingsSchema.safeParse({ pendings: [{ ...variantPending, doubt }], readyRemembered: false }).success).toBe(false);
+  });
+
+  test.each([
+    ["no point date", { pointSince: undefined }],
+    ["a point date that is not ISO", { pointSince: "today" }],
+    ["an acknowledgement that is not ISO", { acknowledgedAt: "today" }],
+    ["no acknowledgement field", { acknowledgedAt: undefined }],
+  ])("rejects a pending with %s", (_title, change) => {
+    expect(chatPendingsSchema.safeParse({ pendings: [{ ...variantPending, ...change }], readyRemembered: false }).success).toBe(false);
+  });
+
   test("accepts an empty set", () => {
     expect(chatPendingsSchema.parse({ pendings: [], readyRemembered: false })).toEqual({ pendings: [], readyRemembered: false });
+  });
+});
+
+describe("lastIncomingPhotoSchema", () => {
+  test.each([
+    [{ left: null }],
+    [{ left: { kind: "pending", pendingId: id(1) } }],
+    [{ left: { kind: "item", orderId: id(2), variantId: id(3), quantity: 2 } }],
+  ])("round-trips %j", (stored) => {
+    expect(lastIncomingPhotoSchema.parse(JSON.parse(JSON.stringify(stored)))).toEqual(stored);
+  });
+
+  test.each([
+    ["an unknown left kind", { left: { kind: "photo" } }],
+    ["a quantity above 99", { left: { kind: "item", orderId: id(2), variantId: id(3), quantity: 100 } }],
+    ["a missing left", {}],
+    ["an extra field", { left: null, text: "hola" }],
+  ])("rejects %s", (_title, stored) => {
+    expect(lastIncomingPhotoSchema.safeParse(stored).success).toBe(false);
+  });
+});
+
+describe("pendingsSnapshotSchema", () => {
+  test("parses the pendings a message touched and rejects more than ten", () => {
+    expect(pendingsSnapshotSchema.parse([variantPending])[0]).toMatchObject({ known: { Talla: "M" } });
+    expect(pendingsSnapshotSchema.parse([])).toEqual([]);
+    expect(pendingsSnapshotSchema.safeParse(Array.from({ length: 11 }, (_, n) => ({ ...variantPending, id: id(100 + n) }))).success).toBe(false);
   });
 });
 

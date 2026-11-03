@@ -12,7 +12,7 @@ import { ThemedText } from "@mobile/components/themed-text";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { makeCopyCount, type CopyCount } from "@mobile/features/printing/composition";
 import { usePrint } from "@mobile/features/printing/presentation/print-provider";
-import { QuantityStepper } from "@mobile/features/products/presentation/quantity-stepper";
+import { QuantityStepper } from "@mobile/components/ui/quantity-stepper";
 import type { Product, VariantId } from "@mobile/features/products/domain/product";
 import { productPrintWork } from "@mobile/features/products/presentation/product-print-work";
 import tokens from "../../../../../../docs/design-tokens.json";

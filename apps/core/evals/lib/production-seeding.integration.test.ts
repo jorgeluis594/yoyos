@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { findProductIdsOfVariants } from "@core/src/features/products";
 import { findChatOrderTarget } from "@core/src/features/orders/infrastructure/order-repository";
-import { findChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { findChatMemory, findChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import { pendingLife } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import { evalCatalogSchema, productIdOf, variantIdOf } from "@core/evals/fixtures/catalog";
 import { privateCompanyId, seedEvalCatalog } from "@core/evals/lib/eval-catalog";
-import { seedChatStart, type ChatStart } from "@core/evals/lib/production";
+import { companyOf, restoreDeactivated, seedChatStart, type ChatStart } from "@core/evals/lib/production";
 
 /** Seeds each start of a case with no model call and reads back what the reader would see: the chat's order target and its pendings. */
 
@@ -68,6 +68,13 @@ describe("seeding the start of a case", () => {
     expect(itemsOf(target)).toEqual([item("camisa", { Talla: "M", Color: "Negro" }, 2), item("gorra", { Color: "Rojo" }, 1)].sort());
   });
 
+  test("the label photos that seed the order leave no photo just sent in the chat's memory", async () => {
+    const { chatId } = await seedChatStart(start({ order: [line("gorra", { Color: "Azul" })] }), "private");
+    const memory = await withTenantIsolation(privateCompanyId, () => findChatMemory(chatId as ChatId));
+
+    expect(memory).toMatchObject({ success: true, data: { lastIncomingPhoto: null, lastRequestAt: null } });
+  });
+
   test("pendings are saved through the repository: a named product with its known values and a doubtful one with its candidates", async () => {
     const { chatId } = await seedChatStart(start({
       order: [line("gorra", { Color: "Azul" })],
@@ -111,5 +118,18 @@ describe("seeding the start of a case", () => {
     expect(await variantStatus("campera", { Talla: "M" })).toBe("inactive");
     expect(await variantStatus("polera", { Talla: "M" })).toBe("inactive");
     expect(await variantStatus("campera", { Talla: "L" })).toBe("active");
+  });
+
+  test("a product a conversation deactivated is sellable again for the next one, and a variant the catalog marks inactive stays so", async () => {
+    await withTenantIsolation(privateCompanyId, async () => {
+      await prisma.productVariant.updateMany({ where: { id: { in: [variantIdOf("gorra", { Color: "Rojo" }, "private"), variantIdOf("gorra", { Color: "Azul" }, "private"), variantIdOf("campera", { Talla: "L" }, "private")] } }, data: { status: "inactive" } });
+    });
+
+    await restoreDeactivated([{ event: "deactivate_product", product: "gorra" }, { event: "deactivate_product", product: "campera" }] as never, companyOf("private"));
+
+    expect(await variantStatus("gorra", { Color: "Rojo" })).toBe("active");
+    expect(await variantStatus("gorra", { Color: "Azul" })).toBe("active");
+    expect(await variantStatus("campera", { Talla: "L" })).toBe("active");
+    expect(await variantStatus("campera", { Talla: "M" })).toBe("inactive");
   });
 });

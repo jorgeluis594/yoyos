@@ -34,10 +34,12 @@ export type CatalogItem = Readonly<{ variantId: VariantId; productName: string; 
 export type MatchConfidence = number & { readonly __brand: "MatchConfidence" };
 /** The product's closest photo to the customer image and its position among the product's photos. */
 export type VisualCandidate = Readonly<{ productId: ProductId; imageId: ImageId; position: number; distance: number }>;
+/** What the chooser's model call used, for the trace and the cost; absent when the provider reports none. */
+export type ChooserUsage = Readonly<{ inputTokens: number; outputTokens: number }>;
 /** `showsProduct` is the probability that the first image shows a product offered for sale (not a payment screenshot, selfie, map or document). */
 export type VisualChoice =
-  | Readonly<{ kind: "product"; productId: ProductId; confidence: MatchConfidence; showsProduct: number }>
-  | Readonly<{ kind: "none"; confidence: MatchConfidence; showsProduct: number }>;
+  | Readonly<{ kind: "product"; productId: ProductId; confidence: MatchConfidence; showsProduct: number; usage?: ChooserUsage }>
+  | Readonly<{ kind: "none"; confidence: MatchConfidence; showsProduct: number; usage?: ChooserUsage }>;
 
 export const minShowsProduct = 0.5;
 

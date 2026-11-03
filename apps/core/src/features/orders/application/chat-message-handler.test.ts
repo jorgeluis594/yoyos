@@ -12,7 +12,8 @@ const context = (attempt = 1, signal = new AbortController().signal) => ({ attem
 
 const applied = (noticeDue: boolean): ApplyChatMessageOutcome => ({ kind: "applied", orderId: null, createdOrder: false,
   outcomes: noticeDue ? [{ kind: "unnamed_add" }] : [{ kind: "no_intent" }], noticeDue, pendingsBefore: 1, pendingsAfter: 0,
-  trace: { readerCalls: 1, answer: "no_intent", actionKinds: [], usage: null, contextTruncated: false, candidateMs: 12, candidateMatchCount: 3, candidatesTimedOut: false } });
+  trace: { answer: "no_intent", actionKinds: [], stageCalls: 1, decisionKinds: [], doubtfulCount: 0, urgentCount: 0, confirmingRun: false, contextMessages: 2, queuedMs: 40, decidedMs: 300, costUsd: 0.0004,
+    candidateMs: 12, candidateMatchCount: 3, candidatesTimedOut: false } });
 
 function harness(over: Partial<ChatMessageHandlerDependencies> = {}) {
   const published: unknown[] = [];
@@ -108,8 +109,9 @@ describe("apply-chat-message handler", () => {
   test("logs the applied message without any text, caption or product name", async () => {
     await harness({ apply: async () => ok(applied(true)) }).handle(payload, metadata, context(3));
     const [fields] = vi.mocked(log.info).mock.calls[0]!;
-    expect(Object.keys(fields as object).sort()).toEqual(["actionKinds", "answer", "attempt", "candidateMatchCount", "candidateMs", "candidatesTimedOut", "chatId", "companyId", "contextTruncated", "createdOrder",
-      "durationMs", "event", "eventId", "messageId", "noticeDue", "orderId", "outcomeKinds", "pendingsAfter", "pendingsBefore", "readerCalls"]);
+    expect(Object.keys(fields as object).sort()).toEqual(["actionKinds", "answer", "attempt", "candidateMatchCount", "candidateMs", "candidatesTimedOut", "chatId", "companyId", "confirmingRun", "contextMessages",
+      "costUsd", "createdOrder", "decidedMs", "decisionKinds", "doubtfulCount", "durationMs", "event", "eventId", "messageId", "noticeDue", "orderId", "outcomeKinds", "pendingsAfter", "pendingsBefore",
+      "queuedMs", "stageCalls", "urgentCount"]);
     expect(fields).toMatchObject({ event: "orders_chat_message_applied", outcomeKinds: ["unnamed_add"], attempt: 3 });
   });
 

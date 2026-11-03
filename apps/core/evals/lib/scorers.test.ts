@@ -14,7 +14,7 @@ describe("scoreMessage", () => {
   test("scores a message by its order and notice kind", () => {
     const scored = scoreMessage(actual({ outcomes: ["added"], order: [added(3, { amount: 50, units: 3 })] }), [expectation], []);
 
-    expect(scored).toMatchObject({ passed: true, expectationIndex: 0, ignoredActions: 0, wrongSilentChange: false, extraNotice: false, expectedSilent: true,
+    expect(scored).toMatchObject({ passed: true, expectationIndex: 0, ignoredActions: 0, wrongVisibleField: false, extraNotice: false, expectedSilent: true,
       fields: { notice: true, outcome: true, product: true, variant: true, quantity: true, mentionedPrice: true, unitPrice: true } });
 
     const noticed = scoreMessage(actual({ notice: "variant_missing", order: [] }), [{ notice: "variant_missing" }], []);
@@ -95,9 +95,9 @@ describe("scoreMessage", () => {
 
   test("a wrong change without a notice is a wrong silent change, and a notice where none was due an extra notice", () => {
     expect(scoreMessage(actual({ order: [added(1)] }), [{ notice: null, order: [] }], []))
-      .toMatchObject({ wrongSilentChange: true, extraNotice: false });
+      .toMatchObject({ wrongVisibleField: true, extraNotice: false });
     expect(scoreMessage(actual({ notice: "not_applied", order: [] }), [{ notice: null, order: [] }], []))
-      .toMatchObject({ wrongSilentChange: false, extraNotice: true, expectedSilent: true });
+      .toMatchObject({ wrongVisibleField: false, extraNotice: true, expectedSilent: true });
     expect(scoreMessage(actual({ notice: "ready" }), [{ notice: "ready" }], [])).toMatchObject({ extraNotice: false, expectedSilent: false });
   });
 });

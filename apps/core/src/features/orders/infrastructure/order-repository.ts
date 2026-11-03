@@ -865,11 +865,12 @@ async function findLatestChatOrderState(chatId: ChatId, companyId: CompanyId) {
   }
 }
 
-export async function recordProcessedMessage(orderId: OrderId, messageId: ChatMessageId) {
+/** `linkChangeNotice`: the message's notice closes the «Pedido #N cambió» cycle (it arms the next one only after a newer link action). */
+export async function recordProcessedMessage(orderId: OrderId, messageId: ChatMessageId, linkChangeNotice = false) {
   const companyId = getCompanyId();
   requireActiveTransaction(companyId);
   try {
-    await prisma.orderMessage.create({ data: { companyId, orderId, messageId, createdAt: new Date() } });
+    await prisma.orderMessage.create({ data: { companyId, orderId, messageId, createdAt: new Date(), linkChangeNotice } });
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;

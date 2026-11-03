@@ -429,7 +429,8 @@ test("mixed orders list uses creation date and includes pending and completed or
 
 test("orders HTTP combines Lima-day UTC bounds with stable pages", async () => {
   const seller = await fixture("PE");
-  const ids = Array.from({ length: 21 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
+  // Random ids, ascending like the order numbers: fixed ones collide with orders other integration files leave in the shared test database.
+  const ids = Array.from({ length: 21 }, () => randomUUID()).sort();
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.createMany({ data: ids.map((id, index) => ({ number: BigInt(1001 + index), id, sellerId: seller.userId, currency: "PEN", total: 10, itemsTotal: 10,
       deliveryStatus: "delivered", stockDeducted: true, stockDeductedAt: new Date("2026-09-28T12:00:00.000Z"),

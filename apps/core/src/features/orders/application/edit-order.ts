@@ -6,7 +6,7 @@ import type { ResolveRateError } from "@core/src/features/delivery-settings";
 import type { TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import type { BuyerData, OrderBuyer } from "@core/src/features/orders/domain/checkout";
 import type { SellableVariant } from "@core/src/features/orders/domain/catalog-order";
-import type { CompanyId, OrderId, OrderItemId, PositiveInteger } from "@core/src/features/orders/domain/order";
+import type { CompanyId, OrderId, OrderItemId } from "@core/src/features/orders/domain/order";
 import { orderEdit, type CustomerRequired, type DeliveryEdit, type OrderItemChanges, type OrderLineRequest, type OrderPart, type VariantNotFound } from "@core/src/features/orders/domain/order-edit";
 import { orderRevisions, type OrderRevision } from "@core/src/features/orders/domain/order-revisions";
 import { orderStateMachine, type OrderAggregate, type OrderDomainError, type RatedDeliverySelection, type ResolvedDelivery } from "@core/src/features/orders/domain/order-state-machine";
@@ -14,7 +14,8 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { OrderEdited } from "@core/src/features/orders/application/events";
 import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
-import { describeOrderStockDue, orderWithStockDue, type StockEventResult, type StockReader } from "@core/src/features/orders/application/describe-order-stock-due";
+import { describeOrderStockDue, type StockEventResult, type StockReader } from "@core/src/features/orders/application/describe-order-stock-due";
+import { planItemsEdit, settleEditStock, writeItemsEdit, type EditVerdicts, type ItemsEditRecords, type PlannedItemsEdit } from "@core/src/features/orders/application/apply-items-edit";
 
 export type EditOrderInput = Readonly<{
   orderId: OrderId;
@@ -47,6 +48,13 @@ export type EditOrderDependencies = Readonly<{
   publishStockIncreased: (variantIds: readonly [VariantId, ...VariantId[]]) => Promise<Result<unknown, TransactionEndingError>>;
   findVariantStock: StockReader;
   newItemId: () => OrderItemId;
+  /**
+   * The seller-action records of the items step, wired by the composition. They are optional so that edits of a caller without change records
+   * (unit fakes of the other parts) need not provide them: without them the items step gives no verdict and records no `sellerActedAt`.
+   */
+  setVerdictsForEdit?: (orderId: OrderId, companyId: CompanyId, verdicts: EditVerdicts, at: Date) => Promise<Result<null, EditOrderError>>;
+  saveSellerActedAt?: (orderId: OrderId, companyId: CompanyId, at: Date) => Promise<Result<null, EditOrderError>>;
+  clock?: () => Date;
 }>;
 
 export type EditedOrder = StockEventResult & Readonly<{ applied: readonly OrderPart[] }>;
@@ -55,6 +63,13 @@ export type EditedOrder = StockEventResult & Readonly<{ applied: readonly OrderP
 function pendingParts(order: OrderAggregate, input: EditOrderInput): OrderPart[] {
   return (["items", "customer", "delivery"] as const).filter((part) => input[part] !== undefined && !orderEdit.isApplied(order, input, part));
 }
+
+const itemsRecords = (deps: EditOrderDependencies): ItemsEditRecords<EditOrderError> => ({
+  saveItemChanges: deps.saveItemChanges,
+  setVerdictsForEdit: deps.setVerdictsForEdit ?? (async () => ok(null)),
+  saveSellerActedAt: deps.saveSellerActedAt ?? (async () => ok(null)),
+  clock: deps.clock ?? (() => new Date()),
+});
 
 /**
  * Applies the final state of the sent parts under the order lock. A part already equal to the stored state is dropped (idempotent repeat),
@@ -86,21 +101,12 @@ export async function editOrder(input: EditOrderInput, access: EditOrderAccess, 
     if (firstChanged) return err({ code: "ORDER_CHANGED", message: "The order changed since it was loaded", parts: [firstChanged, ...otherChanged] });
 
     let next = order;
-    let itemChanges: OrderItemChanges | null = null;
-    let afterItems = order;
+    let planned: PlannedItemsEdit | null = null;
     if (parts.includes("items") && input.items) {
-      const plan = orderEdit.planItems(order, input.items.lines);
+      const plan = await planItemsEdit(order, input.items.lines, deps);
       if (!plan.success) return plan;
-      let variants: readonly SellableVariant[] = [];
-      if (plan.data.lookup.length > 0) {
-        const looked = await deps.findSellableVariants(plan.data.lookup);
-        if (!looked.success) return looked;
-        variants = looked.data;
-      }
-      const applied = orderEdit.applyItems(order, input.items.lines, variants, deps.newItemId);
-      if (!applied.success) return applied;
-      next = afterItems = applied.data.order;
-      itemChanges = applied.data.changes;
+      next = plan.data.order;
+      planned = plan.data;
     }
     if (parts.includes("customer") && input.customer) next = orderEdit.applyCustomer(next, input.customer.value);
     if (parts.includes("delivery") && input.delivery) {
@@ -123,14 +129,8 @@ export async function editOrder(input: EditOrderInput, access: EditOrderAccess, 
     const summary = orderStateMachine.getPaymentSummary(next);
     if (!summary.success) return summary;
 
-    // The units of lines the edit deleted are read before the rows go: the listener returns them to the stock.
-    const returns = (itemChanges?.removedItemIds ?? []).flatMap((itemId) => {
-      const item = order.items.find((candidate) => candidate.id === itemId);
-      const units = item?.stockDeductedQuantity ?? 0;
-      return item && units > 0 ? [{ variantId: item.variantId, quantity: units as PositiveInteger }] : [];
-    });
-    if (itemChanges) {
-      const saved = await deps.saveItemChanges(afterItems, itemChanges);
+    if (planned) {
+      const saved = await writeItemsEdit(order, planned, itemsRecords(deps));
       if (!saved.success) return saved;
     }
     if (parts.includes("customer")) {
@@ -142,21 +142,8 @@ export async function editOrder(input: EditOrderInput, access: EditOrderAccess, 
       if (!saved.success) return saved;
     }
 
-    if (parts.includes("items") || (parts.includes("delivery") && !order.stockDeducted)) {
-      const outcome = await deps.publishStockEvent({ companyId: order.companyId, orderId: order.id, ...(returns.length > 0 ? { returns } : {}) });
-      if (!outcome.success) return outcome;
-      // The adjustment must be all or nothing with the edit: a failed or contended listener rolls the edit back, so a deleted line never leaks its deducted units.
-      if (order.stockDeducted && (outcome.data.kind === "failed" || outcome.data.kind === "skipped_locked"))
-        return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to adjust the stock of the order" });
-      if (outcome.data.kind === "adjusted" && outcome.data.returnedVariantIds[0]) {
-        const [firstVariant, ...otherVariants] = outcome.data.returnedVariantIds;
-        const served = await deps.publishStockIncreased([firstVariant!, ...otherVariants]);
-        if (!served.success) return served;
-      }
-      const result = await orderWithStockDue(next, outcome.data, deps.findVariantStock);
-      return result.success ? ok({ ...result.data, applied: parts }) : result;
-    }
-    const described = await describeOrderStockDue([next], { readStock: deps.findVariantStock, inSnapshot: (read) => read() });
-    return described.success ? ok({ order: next, stockDue: described.data.get(next.id) ?? null, outcome: null, applied: parts }) : described;
+    const settled = await settleEditStock(order, next, { items: parts.includes("items"), delivery: parts.includes("delivery") }, planned?.returns ?? [], deps);
+    if (!settled.success) return settled;
+    return ok({ ...settled.data, applied: parts });
   });
 }

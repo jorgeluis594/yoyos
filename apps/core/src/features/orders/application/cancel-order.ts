@@ -11,6 +11,8 @@ export type CancelOrderDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CancelOrderError>>) => Promise<Result<T, CancelOrderError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, CancellationPersistenceError | CancellationDomainError>>;
   saveCancellation: (id: OrderId, companyId: CompanyId, cancelledAt: Date) => Promise<Result<null, CancellationPersistenceError>>;
+  /** Cancelling fixes `not_reviewed` on the changes nobody judged. */
+  settleUnreviewedChanges: (orderId: OrderId, at: Date) => Promise<Result<null, CancellationPersistenceError>>;
   publishOrderCancelled: PublishOrderCancelled;
   clock: () => Date;
 }>;
@@ -25,6 +27,8 @@ export async function cancelOrder(id: OrderId, context: OrderAccess, deps: Cance
     if (plan.data.emitOrderCancelled) {
       const saved = await deps.saveCancellation(id, context.companyId, plan.data.nextOrder.cancelledAt);
       if (!saved.success) return saved;
+      const settled = await deps.settleUnreviewedChanges(id, plan.data.nextOrder.cancelledAt);
+      if (!settled.success) return settled;
     }
     return plan;
   });

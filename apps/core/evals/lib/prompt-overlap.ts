@@ -65,15 +65,18 @@ function similarity(left: string, right: string): number {
  * Why an example copies an eval input, or null. Numbers count as one word, so another number is no new wording. A copy is the same
  * words; or, when the example has two content words (not articles, prepositions or numbers), the example inside the input, a shared
  * run of three words holding two content words, or, for three words or more, a similarity of 0.8 with the input or with a run of its words
- * as long as the example.
+ * as long as the example. With `shortInside` (the staged reader's prompts), a phrase of two words or more with fewer content words is
+ * a copy as well when it sits inside the input («déjalo en 4» in «déjalo en 4 nomás»); a single word never is.
  */
-export function overlapReason(example: string, input: string): string | null {
+export function overlapReason(example: string, input: string, { shortInside = false }: Readonly<{ shortInside?: boolean }> = {}): string | null {
   const exampleWords = wordsOf(example);
   const inputWords = wordsOf(input);
   const left = exampleWords.join(" ");
   if (left === inputWords.join(" ")) return "same words";
-  if (contentWords(exampleWords) < 2) return null;
+  const fewContentWords = contentWords(exampleWords) < 2;
+  if (fewContentWords && !(shortInside && exampleWords.length >= 2)) return null;
   if (` ${inputWords.join(" ")} `.includes(` ${left} `)) return "example inside the input";
+  if (fewContentWords) return null;
   const inputGrams = new Set(ngrams(inputWords, NGRAM).filter((gram) => contentWords(gram) >= 2).map((gram) => gram.join(" ")));
   const shared = ngrams(exampleWords, NGRAM).map((gram) => gram.join(" ")).find((gram) => inputGrams.has(gram));
   if (shared) return `shares «${shared}»`;
@@ -84,9 +87,9 @@ export function overlapReason(example: string, input: string): string | null {
   return score >= MIN_SIMILARITY ? `similarity ${score.toFixed(2)}` : null;
 }
 
-export function findOverlaps(examples: readonly PromptExample[], inputs: readonly string[]): readonly Overlap[] {
+export function findOverlaps(examples: readonly PromptExample[], inputs: readonly string[], options?: Readonly<{ shortInside?: boolean }>): readonly Overlap[] {
   return examples.flatMap((example) => inputs.flatMap((input) => {
-    const reason = overlapReason(example.text, input);
+    const reason = overlapReason(example.text, input, options);
     return reason ? [{ example, input, reason }] : [];
   }));
 }

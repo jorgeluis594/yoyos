@@ -34,11 +34,11 @@ test("writes the records of a private run only under the private folder", async 
 });
 
 test("prints only aggregate lines with opaque labels in a private run", () => {
-  const cases = [{ id: "pv-secret-case", tags: ["consistency"] }, { id: "pv-other", tags: [] }];
-  const labels = labelledRuns(runsOf(cases, 2, ["consistency"]), true).map(({ label }) => label);
+  const cases = [{ id: "pv-secret-case" }, { id: "pv-other" }];
+  const labels = labelledRuns(runsOf(cases, 2), true).map(({ label }) => label);
   const output = [formatGateSummary(buildReport([secret], meta)), JSON.stringify(redacted(secret)), JSON.stringify(redacted(summaryOf([secret]))), ...labels].join("\n");
 
-  expect(labels).toEqual(["case 1", "case 2", "case 1 (repeat 1)"]);
+  expect(labels).toEqual(["case 1", "case 2", "case 1 (repeat 1)", "case 2 (repeat 1)"]);
   for (const leaked of ["pv-secret-case", "taza", "quiero", "the buyer said", "failed"]) expect(output).not.toContain(leaked);
   expect(formatGateSummary(buildReport([secret], meta))).toContain("whole run: right 0 of 1 scored messages (0.0%)");
   // Families are the rules sheet's categories, so they are part of the aggregate lines.
@@ -48,5 +48,5 @@ test("prints only aggregate lines with opaque labels in a private run", () => {
 });
 
 test("a public run keeps the case ids as labels", () => {
-  expect(labelledRuns(runsOf([{ id: "int-a", tags: [] }], 1, []), false).map(({ label }) => label)).toEqual(["int-a"]);
+  expect(labelledRuns(runsOf([{ id: "int-a" }], 1), false).map(({ label }) => label)).toEqual(["int-a"]);
 });

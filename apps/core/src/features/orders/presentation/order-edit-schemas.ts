@@ -1,12 +1,9 @@
 import { z } from "zod";
 import { moneySchema } from "@shared/contracts/money";
 import { agencyRecipientSchema, newOrderCustomerSchema, orderAggregateSchema, ratedDeliverySelectionSchema, recipientSchema } from "@shared/contracts/orders";
-import { maxOrderLineQuantity, maxOrderLines } from "@shared/orders-edit";
+import { orderLinesSchema } from "@shared/contracts/order-items-edit";
+import { orderRevisionSchema, orderRevisionsSchema } from "@shared/contracts/order-revisions";
 
-export const orderRevisionSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
-export const orderRevisionsSchema = z.strictObject({ items: orderRevisionSchema, customer: orderRevisionSchema, delivery: orderRevisionSchema });
-
-const lineSchema = z.strictObject({ variantId: z.uuid(), quantity: z.number().int().min(1).max(maxOrderLineQuantity) });
 const reference = z.string().trim().max(1000).nullable().transform((value) => value || null);
 const amendmentSchema = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("home"), recipient: recipientSchema, address: z.string().trim().min(1).max(500), instructions: reference }),
@@ -16,7 +13,7 @@ const amendmentSchema = z.discriminatedUnion("method", [
 
 export const editOrderRequestSchema = z.strictObject({
   operation: z.literal("save_changes"),
-  items: z.strictObject({ base: orderRevisionSchema, lines: z.array(lineSchema).min(1).max(maxOrderLines) }).optional(),
+  items: z.strictObject({ base: orderRevisionSchema, lines: orderLinesSchema }).optional(),
   customer: z.strictObject({ base: orderRevisionSchema, value: newOrderCustomerSchema.nullable() }).optional(),
   delivery: z.strictObject({ base: orderRevisionSchema, change: z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("replace"), selection: ratedDeliverySelectionSchema, expectedPrice: moneySchema }),

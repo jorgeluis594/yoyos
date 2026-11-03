@@ -19,6 +19,7 @@ import { registerMobileMessage } from "@core/src/features/chats";
 import { createProductRoutes } from "@core/src/features/products/presentation/api-routes";
 import { variantRoutes } from "@core/src/features/products/presentation/variant-api-routes";
 import { orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import { messageUndoRoutes } from "@core/src/features/orders/presentation/message-undo-routes";
 import { hasDuplicateJsonKeys } from "@core/src/shared/presentation/json-keys";
 import { deliverySettingsRoutes } from "@core/src/features/delivery-settings/presentation/api-routes";
 import { quotationRoutes } from "@core/src/features/delivery-settings/presentation/quotation-routes";
@@ -27,7 +28,10 @@ import { catalogStorefront } from "@core/src/features/catalog";
 import { catalogRoutes } from "@core/src/features/catalog/presentation/api-routes";
 import { brandHostBuyerOwner, brandHostEdge } from "@core/src/features/catalog/presentation/brand-host-edge";
 import { buyerPaymentRoutes } from "@core/src/features/orders/presentation/buyer-payment-routes";
+import { messageQuestionRoutes } from "@core/src/features/orders/presentation/message-question-routes";
 import { sellerNoticeRoutes } from "@core/src/features/orders/presentation/seller-notice-routes";
+import { orderReviewRoutes } from "@core/src/features/orders/presentation/order-review-routes";
+import { orderItemsRoutes } from "@core/src/features/orders/presentation/order-items-routes";
 import { pushDeviceRoutes, pushDeviceUnregisterRoutes } from "@core/src/features/notifications/presentation/push-device-routes";
 import { log, requestLogging } from "@core/src/shared/infrastructure/logger";
 
@@ -110,6 +114,7 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
 
 app.use("/api", requireApiCompany);
 app.use("/api/messages", mobileMessageRoutes(registerMobileMessage));
+app.use("/api/messages", messageQuestionRoutes);
 app.use("/api/push-devices", pushDeviceRoutes);
 app.use("/api/seller-notices", sellerNoticeRoutes);
 app.use("/api/company/payment-settings", paymentSettingsRoutes);
@@ -117,6 +122,9 @@ app.use("/api/company/dispatch-sender", dispatchSenderRoutes);
 app.use("/api/dispatch-labels", dispatchLabelRoutes);
 app.use("/api/products/:productId/variants", variantRoutes);
 app.use("/api/products", createProductRoutes({ describeStorefront: catalogStorefront.describe }));
+app.use("/api/orders", messageUndoRoutes);
+app.use("/api/orders", orderItemsRoutes);
+app.use("/api/orders", orderReviewRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/delivery-settings", deliverySettingsRoutes);
 app.use("/api/catalog", catalogRoutes);
@@ -130,7 +138,7 @@ app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
 app.use("/api", (error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   void _next;
   const pathname = _request.originalUrl.split("?", 1)[0];
-  const isFeatureRequest = ["/api/products", "/api/orders", "/api/delivery-settings", "/api/quotations", "/api/catalog", "/api/store-appearance", "/api/push-devices", "/api/seller-notices"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
+  const isFeatureRequest = ["/api/products", "/api/orders", "/api/delivery-settings", "/api/quotations", "/api/catalog", "/api/store-appearance", "/api/push-devices", "/api/seller-notices", "/api/messages/questions"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
   if (pathname.startsWith("/api/orders") && typeof error === "object" && error !== null && "type" in error && error.type === "entity.verify.failed")
     return apiError(response, 400, "INVALID_INPUT", "Duplicate JSON key");
   if (error instanceof SyntaxError && "body" in error) return apiError(response, 400, isFeatureRequest ? "INVALID_INPUT" : "INVALID_COMPANY", "Invalid JSON", isFeatureRequest ? [{ field: "body", reason: "INVALID_JSON" }] : undefined);

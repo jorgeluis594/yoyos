@@ -13,7 +13,7 @@ import { useTheme } from "@mobile/hooks/use-theme";
 import { formEdges } from "./form-edges";
 import { ProductTopBar } from "./product-top-bar";
 import { useProductEditor } from "./product-editor-state";
-import { QuantityStepper } from "./quantity-stepper";
+import { QuantityStepper } from "@mobile/components/ui/quantity-stepper";
 import tokens from "../../../../../../docs/design-tokens.json";
 
 const amountText = (value: number | null) => value === null || value === 0 ? "" : String(value);
