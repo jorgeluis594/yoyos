@@ -48,7 +48,7 @@ export type ReadingRecord = Readonly<{
 
 /** What one run of one case (or one message of a conversation) left: scores, the actual result, latency and model calls. Plain JSON. */
 export type CaseRecord = Readonly<{
-  /** A conversation's record is one message: `<conversation id>#<message number>`. */
+  /** A conversation's record is one message, `<conversation id>#<message number>`, or a failed event, `<conversation id>#event<event number>`. */
   caseId: string;
   /** The base case a paraphrase rewrites, or the conversation id. */
   baseId: string;
@@ -67,8 +67,13 @@ export type CaseRecord = Readonly<{
   /** What the message was, for the reader calls the design allows it (technical design §8); null outside message passes. */
   messageKind: "text" | "photo" | "photo_caption" | null;
   conversationId: string | null;
-  /** The message number inside its conversation, from 1. */
+  /** The message number inside its conversation, from 1; null for an event record. */
   step: number | null;
+  /**
+   * Only on the record of an event step that failed (lib/run-case.ts `conversationRecordsOf`): the event and how many messages of its conversation came before it.
+   * It is no message: the message scores leave it out; it counts as a failed conversation step (lib/conversation.ts `stepFailuresOf`).
+   */
+  event?: Readonly<{ name: string; after: number }>;
   /** How the message misled the seller (lib/scorers.ts `MessageScored`); all neutral outside message passes. */
   ignoredActions: number;
   wrongVisibleField: boolean;

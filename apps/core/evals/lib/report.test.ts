@@ -160,6 +160,39 @@ describe("buildReport", () => {
     expect(report.endToEnd.text).toMatchObject({ runs: 1, total: 1, passed: 0, accuracy: 0 });
   });
 
+  test("conversation steps count own and carried failures apart over every run, with the ids of each kind", () => {
+    const step = (conversationId: string, number: number, passed: boolean, repeat: number, over: Partial<CaseRecord> = {}) =>
+      record({ caseId: `${conversationId}#${number}`, pass: "conversation", conversationId, step: number, passed, repeat, ...over });
+    const report = buildReport([
+      step("c", 1, false, 0), step("c", 2, false, 0), step("c", 3, false, 0), step("d", 1, true, 0), step("d", 2, false, 0),
+      step("c", 1, true, 1), step("c", 2, true, 1), step("c", 3, true, 1), step("d", 1, true, 1), step("d", 2, true, 1),
+      step("k", 1, false, 0, { tags: ["known-limitation"] }),
+      record({ caseId: "int", passed: false }),
+    ], meta);
+
+    expect(report.conversationSteps).toEqual({
+      runs: 2, steps: 10, failed: 4,
+      own: { count: 2, ids: ["c#1", "d#2"] },
+      carried: { count: 2, ids: ["c#2", "c#3"] },
+      perRun: [{ repeat: 0, steps: 5, own: 2, carried: 2 }, { repeat: 1, steps: 5, own: 0, carried: 0 }],
+    });
+    expect(formatGateSummary(report)).toContain("Conversation steps failed over 2 runs: 2 own, 2 carried from an earlier failed step of the same conversation and run");
+    expect(formatSummary(report, "p")).toContain("carried ids: c#2, c#3");
+  });
+
+  test("a failed event is kept apart from the message scores and counts as a failed conversation step", () => {
+    const report = buildReport([
+      record({ caseId: "c#1", pass: "conversation", conversationId: "c", step: 1, passed: false, latencyMs: 50 }),
+      record({ caseId: "c#event1", pass: "conversation", conversationId: "c", step: null, messageKind: null, passed: false, latencyMs: 0, error: "no order", event: { name: "report_payment", after: 1 } }),
+      record({ caseId: "c#2", pass: "conversation", conversationId: "c", step: 2, passed: false, error: "no order" }),
+    ], meta);
+
+    expect(report.gate.whole.scored).toBe(2);
+    expect(report.overall.total).toBe(2);
+    expect(report.conversationSteps).toMatchObject({ steps: 2, failed: 3, own: { ids: ["c#1"] }, carried: { count: 2, ids: ["c#2", "c#event1"] } });
+    expect(report.failures.map(({ caseId }) => caseId)).toEqual(["c#1", "c#event1", "c#2"]);
+  });
+
   test("the image view splits the near-identical polos and lists negatives accepted at the gate", () => {
     const pair = (caseId: string, signature: string) => record({ caseId, pass: "image", tags: ["indistinguishable-pair"], signature,
       expected: [{ kind: "found", product: "polo-basico" }, { kind: "not_found" }] });
