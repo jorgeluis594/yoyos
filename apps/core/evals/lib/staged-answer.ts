@@ -1,5 +1,5 @@
 import type { DecisionKind, IntentKind } from "@core/evals/cases/schema";
-import { decisionOf, type ExpectedStages, type StageAnswer } from "@core/evals/lib/stage-facts";
+import { decisionFromEvidence, type ExpectedStages, type StageAnswer } from "@core/evals/lib/stage-facts";
 import type { MessageTrace, TraceShadow, TraceStage } from "@core/src/features/orders/domain/reader/trace";
 
 /**
@@ -32,13 +32,8 @@ function fieldsOf(extraction: StageOutput<"extraction">, expected: Readonly<Reco
   return fields;
 }
 
-const severity: readonly DecisionKind[] = ["urgent", "pending", "doubtful", "applied", "silent"];
-
 function decisionKindOf(trace: MessageTrace | null, notice: string | null, outcomes: readonly string[]): DecisionKind {
-  if (notice !== null) return decisionOf({ notice } as Parameters<typeof decisionOf>[0]);
-  const kinds: readonly DecisionKind[] = trace?.decisions.map(({ decision }) => decision) ?? [];
-  const worst = severity.find((kind) => kinds.includes(kind));
-  return worst ?? decisionOf({ outcomes } as Parameters<typeof decisionOf>[0]);
+  return decisionFromEvidence({ notice, outcomes, decisions: trace?.decisions.map(({ decision }) => decision) ?? [] });
 }
 
 function stageCostsOf(trace: MessageTrace | null): Readonly<Record<string, number>> {

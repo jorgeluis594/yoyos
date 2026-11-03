@@ -69,3 +69,18 @@ test("a silent step the reader left alone is neither an ignored request nor a wr
   expect(facts).toMatchObject({ intent: true, requested: false });
   expect(ignoredRequestOf(facts)).toBe(false);
 });
+
+test("«listo» with pendings left is urgent, as the production reader treats it: a problem of the message, not an informative notice", () => {
+  expect(decisionOf(expectation({ notice: "ready_with_pendings" }))).toBe("urgent");
+  expect(decisionOf(expectation({ notice: null, outcomes: ["ready_with_pendings"] }))).toBe("urgent");
+  expect(decisionOf(expectation({ notice: "ready_with_pendings", outcomes: ["pending_created", "ready_with_pendings"] }))).toBe("urgent");
+  expect(decisionOf(expectation({ notice: "ready", outcomes: ["ready"] }))).toBe("notice");
+});
+
+test("an urgent notice that goes out makes the decision urgent even beside a pending; with no notice stated a pending's own point is the pending", () => {
+  expect(decisionOf(expectation({ notice: "not_clear", outcomes: ["pending_created", "not_clear"] }))).toBe("urgent");
+  expect(decisionOf(expectation({ notice: "several_problems", outcomes: ["pending_created", "variant_missing", "invalid_action"] }))).toBe("urgent");
+  expect(decisionOf(expectation({ notice: "variant_missing" }))).toBe("urgent");
+  expect(decisionOf(expectation({ outcomes: ["pending_created", "variant_missing"] }))).toBe("pending");
+  expect(decisionOf(expectation({ outcomes: ["pending_created", "unclear_item"] }))).toBe("urgent");
+});
