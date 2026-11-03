@@ -2,11 +2,13 @@ import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { allCases } from "@core/evals/cases";
 import { splits, type EvalSplit } from "@core/evals/cases/split";
-import { rebuildResult, splitResult, type ResultFile } from "@core/evals/lib/rebuild";
+import type { ResultFile } from "@core/evals/lib/rebuild";
+import { rebuildSavedRun } from "@core/evals/lib/rescore";
 import { formatSummary } from "@core/evals/lib/report";
 
 /**
- * Rebuilds the report of saved runs from their records, with no model call (evals/README.md «Report»). From apps/core:
+ * Rebuilds the report of saved runs from their records, with no model call (evals/README.md «Report»), with the same full recomputation as `eval:rescore` (the
+ * facts of every message, then the report), so both give the same numbers on the same file. From apps/core:
  * `pnpm exec tsx evals/scripts/rebuild-report.ts eval-results/<run>.json [...]`. The first rebuild keeps the original as `<run>.orig.json`.
  * With `EVAL_SPLIT=dev` or `test` it leaves the run as it is and writes that split's part as `<run>.<split>.json`.
  */
@@ -19,7 +21,7 @@ if (!paths.length) throw new Error("Pass one or more eval-results/<run>.json fil
 for (const path of paths) {
   const file = JSON.parse(await readFile(path, "utf8")) as ResultFile;
   if (split) {
-    const part = rebuildResult(splitResult(file, split), knownLimitations);
+    const part = rebuildSavedRun(file, knownLimitations, split);
     const target = path.replace(/\.json$/, `.${split}.json`);
     await writeFile(target, `${JSON.stringify(part, null, 2)}\n`);
     console.log(`${formatSummary(part.report, target)}\n`);
@@ -27,7 +29,7 @@ for (const path of paths) {
   }
   const original = path.replace(/\.json$/, ".orig.json");
   if (!existsSync(original)) await copyFile(path, original);
-  const rebuilt = rebuildResult(file, knownLimitations);
+  const rebuilt = rebuildSavedRun(file, knownLimitations, null);
   await writeFile(path, `${JSON.stringify(rebuilt, null, 2)}\n`);
   console.log(`${formatSummary(rebuilt.report, path)}\n`);
 }

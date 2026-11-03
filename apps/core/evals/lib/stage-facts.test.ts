@@ -70,10 +70,10 @@ test("a silent step the reader left alone is neither an ignored request nor a wr
   expect(ignoredRequestOf(facts)).toBe(false);
 });
 
-test("«listo» with pendings left is urgent, as the production reader treats it: a problem of the message, not an informative notice", () => {
-  expect(decisionOf(expectation({ notice: "ready_with_pendings" }))).toBe("urgent");
-  expect(decisionOf(expectation({ notice: null, outcomes: ["ready_with_pendings"] }))).toBe("urgent");
-  expect(decisionOf(expectation({ notice: "ready_with_pendings", outcomes: ["pending_created", "ready_with_pendings"] }))).toBe("urgent");
+test("«listo» with pendings left is an informative notice, as before the unified criterion: the founder has not approved moving it into the gate's urgent definition", () => {
+  expect(decisionOf(expectation({ notice: "ready_with_pendings" }))).toBe("notice");
+  expect(decisionOf(expectation({ notice: null, outcomes: ["ready_with_pendings"] }))).toBe("notice");
+  expect(decisionOf(expectation({ notice: "ready_with_pendings", outcomes: ["pending_created", "ready_with_pendings"] }))).toBe("notice");
   expect(decisionOf(expectation({ notice: "ready", outcomes: ["ready"] }))).toBe("notice");
 });
 

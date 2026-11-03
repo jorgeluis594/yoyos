@@ -1,6 +1,7 @@
-import type { MessageExpectation, OrderLine } from "@core/evals/cases/schema";
+import type { OrderLine } from "@core/evals/cases/schema";
 import { splitOf, type EvalSplit } from "@core/evals/cases/split";
-import type { CaseRecord } from "@core/evals/lib/case-record";
+import { messageExpectationsOf, type CaseRecord } from "@core/evals/lib/case-record";
+export { messageExpectationsOf };
 import type { ModelCall } from "@core/evals/lib/model-meter";
 import { buildReport, type EvalReport } from "@core/evals/lib/report";
 import { decisionOf } from "@core/evals/lib/stage-facts";
@@ -13,9 +14,6 @@ import { scoreMessage, type MessageActual } from "@core/evals/lib/scorers";
 
 export type ResultFile = Readonly<{ report: EvalReport; records: readonly CaseRecord[]; extraCalls?: readonly ModelCall[] }>;
 
-/** The expectations of a message record that state a notice or outcomes: the ones `expectationIndex` points into. */
-export const messageExpectationsOf = (record: CaseRecord): readonly MessageExpectation[] =>
-  Array.isArray(record.expected) ? (record.expected as readonly MessageExpectation[]).filter((expectation) => "notice" in expectation || "outcomes" in expectation) : [];
 
 /**
  * Scores a message record again under the current rules, from its stored expectations, actual result and earlier order. The unit

@@ -1,9 +1,14 @@
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { OrderLine } from "@core/evals/cases/schema";
 import type { CaseRecord, ReadingRecord, StageFacts } from "@core/evals/lib/case-record";
 import { messageRecord } from "@core/evals/lib/record-fixture";
 import { buildReport } from "@core/evals/lib/report";
-import { changeRowsOf, comparisonOf, formatComparison, rescoreArgumentsOf, rescoreFile, rescoreRecord } from "@core/evals/lib/rescore";
+import { changeRowsOf, comparisonOf, formatComparison, isPrivateRunFile, rebuildSavedRun, rescoreArgumentsOf, rescoreFile, rescoreRecord } from "@core/evals/lib/rescore";
+import { rebuildResult } from "@core/evals/lib/rebuild";
+import { splitOf } from "@core/evals/cases/split";
 
 const meta = { runId: "run", startedAt: "", finishedAt: "", settings: {} };
 const quote = (text: string) => ({ source: "current" as const, text });
@@ -265,6 +270,55 @@ describe("the arguments of the command", () => {
   });
 });
 
+describe("a private run needs an explicit --out", () => {
+  const dir = "/repo/apps/core/eval-results";
+  const privateRun = () => true;
+
+  test("a run that is private and no --out is an error that says what to do; with --out it goes where it says", () => {
+    expect(rescoreArgumentsOf(["/p/run.json"], dir, privateRun)).toMatchObject({ error: expect.stringMatching(/private run.*--out/s) });
+    expect(rescoreArgumentsOf(["/p/run.json", "--out", "/tmp/x.json"], dir, privateRun)).toEqual({ input: "/p/run.json", target: "/tmp/x.json" });
+    expect(rescoreArgumentsOf(["/repo/run.json"], dir, () => false)).toEqual({ input: "/repo/run.json", target: "/repo/apps/core/eval-results/run.rescored.json" });
+  });
+
+  test("a file outside the repository, or under EVAL_PRIVATE_DIR, or reached by a link from outside, is a private run; one inside the repository is not", () => {
+    const outside = mkdtempSync(join(tmpdir(), "eval-private-"));
+    writeFileSync(join(outside, "run.json"), "{}");
+    expect(isPrivateRunFile(join(outside, "run.json"), {})).toBe(true);
+    expect(isPrivateRunFile(join(outside, "run.json"), { EVAL_PRIVATE_DIR: outside })).toBe(true);
+    expect(isPrivateRunFile(join(outside, "missing.json"), {})).toBe(true);
+    const inside = join(import.meta.dirname, "rescore.ts");
+    expect(isPrivateRunFile(inside, {})).toBe(false);
+    expect(isPrivateRunFile(join(import.meta.dirname, "nothing.json"), {})).toBe(false);
+    const link = join(mkdtempSync(join(tmpdir(), "eval-link-")), "link.json");
+    symlinkSync(inside, link);
+    expect(isPrivateRunFile(link, {})).toBe(false);
+  });
+});
+
+describe("eval:report and eval:rescore give the same numbers", () => {
+  test("the report command rebuilds a saved run with the full recomputation of the rescore, not only the expected side", () => {
+    const stale = [addedPolo({ caseId: "a" }), addedPolo({ caseId: "b", repeat: 1 })];
+    const file = { report: buildReport(stale, meta), records: stale };
+
+    const rebuilt = rebuildSavedRun(file, new Set(), null);
+
+    expect(rebuilt.report).toEqual(rescoreFile(file).result.report);
+    expect(rebuilt.report.runs.metrics.intentAccuracy).toMatchObject({ mean: 1 });
+    // The partial rebuild left the actual-side facts as stored.
+    expect(rebuildResult(file).report.runs.metrics.intentAccuracy).toMatchObject({ mean: 0 });
+  });
+
+  test("a split is read after the same recomputation", () => {
+    const records = [addedPolo({ caseId: "a", baseId: "a" }), addedPolo({ caseId: "b", baseId: "b" })];
+    const file = { report: buildReport(records, meta), records };
+    const split = splitOf("a");
+    const part = rebuildSavedRun(file, new Set(), split);
+    expect(part.records.map(({ baseId }) => baseId)).toEqual(records.filter(({ baseId }) => splitOf(baseId) === split).map(({ baseId }) => baseId));
+    expect(part.report.settings).toMatchObject({ split });
+    expect(part.report.runs.metrics.intentAccuracy).toMatchObject({ mean: 1 });
+  });
+});
+
 describe("the before and after table", () => {
   const stale = [addedPolo({ caseId: "a" }), addedPolo({ caseId: "b", repeat: 1 })];
   const file = { report: buildReport(stale, meta), records: stale };
@@ -273,8 +327,8 @@ describe("the before and after table", () => {
     const { result } = rescoreFile(file);
     const rows = comparisonOf(file.report, result.report, { stored: file.records, rescored: result.records });
 
-    expect(rows.map(({ metric }) => metric)).toEqual(["false urgent share", "urgent recall", "urgent precision", "silent wrong changes per run", "ignored requests per run",
-      "intent precision (intentAccuracy)", "variant and quantity (fields accuracy)", "final order variant", "final order quantity", "resolution accuracy", "decision accuracy", "end-to-end mean", "end-to-end range",
+    expect(rows.map(({ metric }) => metric)).toEqual(["false urgent share", "false urgent share without the impossible labels (excluded messages not counted, denominator unchanged)", "false urgent share without carried failures (cascades) (excluded messages not counted, denominator unchanged)", "false urgent share without both (excluded messages not counted, denominator unchanged)", "false urgent share if «listo» with pendings counted as urgent (what-if)", "urgent recall", "urgent recall if «listo» with pendings counted as urgent (what-if)", "urgent precision", "silent wrong changes per run", "silent wrong changes per run without cascades", "ignored requests per run",
+      "intent precision (intentAccuracy)", "variant and quantity (fields accuracy)", "stage fields, strict (a between never passes)", "stage fields: messages with a between per run", "final order variant", "final order quantity", "resolution accuracy", "decision accuracy", "cost per message, mean of the stored stage costs", "end-to-end = overall accuracy: mean", "end-to-end = overall accuracy: range", "end-to-end without cascades: mean", "end-to-end without cascades: range", "end_to_end pass only: mean", "end_to_end pass only: range",
       "conversation failures own", "conversation failures carried"]);
     const intent = rows.find(({ metric }) => metric.startsWith("intent"))!;
     expect(intent).toMatchObject({ before: "0.0% (min 0.0%, max 0.0%)", after: "100.0% (min 100.0%, max 100.0%)" });
@@ -300,9 +354,43 @@ describe("the before and after table", () => {
 
     const rows = comparisonOf(old, report, { stored: e2e, rescored: e2e });
 
-    expect(rows.find(({ metric }) => metric === "end-to-end mean")).toMatchObject({ before: "100.0% (stored report: first run only)", after: "50.0%" });
-    expect(rows.find(({ metric }) => metric === "end-to-end range")).toMatchObject({ before: "n/a in stored report; recount with stored scores: 0.0%–100.0%", after: "0.0%–100.0%" });
+    expect(rows.find(({ metric }) => metric === "end_to_end pass only: mean")).toMatchObject({ before: "100.0% (stored report: first run only)", after: "50.0%" });
+    expect(rows.find(({ metric }) => metric === "end_to_end pass only: range")).toMatchObject({ before: "n/a in stored report; recount with stored scores: 0.0%–100.0%", after: "0.0%–100.0%" });
     expect(rows.find(({ metric }) => metric === "conversation failures own")).toMatchObject({ before: "n/a in stored report; recount with stored scores: 0", after: "0" });
+  });
+
+  test("the audited end-to-end is the overall accuracy: an older report's first-run figure is labelled, and the comparable before is a recount with its stored scores", () => {
+    const step = (number: number, passed: boolean, repeat: number) => addedPolo({ caseId: `c#${number}`, pass: "conversation", conversationId: "c", step: number, passed, repeat });
+    const stored = [addedPolo({ caseId: "a", passed: true }), step(1, false, 0), step(2, false, 0), addedPolo({ caseId: "a", passed: true, repeat: 1 }), step(1, true, 1), step(2, true, 1)];
+    const report = buildReport(stored, meta);
+    const old = { ...report, overallRuns: undefined as never };
+
+    const rows = comparisonOf(old, report, { stored, rescored: stored });
+    const row = (metric: string) => rows.find((candidate) => candidate.metric === metric)!;
+
+    expect(row("end-to-end = overall accuracy: mean")).toMatchObject({
+      before: "66.7% (recount with stored scores, over 2 runs; 33.3% (1/3), stored report: repeat 0 only)", after: "66.7%" });
+    expect(row("end-to-end = overall accuracy: range")).toMatchObject({ before: "33.3%–100.0% (recount with stored scores, over 2 runs; 33.3% (1/3), stored report: repeat 0 only)", after: "33.3%–100.0%" });
+    expect(row("end-to-end without cascades: mean")).toMatchObject({ before: "75.0% (recount with stored scores, over 2 runs)", after: "75.0%" });
+    expect(row("end-to-end without cascades: range")).toMatchObject({ before: "50.0%–100.0% (recount with stored scores, over 2 runs)", after: "50.0%–100.0%" });
+  });
+
+  test("a report that already holds the overall runs is shown as stored, and one with no records only has its first run", () => {
+    const records = [addedPolo({ caseId: "a", passed: true }), addedPolo({ caseId: "b", passed: false, repeat: 1 })];
+    const report = buildReport(records, meta);
+    expect(comparisonOf(report, report).find(({ metric }) => metric === "end-to-end = overall accuracy: mean")).toMatchObject({ before: "50.0%", after: "50.0%" });
+    const old = { ...report, overallRuns: undefined as never };
+    expect(comparisonOf(old, report).find(({ metric }) => metric === "end-to-end = overall accuracy: mean")!.before).toBe("100.0% (1/1), stored report: repeat 0 only");
+  });
+
+  test("the cost per message is the mean of the stored stage costs, and a report that lacks the metric gets a labelled recount", () => {
+    const costly = addedPolo({ caseId: "cost", facts: { ...staleFacts, stageCostsUsd: { intent: 0.001, extraction: 0.002 } } });
+    const report = buildReport([costly], meta);
+    const rows = comparisonOf(report, report, { stored: [costly], rescored: [costly] });
+    expect(rows.find(({ metric }) => metric.startsWith("cost per message"))).toMatchObject({ before: "$0.00300", after: "$0.00300" });
+    const old = { ...report, runs: { count: 1, metrics: { ...report.runs.metrics, costPerMessageUsd: null } } };
+    expect(comparisonOf(old, report, { stored: [costly], rescored: [costly] }).find(({ metric }) => metric.startsWith("cost per message"))!.before)
+      .toBe("$0.00300 (recount with stored scores)");
   });
 
   test("prints aggregates only: no case id and no input", () => {

@@ -1,9 +1,12 @@
-import { basename, join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { OrderLine } from "@core/evals/cases/schema";
 import type { ProductKey } from "@core/evals/fixtures/catalog";
 import type { CaseRecord, ReadingRecord, StageFacts } from "@core/evals/lib/case-record";
 import { changedLinesOf, scoredLinesOf, type ChangeRow, type ScoredChangedLine } from "@core/evals/lib/changed-lines";
-import { messageExpectationsOf, rebuildResult, rescoreMessage, type ResultFile } from "@core/evals/lib/rebuild";
+import { messageExpectationsOf, rebuildResult, rescoreMessage, splitResult, type ResultFile } from "@core/evals/lib/rebuild";
+import type { EvalSplit } from "@core/evals/cases/split";
+import type { AuditReport } from "@core/evals/lib/audit";
 import { buildReport, type EvalReport, type RunsTally } from "@core/evals/lib/report";
 import { runsOfRecords, type MetricName, type MetricRange } from "@core/evals/lib/metrics";
 import { expectedOrder, type ActualLine, type MessageActual } from "@core/evals/lib/scorers";
@@ -154,8 +157,13 @@ const rangeText = (range: MetricRange | null | undefined, show: (value: number) 
   if (!range) return "not measured";
   return range.min === range.max && range.runs === 1 ? show(range.mean) : `${show(range.mean)} (min ${show(range.min)}, max ${show(range.max)})`;
 };
-const metricRow = (metric: string, name: MetricName, before: EvalReport, after: EvalReport, show: (value: number) => string): ComparisonRow =>
-  ({ metric, before: rangeText(before.runs?.metrics?.[name], show), after: rangeText(after.runs.metrics[name], show) });
+const dollars = (value: number) => `$${value.toFixed(5)}`;
+/** A metric row: the stored report's value, or, where it has none and the stored records were given (`recount`), a recount from them with their stored scores, labelled. */
+const metricRow = (metric: string, name: MetricName, before: EvalReport, after: EvalReport, show: (value: number) => string, recount?: EvalReport | null): ComparisonRow => {
+  const stored = before.runs?.metrics?.[name];
+  const counted = recount?.runs.metrics[name];
+  return { metric, before: stored || !counted ? rangeText(stored, show) : `${rangeText(counted, show)} (recount with stored scores)`, after: rangeText(after.runs.metrics[name], show) };
+};
 
 /** The records the table may read besides the two reports: the file's as stored, and as scored again. */
 export type ComparisonRecords = Readonly<{ stored: readonly CaseRecord[]; rescored: readonly CaseRecord[] }>;
@@ -190,20 +198,54 @@ export function comparisonOf(before: EvalReport, after: EvalReport, records?: Co
     ? { metric, before: rangeText(orderFieldRange(records.stored, name), percent), after: rangeText(orderFieldRange(records.rescored, name), percent),
       note: "before counted from the stored records, with their stored scores" }
     : { metric, before: `${before.fields?.[name] ? percent(before.fields[name]!.accuracy) : "not measured"} (first run only)`, after: `${after.fields?.[name] ? percent(after.fields[name]!.accuracy) : "not measured"} (first run only)` };
+  const stage = (report: EvalReport | null) => (report as Readonly<{ audit?: AuditReport }> | null)?.audit;
+  /** A row of the audit views: the stored report's value when it has them, else (when `recount`) a recount from the stored records, labelled; they are new, so the stored scores never held them. */
+  const auditRow = (metric: string, pick: (audit: AuditReport) => MetricRange | null | undefined, show: (value: number) => string, recount = false): ComparisonRow => {
+    const storedAudit = stage(before);
+    const counted = stage(stored);
+    return { metric, after: rangeText(pick(stage(after)!), show),
+      before: storedAudit ? rangeText(pick(storedAudit), show) : recount && counted ? `${rangeText(pick(counted), show)} (recount with stored scores)` : "n/a in stored report" };
+  };
+  const storedOverall = (before as Readonly<{ overallRuns?: EvalReport["overallRuns"] }>).overallRuns;
+  const countedOverall = stored?.overallRuns;
+  const firstOverall = before.overall ? `${percent(before.overall.accuracy)} (${before.overall.passed}/${before.overall.total}), stored report: repeat 0 only` : null;
+  /** The stored overall accuracy of a report older than the range is its first run only: the recount with the stored scores is the comparable «before», and says what it is. */
+  const overallBefore = (view: "all" | "withoutCascades", show: (tally: RunsTally | null) => string): string => {
+    if (storedOverall) return show(storedOverall[view]);
+    if (!countedOverall) return firstOverall ?? "not measured";
+    const note = view === "all" && firstOverall ? `; ${firstOverall}` : "";
+    return `${show(countedOverall[view])} (recount with stored scores, over ${countedOverall[view].runs} runs${note})`;
+  };
+  const overallRows: readonly ComparisonRow[] = [
+    { metric: "end-to-end = overall accuracy: mean", before: overallBefore("all", meanOf), after: meanOf(after.overallRuns.all) },
+    { metric: "end-to-end = overall accuracy: range", before: overallBefore("all", rangeOf), after: rangeOf(after.overallRuns.all) },
+    { metric: "end-to-end without cascades: mean", before: overallBefore("withoutCascades", meanOf), after: meanOf(after.overallRuns.withoutCascades) },
+    { metric: "end-to-end without cascades: range", before: overallBefore("withoutCascades", rangeOf), after: rangeOf(after.overallRuns.withoutCascades) },
+  ];
   return [
-    metricRow("false urgent share", "falseUrgentShare", before, after, percent),
-    metricRow("urgent recall", "urgentRecall", before, after, percent),
-    metricRow("urgent precision", "urgentPrecision", before, after, percent),
-    metricRow("silent wrong changes per run", "silentWrongChanges", before, after, number),
-    metricRow("ignored requests per run", "ignoredRequests", before, after, number),
-    metricRow("intent precision (intentAccuracy)", "intentAccuracy", before, after, percent),
-    metricRow("variant and quantity (fields accuracy)", "fieldsAccuracy", before, after, percent),
+    metricRow("false urgent share", "falseUrgentShare", before, after, percent, stored),
+    auditRow("false urgent share without the impossible labels (excluded messages not counted, denominator unchanged)", ({ falseUrgent }) => falseUrgent.withoutImpossibleLabels, percent, true),
+    auditRow("false urgent share without carried failures (cascades) (excluded messages not counted, denominator unchanged)", ({ falseUrgent }) => falseUrgent.withoutCascades, percent, true),
+    auditRow("false urgent share without both (excluded messages not counted, denominator unchanged)", ({ falseUrgent }) => falseUrgent.withoutBoth, percent, true),
+    auditRow("false urgent share if «listo» with pendings counted as urgent (what-if)", ({ readyWithPendings }) => readyWithPendings.falseUrgentShare, percent, true),
+    metricRow("urgent recall", "urgentRecall", before, after, percent, stored),
+    auditRow("urgent recall if «listo» with pendings counted as urgent (what-if)", ({ readyWithPendings }) => readyWithPendings.urgentRecall, percent, true),
+    metricRow("urgent precision", "urgentPrecision", before, after, percent, stored),
+    metricRow("silent wrong changes per run", "silentWrongChanges", before, after, number, stored),
+    auditRow("silent wrong changes per run without cascades", ({ silentWrongChanges }) => silentWrongChanges.withoutCascades, number, true),
+    metricRow("ignored requests per run", "ignoredRequests", before, after, number, stored),
+    metricRow("intent precision (intentAccuracy)", "intentAccuracy", before, after, percent, stored),
+    metricRow("variant and quantity (fields accuracy)", "fieldsAccuracy", before, after, percent, stored),
+    auditRow("stage fields, strict (a between never passes)", ({ stageFields }) => stageFields.strictAccuracy, percent),
+    auditRow("stage fields: messages with a between per run", ({ stageFields }) => stageFields.between, number),
     orderRow("final order variant", "variant"),
     orderRow("final order quantity", "quantity"),
-    metricRow("resolution accuracy", "resolutionAccuracy", before, after, percent),
-    metricRow("decision accuracy", "decisionAccuracy", before, after, percent),
-    { metric: "end-to-end mean", before: beforeMean, after: meanOf(after.endToEnd.all) },
-    { metric: "end-to-end range", before: current ? rangeOf(before.endToEnd.all) : recount(rangeOf(stored?.endToEnd.all ?? null)), after: rangeOf(after.endToEnd.all) },
+    metricRow("resolution accuracy", "resolutionAccuracy", before, after, percent, stored),
+    metricRow("decision accuracy", "decisionAccuracy", before, after, percent, stored),
+    metricRow("cost per message, mean of the stored stage costs", "costPerMessageUsd", before, after, dollars, stored),
+    ...overallRows,
+    { metric: "end_to_end pass only: mean", before: beforeMean, after: meanOf(after.endToEnd.all) },
+    { metric: "end_to_end pass only: range", before: current ? rangeOf(before.endToEnd.all) : recount(rangeOf(stored?.endToEnd.all ?? null)), after: rangeOf(after.endToEnd.all) },
     { metric: "conversation failures own", before: current ? stepsOf(before.conversationSteps, "own") : recount(stepsOf(stored?.conversationSteps ?? null, "own")), after: stepsOf(after.conversationSteps, "own") },
     { metric: "conversation failures carried", before: current ? stepsOf(before.conversationSteps, "carried") : recount(stepsOf(stored?.conversationSteps ?? null, "carried")),
       after: stepsOf(after.conversationSteps, "carried") },
@@ -225,16 +267,51 @@ export function formatComparison(rows: readonly ComparisonRow[], kept: KeptCount
 }
 
 /**
- * The input and the target of the command from its arguments: the run, and `--out` (anywhere among them) or by default `<resultsDir>/<run>.rescored.json`. The
- * input is never the target.
+ * The saved run as the report command rebuilds it: the full recomputation of `rescoreFile`, the same the rescore command prints, so both give the same numbers
+ * on the same file. A split (`EVAL_SPLIT`) is cut first and rescored after.
  */
-export function rescoreArgumentsOf(args: readonly string[], resultsDir: string): Readonly<{ input: string; target: string }> | Readonly<{ error: string }> {
+export function rebuildSavedRun(file: ResultFile, knownLimitations: ReadonlySet<string>, split: EvalSplit | null): ResultFile {
+  return rescoreFile(split ? splitResult(file, split) : file, knownLimitations).result;
+}
+
+const repositoryRoot = realpathSync(resolve(import.meta.dirname, "../../../.."));
+const isInside = (parent: string, child: string) => {
+  const path = relative(parent, child);
+  return path === "" || (!path.startsWith("..") && !isAbsolute(path) && !path.startsWith(`..${sep}`));
+};
+/** The real path of a file that may not exist: its folder's real path with the name. */
+const realPathOf = (path: string): string => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return join(realpathSync(dirname(resolve(path))), basename(path));
+  }
+};
+
+/**
+ * A private run is a file whose real path (symlinks followed) is outside the repository or under `EVAL_PRIVATE_DIR`: its records hold the private cases' inputs, so
+ * nothing about it is written anywhere by default.
+ */
+export function isPrivateRunFile(path: string, env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  const real = realPathOf(path);
+  const privateDir = env.EVAL_PRIVATE_DIR ? realPathOf(env.EVAL_PRIVATE_DIR) : null;
+  return !isInside(repositoryRoot, real) || (privateDir !== null && isInside(privateDir, real));
+}
+
+/**
+ * The input and the target of the command from its arguments: the run, and `--out` (anywhere among them) or by default `<resultsDir>/<run>.rescored.json`. The
+ * input is never the target, and a private run (`isPrivateRun`) has no default target: `--out` is required.
+ */
+export function rescoreArgumentsOf(args: readonly string[], resultsDir: string, isPrivateRun: (input: string) => boolean = () => false): Readonly<{ input: string; target: string }> | Readonly<{ error: string }> {
   const outIndex = args.indexOf("--out");
   if (outIndex >= 0 && (args[outIndex + 1] === undefined || args[outIndex + 1]!.startsWith("--"))) return { error: "--out needs a path" };
   const out = outIndex >= 0 ? args[outIndex + 1] : undefined;
   const inputs = args.filter((arg, index) => !arg.startsWith("--") && !(outIndex >= 0 && index === outIndex + 1));
   if (inputs.length !== 1) return { error: "Usage: pnpm eval:rescore <run.json> [--out <path>]" };
   const input = resolve(inputs[0]!);
+  if (out === undefined && isPrivateRun(input)) {
+    return { error: "The input is a private run (its real path is outside the repository or under EVAL_PRIVATE_DIR): pass --out <path> to say where the rescored file goes; it holds the run's case inputs, so nothing is written by default" };
+  }
   const target = resolve(out ?? join(resultsDir, `${basename(input).replace(/\.json$/, "")}.rescored.json`));
   return target === input ? { error: "--out is the input file: the input is never overwritten" } : { input, target };
 }

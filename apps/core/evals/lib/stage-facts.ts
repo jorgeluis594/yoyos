@@ -10,20 +10,21 @@ import type { StageFacts } from "@core/evals/lib/case-record";
 
 /**
  * Notices that interrupt the seller: the problems, the payment request and the count of several problems. «Pedido #N cambió» is counted apart.
- * `ready_with_pendings` is one of them: the production reader lists it among its problems (`problemKinds` in reader/decision.ts, the decision's `urgent`
- * kind, docs/message-to-order.md «Problems (all urgent)»), because a «listo» that leaves a pending needs the seller's chat before charging.
+ * `ready_with_pendings` is NOT one of them here: counting it as urgent changes the definition of the founder's urgent gate, which the founder has not
+ * approved, so it stays an informative notice (`noticeOutcomes`). The report shows what the gate would read if it counted (lib/audit.ts `readyWithPendings`).
  */
 const urgentNotices: ReadonlySet<string> = new Set(["not_identified", "not_clear", "variant_missing", "variant_not_available", "quantity_above_limit", "unclear_item", "unnamed_add",
   "variant_only", "image_with_request", "no_open_order", "failed", "order_closed", "several_problems", "not_applied", "caption_not_applied", "product_not_available",
-  "variant_for_several_pendings", "payment_request", "ready_with_pendings"]);
+  "variant_for_several_pendings", "payment_request"]);
 /** Outcomes that are problems for the seller: a case that states one of them with no notice still expects an interruption, never a silent change. */
 const urgentOutcomes: ReadonlySet<string> = new Set(["unnamed_add", "variant_only", "image_with_request", "no_open_order", "not_identified", "not_clear", "variant_missing",
   "variant_not_available", "quantity_above_limit", "unclear_item", "failed", "order_closed", "product_not_available", "variant_for_several_pendings", "payment_requested",
-  "invalid_action", "reader_doubt", "request_not_allowed", "ready_with_pendings"]);
+  "invalid_action", "reader_doubt", "request_not_allowed"]);
 /** The problems a pending carries as its own «Por resolver» point (the question the seller asks to finish it). A case that states no notice reads them beside a pending as the pending. */
 const pendingPoints: ReadonlySet<string> = new Set(["variant_missing", "variant_not_available", "not_clear"]);
 const pendingOutcomes: ReadonlySet<string> = new Set(["pending_created", "pending_updated", "pending_split"]);
-const noticeOutcomes: ReadonlySet<string> = new Set(["ready", "only_item_kept"]);
+/** `ready_with_pendings` is one: an informative notice (see `urgentNotices`). */
+const noticeOutcomes: ReadonlySet<string> = new Set(["ready", "ready_with_pendings", "only_item_kept"]);
 /** `pending_ended` is not one: a decline ends the pending as the buyer asked, so it is a change; a case that expects an interruption states its `decision`. */
 const noChangeOutcomes: ReadonlySet<string> = new Set(["no_intent", "questions", "caption_not_applied"]);
 
@@ -93,6 +94,8 @@ export type StageAnswer = Readonly<{
   product: string | null;
   /** Null when the path states no decision (the legacy baseline, which only has an intent and a cost). */
   decision: DecisionKind | null;
+  /** Some request of the message was left undecided between products by the resolution (a message that chose no single product). */
+  fieldsBetween?: boolean;
   /** The path reads the intent only: fields, product and decision are not scored. */
   intentOnly?: boolean;
   changeApplied: boolean;
@@ -124,6 +127,7 @@ export function scoreStages(expected: ExpectedStages, answer: StageAnswer): Stag
   return {
     intent: expected.intent === answer.intent,
     fields: expected.fields && !answer.intentOnly ? sameFields(expected.fields, answer.fields) : null,
+    ...(expected.fields && !answer.intentOnly ? { fieldsBetween: answer.fieldsBetween === true } : {}),
     resolution: expected.product !== null && !answer.intentOnly ? expected.product === answer.product : null,
     decision: answer.decision === null ? null : expected.decision === answer.decision,
     decisionExpected: expected.decision,
