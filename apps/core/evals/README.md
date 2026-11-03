@@ -208,6 +208,32 @@ certainties with their gate, the counts above, latency, retries, model calls wit
 (`lib/rebuild.ts`): messages are rescored under the current rules, the visual calibration regraded and current `known-limitation`
 tags applied; Claude's error groups and cost are kept. The first rebuild keeps the original file as `<run>.orig.json`.
 
+### Rescoring a saved run
+
+`pnpm --dir apps/core eval:rescore <run.json> [--out <path>]` scores a saved run again with the current code and prints what moved. It makes no model
+call and needs no database, network or API key: it runs with a clean environment (`env -i PATH="$PATH" HOME="$HOME" pnpm ...`). Unlike `eval:report`
+it **never writes the input**: the rescored file (report and records, the same format) goes to `--out`, by default `eval-results/<run>.rescored.json`
+(git-ignored); it refuses an `--out` that is the input, and it writes into a private folder only when `--out` says so. The rescored file holds the
+run's case inputs like the input does, so keep it where the input would be kept. The table printed holds aggregate numbers only, never a case id or an input.
+
+From the stored expectations, reading trace (`reading`), actual result and earlier order (`previousOrder`) it computes again, for every message
+(`lib/rescore.ts`): the intent, the fields, the expected and the actual decision (one criterion for both, `decisionFromEvidence`), the request, the marks,
+the changed lines and the silent ones, the order fields, ignored actions and notices. Then the whole report: the metrics with their range over the
+runs, the end-to-end mean and range, the own and the carried conversation failures. Event records (`<conversation>#event<n>`) and records with no
+facts are left alone.
+
+What it cannot compute stays as stored, and the output counts it («Kept as stored»):
+- A run saved before the trace was kept (no record has a `reading`) keeps all the actual-side facts. In a run that has readings, a message with none is one
+  that read nothing (skipped), and its outcomes give the facts.
+- The change rows are not stored: they are rebuilt from the order before and after the message. When the rebuilt rows do not number the lines the record
+  counted (an event between two messages changed the order), or only some of them were marked, the stored changed lines stay.
+- The product the reader chose (`resolution`) cannot be named again, because the catalog ids are not stored; the timings and costs are those of the run.
+
+The table has one row per audited metric: «before» is the report stored in the file, «after» the recomputation. A report older than the end-to-end range and
+the own and carried conversation failures has no stored value for them, so «before» is counted from the stored records with their stored scores (the row says so).
+The «final order variant / quantity» rows are the first run's order-level fields (`report.fields`), apart from the stage `fields accuracy` row, which scores
+the fields the reader extracted and resolved against the case.
+
 ## Private runs
 
 With `EVAL_PRIVATE_DIR` set, only the private cases of each pass run, against a second eval company seeded with the private catalog
