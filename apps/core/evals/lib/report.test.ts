@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { CaseRecord } from "@core/evals/lib/case-record";
 import { messageRecord } from "@core/evals/lib/record-fixture";
 import type { ModelCall } from "@core/evals/lib/model-meter";
-import { buildReport, calibrate, formatSummary, percentile } from "@core/evals/lib/report";
+import { buildReport, calibrate, formatGateSummary, formatSummary, percentile } from "@core/evals/lib/report";
 
 const call = (over: Partial<ModelCall> = {}): ModelCall =>
   ({ provider: "openai", role: "system", endpoint: "/v1/responses", model: "gpt-6-luna", inputTokens: 1000, outputTokens: 100, durationMs: 300, status: 200, ...over });
@@ -138,10 +138,83 @@ describe("buildReport", () => {
     expect(report.gates).toEqual({ visual: 0.8 });
   });
 
+  test("end-to-end reports the mean over every run with its range, whole and split into photo and text", () => {
+    const run = (repeat: number, passedText: readonly boolean[]) => [
+      record({ caseId: "p", pass: "end_to_end", input: "photo customer/x.jpg caption «2»", repeat, passed: true }),
+      ...passedText.map((passed, index) => record({ caseId: `t${index}`, pass: "end_to_end", input: "text «quiero»", repeat, passed })),
+    ];
+    const report = buildReport([...run(0, [true, true, true, true]), ...run(1, [true, true, false, false]), ...run(2, [true, false, false, false])], meta);
+
+    expect(report.endToEnd.text).toMatchObject({ runs: 3, total: 4, accuracy: 0.583, min: 0.25, max: 1 });
+    expect(report.endToEnd.text.perRun.map(({ passed }) => passed)).toEqual([4, 2, 1]);
+    expect(report.endToEnd.photo).toMatchObject({ runs: 3, total: 1, accuracy: 1, min: 1, max: 1 });
+    expect(report.endToEnd.all).toMatchObject({ runs: 3, total: 5, accuracy: 0.667, min: 0.4, max: 1 });
+    expect(report.byPass.end_to_end).toEqual({ total: 5, passed: 5, accuracy: 1 });
+    expect(formatGateSummary(report)).toContain("End to end pass (end_to_end cases only) over 3 runs (mean and range): 66.7% (min 40.0%, max 100.0%)");
+  });
+
+  test("the end to end of the audit is the overall accuracy over every run, as the mean and range, with and without the carried failures", () => {
+    const step = (conversationId: string, number: number, passed: boolean, repeat: number) =>
+      record({ caseId: `${conversationId}#${number}`, pass: "conversation", conversationId, step: number, passed, repeat });
+    const event = record({ caseId: "c#event1", pass: "conversation", conversationId: "c", step: null, messageKind: null, passed: false, event: { name: "report_payment", after: 1 } });
+    const report = buildReport([
+      record({ caseId: "a" }), record({ caseId: "b", passed: false }), step("c", 1, false, 0), step("c", 2, false, 0), step("d", 1, true, 0), event,
+      record({ caseId: "a", repeat: 1 }), record({ caseId: "b", repeat: 1 }), step("c", 1, true, 1), step("c", 2, true, 1), step("d", 1, true, 1),
+      record({ caseId: "k", passed: false, tags: ["known-limitation"] }),
+    ], meta);
+
+    // Run 0: 2 of 5 messages passed; the carried failure c#2 leaves the base: 2 of 4. The event is no message and the known limitation is not scored.
+    expect(report.overall).toEqual({ total: 5, passed: 2, accuracy: 0.4 });
+    expect(report.overallRuns.all).toMatchObject({ runs: 2, total: 5, passed: 3.5, accuracy: 0.7, min: 0.4, max: 1 });
+    expect(report.overallRuns.withoutCascades).toMatchObject({ runs: 2, total: 4.5, accuracy: 0.75, min: 0.5, max: 1 });
+    expect(report.overallRuns.withoutCascades.perRun.map(({ total, passed }) => [total, passed])).toEqual([[4, 2], [5, 5]]);
+    const summary = formatGateSummary(report);
+    expect(summary).toContain("End to end, overall accuracy of every message over 2 runs (mean and range): 70.0% (min 40.0%, max 100.0%)");
+    expect(summary).toContain("  without carried failures (cascades): 75.0% (min 50.0%, max 100.0%)");
+  });
+
+  test("a report with no message has no overall runs", () => {
+    expect(buildReport([], meta).overallRuns.all).toMatchObject({ runs: 0 });
+  });
+
   test("the end-to-end pass is also split into photo and text messages", () => {
     const report = buildReport([record({ pass: "end_to_end", input: "photo customer/x.jpg caption «2»" }), record({ caseId: "b", pass: "end_to_end", passed: false, input: "text «quiero»" })], meta);
 
-    expect(report.endToEnd).toEqual({ photo: { total: 1, passed: 1, accuracy: 1 }, text: { total: 1, passed: 0, accuracy: 0 } });
+    expect(report.endToEnd.photo).toMatchObject({ runs: 1, total: 1, passed: 1, accuracy: 1 });
+    expect(report.endToEnd.text).toMatchObject({ runs: 1, total: 1, passed: 0, accuracy: 0 });
+  });
+
+  test("conversation steps count own and carried failures apart over every run, with the ids of each kind", () => {
+    const step = (conversationId: string, number: number, passed: boolean, repeat: number, over: Partial<CaseRecord> = {}) =>
+      record({ caseId: `${conversationId}#${number}`, pass: "conversation", conversationId, step: number, passed, repeat, ...over });
+    const report = buildReport([
+      step("c", 1, false, 0), step("c", 2, false, 0), step("c", 3, false, 0), step("d", 1, true, 0), step("d", 2, false, 0),
+      step("c", 1, true, 1), step("c", 2, true, 1), step("c", 3, true, 1), step("d", 1, true, 1), step("d", 2, true, 1),
+      step("k", 1, false, 0, { tags: ["known-limitation"] }),
+      record({ caseId: "int", passed: false }),
+    ], meta);
+
+    expect(report.conversationSteps).toEqual({
+      runs: 2, steps: 10, failed: 4,
+      own: { count: 2, ids: ["c#1", "d#2"] },
+      carried: { count: 2, ids: ["c#2", "c#3"] },
+      perRun: [{ repeat: 0, steps: 5, own: 2, carried: 2 }, { repeat: 1, steps: 5, own: 0, carried: 0 }],
+    });
+    expect(formatGateSummary(report)).toContain("Conversation steps failed over 2 runs: 2 own, 2 carried from an earlier failed step of the same conversation and run");
+    expect(formatSummary(report, "p")).toContain("carried ids: c#2, c#3");
+  });
+
+  test("a failed event is kept apart from the message scores and counts as a failed conversation step", () => {
+    const report = buildReport([
+      record({ caseId: "c#1", pass: "conversation", conversationId: "c", step: 1, passed: false, latencyMs: 50 }),
+      record({ caseId: "c#event1", pass: "conversation", conversationId: "c", step: null, messageKind: null, passed: false, latencyMs: 0, error: "no order", event: { name: "report_payment", after: 1 } }),
+      record({ caseId: "c#2", pass: "conversation", conversationId: "c", step: 2, passed: false, error: "no order" }),
+    ], meta);
+
+    expect(report.gate.whole.scored).toBe(2);
+    expect(report.overall.total).toBe(2);
+    expect(report.conversationSteps).toMatchObject({ steps: 2, failed: 3, own: { ids: ["c#1"] }, carried: { count: 2, ids: ["c#2", "c#event1"] } });
+    expect(report.failures.map(({ caseId }) => caseId)).toEqual(["c#1", "c#event1", "c#2"]);
   });
 
   test("the image view splits the near-identical polos and lists negatives accepted at the gate", () => {

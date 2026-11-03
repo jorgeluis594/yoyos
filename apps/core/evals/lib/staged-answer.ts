@@ -1,6 +1,7 @@
 import type { DecisionKind, IntentKind } from "@core/evals/cases/schema";
-import { decisionOf, type ExpectedStages, type StageAnswer } from "@core/evals/lib/stage-facts";
+import { decisionFromEvidence, fold, type ExpectedStages, type StageAnswer } from "@core/evals/lib/stage-facts";
 import type { MessageTrace, TraceShadow, TraceStage } from "@core/src/features/orders/domain/reader/trace";
+import type { ExtractedRequest } from "@core/src/features/orders/domain/reader/readings";
 
 /**
  * What the reading trace of the staged `applyChatMessage` says, as the `StageAnswer` that `scoreStages` compares with the case (technical design 6.3).
@@ -15,30 +16,53 @@ function primaryOutput<Stage extends TraceStage["call"]["stage"]>(trace: Message
   return (found?.output as StageOutput<Stage> | null | undefined) ?? null;
 }
 
-const fold = (text: string): string => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+/** Words that join a value to the product (in «en L», «a negro»): never the name of an attribute. */
+const connectors: ReadonlySet<string> = new Set(["en", "a", "de", "del", "la", "el", "los", "las", "un", "una", "con", "para", "por", "y"]);
 
-/** The extracted words under the name the case gives them: `quantity`, `price`, or the attribute the buyer named (the case's own spelling when the words fold to it). */
-function fieldsOf(extraction: StageOutput<"extraction">, expected: Readonly<Record<string, string>> | null): Readonly<Record<string, string>> {
+/**
+ * The fields of the message under the names the case gives them: `quantity`, `price`, and the catalog attribute of each value. The values are the
+ * catalog's (the resolution stage's `values`, e.g. Color=Negro for «negros»), not the buyer's words. A request with no resolved values falls back to its
+ * words, under the case's own spelling when they fold to a stated value (not a `between`, whose unmapped words never take the label's spelling). A request that adds an item with no quantity adds one.
+ * A value word the resolution did not map to a catalog value (listed in `unmatched` or silently dropped, whether it chose a product or stayed `between`
+ * several) stays in the answer as a word of its own: an extra field, so the comparison fails unless the label states that very word.
+ * `between` tells that some request was left undecided between products, which the strict reading of the fields never passes.
+ */
+function fieldsOf(extraction: StageOutput<"extraction">, resolution: StageOutput<"resolution"> | null, expected: Readonly<Record<string, string>> | null): Readonly<{ fields: Readonly<Record<string, string>>; between: boolean }> {
   const fields: Record<string, string> = {};
+  let between = false;
+  const addWord = ({ attributeWords, valueWords }: ExtractedRequest["values"][number]) => {
+    const attribute = attributeWords !== null && !connectors.has(fold(attributeWords.text)) ? attributeWords : null;
+    const stated = Object.entries(expected ?? {}).find(([name, value]) => fold(value) === fold(valueWords.text) && (attribute === null || fold(attribute.text) === fold(name)));
+    if (stated) fields[stated[0]] = stated[1];
+    else fields[attribute?.text ?? valueWords.text] = valueWords.text;
+  };
   for (const request of extraction.requests) {
     if (request.quantity) fields.quantity = String(request.quantity.value);
+    else if (request.kind === "add") fields.quantity = "1";
     if (request.price) fields.price = String(request.price.amount);
-    for (const { attributeWords, valueWords } of request.values) {
-      const stated = Object.entries(expected ?? {}).find(([name, value]) => fold(value) === fold(valueWords.text) && (attributeWords === null || fold(attributeWords.text) === fold(name)));
-      if (stated) fields[stated[0]] = stated[1];
-      else fields[attributeWords?.text ?? valueWords.text] = valueWords.text;
+    const resolved = resolution?.resolutions.find((candidate) => candidate.request === request.request);
+    if (resolved?.kind === "between") between = true;
+    const values = resolved && resolved.kind !== "none" ? resolved.values ?? [] : [];
+    if (values.length === 0) {
+      // A between that mapped nothing leaves the words unresolved: they stand as they were said, never under the label's spelling.
+      if (resolved?.kind === "between") request.values.forEach(({ valueWords }) => { fields[valueWords.text] = valueWords.text; });
+      else request.values.forEach(addWord);
+      continue;
+    }
+    for (const { attribute, value } of values) fields[attribute] = value;
+    const covered = new Set(values.map(({ quote }) => fold(quote.text)));
+    const left = request.values.filter(({ valueWords }) => !covered.has(fold(valueWords.text)));
+    left.forEach(addWord);
+    const unmatched = resolved?.kind === "chosen" ? resolved.unmatched ?? [] : [];
+    for (const { text } of unmatched) {
+      if (!covered.has(fold(text)) && !left.some(({ valueWords }) => fold(valueWords.text) === fold(text))) addWord({ attributeWords: null, valueWords: { source: "current", text } });
     }
   }
-  return fields;
+  return { fields, between };
 }
 
-const severity: readonly DecisionKind[] = ["urgent", "pending", "doubtful", "applied", "silent"];
-
 function decisionKindOf(trace: MessageTrace | null, notice: string | null, outcomes: readonly string[]): DecisionKind {
-  if (notice !== null) return decisionOf({ notice } as Parameters<typeof decisionOf>[0]);
-  const kinds: readonly DecisionKind[] = trace?.decisions.map(({ decision }) => decision) ?? [];
-  const worst = severity.find((kind) => kinds.includes(kind));
-  return worst ?? decisionOf({ outcomes } as Parameters<typeof decisionOf>[0]);
+  return decisionFromEvidence({ notice, outcomes, decisions: trace?.decisions.map(({ decision }) => decision) ?? [] });
 }
 
 function stageCostsOf(trace: MessageTrace | null): Readonly<Record<string, number>> {
@@ -77,9 +101,11 @@ export function stagedAnswerOf(input: StagedAnswerInput): StageAnswer {
     ?? primaryOutput(trace, "resolution")?.resolutions.find((resolution) => resolution.kind === "chosen")?.productId ?? null;
   const decision = decisionKindOf(trace, notice, outcomes);
   const kinds = decisions.map(({ decision: kind }) => kind);
+  const read = extraction ? fieldsOf(extraction, primaryOutput(trace, "resolution"), expected.fields) : null;
   return {
     intent: intent?.kind ?? intentFromOutcomes(outcomes),
-    fields: extraction ? fieldsOf(extraction, expected.fields) : null,
+    fields: read?.fields ?? null,
+    ...(read?.between ? { fieldsBetween: true } : {}),
     product: productId === null ? null : input.productKeyOf(productId),
     decision,
     // The change rows are the truth when read: a completion of a pending changes the order and its decision is `pending`, and a mark can be inherited.

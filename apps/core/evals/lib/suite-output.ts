@@ -5,7 +5,7 @@ import type { CaseRun } from "@core/evals/lib/runs";
 
 /** One record standing for a whole run of a case in the report: a conversation's messages are summed up. */
 export function summaryOf(records: readonly CaseRecord[]): CaseRecord {
-  const first = records[0]!;
+  const first = records.find(({ event }) => event === undefined) ?? records[0]!;
   return { ...first, passed: records.every(({ passed }) => passed), exactPassed: records.every(({ exactPassed }) => exactPassed),
     fields: Object.fromEntries(records.flatMap(({ fields }) => Object.entries(fields))), error: records.find(({ error }) => error)?.error ?? null,
     signature: records.map(({ signature }) => signature).join(" ; "), input: records.map(({ input }) => input).join(" → "), calls: records.flatMap(({ calls }) => calls) };

@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
-import { readingOf } from "@core/evals/lib/run-case";
+import type { ConversationCase } from "@core/evals/cases/schema";
+import { ConversationEventError } from "@core/evals/lib/conversation";
+import { conversationRecordsOf, readingOf } from "@core/evals/lib/run-case";
 import type { MessageTrace } from "@core/src/features/orders/domain/reader/trace";
 
 test("keeps the masked stage outputs and the decisions of a trace, and nothing when no reading ran", () => {
@@ -14,4 +16,19 @@ test("keeps the masked stage outputs and the decisions of a trace, and nothing w
     decisions: [{ action: "add_item", risk: "low", agreement: "not_run", decision: "applied" }],
   });
   expect(readingOf(null)).toBeNull();
+});
+
+test("a conversation whose event threw keeps the event as a failed record and the messages it never reached as failed too", () => {
+  const testCase = { id: "c", pass: "conversation", kind: "pending-after-payment", tags: [], steps: [
+    { event: "report_payment" }, { input: { text: "a" }, expected: { notice: null } }, { input: { text: "b" }, expected: { notice: null } },
+  ] } as unknown as ConversationCase;
+  const failure = new ConversationEventError({ event: "report_payment" }, 1, 0, new Error("The conversation has no order for report_payment"));
+
+  const records = conversationRecordsOf(testCase, 2, { results: [], error: failure }, "eval");
+
+  expect(records.map(({ caseId, step, repeat, passed, error }) => ({ caseId, step, repeat, passed, error }))).toEqual([
+    { caseId: "c#event1", step: null, repeat: 2, passed: false, error: "The conversation has no order for report_payment" },
+    { caseId: "c#1", step: 1, repeat: 2, passed: false, error: "The conversation has no order for report_payment" },
+    { caseId: "c#2", step: 2, repeat: 2, passed: false, error: "The conversation has no order for report_payment" },
+  ]);
 });

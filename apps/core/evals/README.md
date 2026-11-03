@@ -149,6 +149,18 @@ Event steps act on the chat's latest order through the production use cases, at 
 Every step happens a minute after the previous one, so messages keep their order. Nothing publishes events, so a cancellation does
 not restore stock. A conversation's split is the hash of its id. Each message leaves one record, `<conversation id>#<number>`, with the conversation id.
 
+A conversation **stops at its first step that throws** (an event that cannot act, such as `report_payment` or `confirm_payment` with no order
+because the earlier message left none, or a failure of the harness). The messages already applied stay; the ones never sent are recorded as
+failed with the error that stopped it, so a broken run cannot look like fewer messages. A failed event is kept as a record of its own,
+`<conversation id>#event<number>` (the number counts the conversation's event steps, `advance_days` included), failed, with the error message and
+`event: { name, after }` (`after` is how many messages came before it); it is no message, so the message scores, gate lines, cost and latency leave it out.
+
+**Own and carried failures.** A failed step of a conversation (a message record, or a failed event record) is **carried** when an earlier step of
+the same conversation in the same run (`repeat`) already failed; otherwise it is **own**. «Earlier» is the message number `step`, with an event
+record placed after the `after` messages that came before it. The rule reads only the stored records (`conversationId`, `step` or `event.after`,
+`repeat`, `passed`), so a saved run can be read the same way (`stepFailuresOf` in `lib/conversation.ts`). For example, a first message that fails
+and an event that then cannot act: the message is own, the event and every later message are carried.
+
 ## Scoring
 
 Notice kind, outcomes (as a multiset), product, variant, quantity and mentioned price are exact matches; every message also checks
@@ -177,8 +189,28 @@ certainties with their gate, the counts above, latency, retries, model calls wit
   tokens, the p95 latency per message, and the model calls per message kind (text, photo, photo with caption) against what the
   design allows (the reader and the vision chooser are not told apart);
 - a `pinned-miss` section: for each case tagged `pinned-miss`, the ignored actions of each repetition;
-- accuracy overall and per pass, criterion, kind, tag and scored field; the end-to-end pass split into photo and text messages;
-  known limitations listed apart;
+- accuracy overall and per pass, criterion, kind, tag and scored field, all over the first run; known limitations listed apart;
+- **Conversation steps** (`conversationSteps`, and the «Conversation steps failed over N runs» line of the gate summary): over all runs, the failed
+  steps split into own and carried (see Conversation cases), with counts, counts per run, and the ids of each kind (`own.ids`, `carried.ids`; the full
+  summary prints them, the aggregate lines of a private run do not). Known limitations are left out. A conversation scores the same either way:
+  carried failures stay failed messages in the gate and the metrics; the split tells which failures are the step's own;
+- **End to end = overall accuracy over every run** (`overallRuns`, and the «End to end, overall accuracy of every message» line of the gate summary): the audited «punta a punta» figure is
+  `overall.accuracy`, the share of right messages over all scored messages of every pass. `overall` and `byPass` count the first run only (the first run alone is not the end to end);
+  `overallRuns` gives the **mean over all `EVAL_REPEATS` runs with its range** (min and max of the runs' rates), and the same **without carried failures (cascades)**: a failed message that the own/carried rule
+  classifies as carried leaves the base, numerator and denominator (see «Audit views»). Quote the mean and range, never the first run.
+- **The `end_to_end` pass alone** (`endToEnd`, and the «End to end pass (end_to_end cases only)» line): the pass rate of the `end_to_end` cases as the mean and range over all runs, whole and split into photo and text
+  messages. It is not the overall accuracy: it is kept as a separate, labelled figure. `byPass.end_to_end` stays the first run's tally.
+- **Audit views** (`audit`, `lib/audit.ts`; printed after the end-to-end lines, aggregate numbers only, each as mean and range over all runs). They are variants of measurements
+  next to the gate's own and never replace it:
+  - **False urgent share** in four readings: as is; without the three impossible labels (`impossibleLabelCaseIds` in `lib/audit.ts`: `h5-100`, `h5-103` and `h5-104`: labels whose stated
+    decision cannot follow from their own notice under `decisionFromEvidence`, so no reader can match them; the constant only feeds this view, the cases are never edited); without the carried failures
+    (the cascades); and without both. An excluded message is not counted as a false urgent and stays among the decided messages (**denominator unchanged**, which is not the usual «without X» that removes X from the base), so the four shares have the same base; the printed row labels say so.
+  - **Without carried failures (cascades)**: a record is dropped when the own/carried rule above (`stepFailuresOf`) classifies it as a carried failure, and only for a measure
+    it counts in. A carried record that did not fail on that measure (a message that is not a false urgent, or that made no silent wrong change) stays as it is. The rule reads a failed
+    event too, because an event that cannot act makes the later messages carried. For the accuracy over all messages (below) a dropped record is a failed message, so it leaves the base.
+  - **Silent wrong changes** per run, as is and without the cascades.
+  - **`ready_with_pendings` what-if**: false urgent share and urgent recall if «listo» with pendings counted as urgent (see «How the stages are scored»).
+  - **Stage fields** between and strict (see «How the stages are scored»).
 - calibration of the visual search at its production gate (`visual`, `visual_none`, `shows_product`), graded by the model's own pick
   (`lib/picks.ts`). Reading a message has no certainty gate, so there is nothing else to calibrate;
 - prompt injection outcomes, judge rescues and disagreements;
@@ -186,9 +218,45 @@ certainties with their gate, the counts above, latency, retries, model calls wit
   tokens and estimated cost per model and role;
 - Claude's grouping of the failed cases by cause, from the records: hypotheses, not verified causes.
 
-`pnpm --dir apps/core eval:report eval-results/<run>.json [...]` rebuilds a saved run's report from its records with no model call
-(`lib/rebuild.ts`): messages are rescored under the current rules, the visual calibration regraded and current `known-limitation`
-tags applied; Claude's error groups and cost are kept. The first rebuild keeps the original file as `<run>.orig.json`.
+`pnpm --dir apps/core eval:report eval-results/<run>.json [...]` rebuilds a saved run's report from its records with no model call: it makes
+the **same full recomputation as `eval:rescore`** (`rebuildSavedRun` in `lib/rescore.ts`; the facts of every message under the current rules, then the report, the visual calibration
+regraded and the current `known-limitation` tags applied), so both commands give the same numbers on the same file. Claude's error groups and cost are kept. The first rebuild keeps the
+original file as `<run>.orig.json` and **rewrites the file in place**, so never run it on a private run: run it on a copy, or use `eval:rescore`.
+
+### Rescoring a saved run
+
+`pnpm --dir apps/core eval:rescore <run.json> [--out <path>]` scores a saved run again with the current code and prints what moved. It makes no model
+call and needs no database, network or API key: it runs with a clean environment (`env -i PATH="$PATH" HOME="$HOME" pnpm ...`). Unlike `eval:report`
+it **never writes the input**: the rescored file (report and records, the same format) goes to `--out`, by default `eval-results/<run>.rescored.json`
+(git-ignored); relative paths (the run and `--out`) resolve from `apps/core`, where `pnpm --dir apps/core` runs the script, so absolute paths are safer; it refuses an `--out` that is the input. **A private run needs `--out`**: when the input's real path (symlinks followed) is outside the repository or under `EVAL_PRIVATE_DIR`, the command stops with a message
+instead of writing by default into `eval-results/`, and it writes into a private folder only when `--out` says so. The rescored file holds the
+run's case inputs like the input does, so keep it where the input would be kept. The table printed holds aggregate numbers only, never a case id or an input.
+
+From the stored expectations, reading trace (`reading`), actual result and earlier order (`previousOrder`) it computes again, for every message
+(`lib/rescore.ts`): the intent, the fields, the expected and the actual decision (one criterion for both, `decisionFromEvidence`), the request, the marks,
+the changed lines and the silent ones, the order fields, ignored actions and notices. Then the whole report: the metrics with their range over the
+runs, the end-to-end (overall accuracy) mean and range with and without cascades, the own and the carried conversation failures. Event records (`<conversation>#event<n>`) and records with no
+facts are left alone.
+
+What it cannot compute stays as stored, and the output counts it («Kept as stored»):
+- A run saved before the trace was kept (no record has a `reading`) keeps all the actual-side facts. In a run that has readings, a message with none is one
+  that read nothing (skipped), and its outcomes give the facts.
+- The change rows are not stored: they are rebuilt from the order before and after the message. When the rebuilt rows do not number the lines the record
+  counted (an event between two messages changed the order), or only some of them were marked, the stored changed lines stay. The earlier order does not
+  store the prices the buyer mentioned, so an earlier price is unknown: a line (a variant change's removed line included) keeps the price it ends with unless the message
+  states one, a price-only change the data cannot place keeps the stored lines too, and so does a message that states a price and changes more than one priced line.
+- Legacy baseline records (`EVAL_READER=legacy`) state an intent and no decision by design: they are counted apart, not as missing data.
+- The product the reader chose (`resolution`) cannot be named again, because the catalog ids are not stored; the timings and costs are those of the run.
+
+The table has one row per audited metric: «before» is the report stored in the file, «after» the recomputation. «Before» shows what
+the stored report says where it has the metric: the end-to-end of a report older than the range is its first run only and is labelled so. Where it has no value
+(the end-to-end range, the own and carried conversation failures) the cell says «n/a in stored report» and adds a recount from the stored records with their stored scores.
+The «stage fields, strict» and «messages with a between» rows are the audit lines above. The «final order variant / quantity» rows are the order-level fields as mean and range over all runs, counted from the records (the before with its stored scores, noted
+under the table), apart from the stage `fields accuracy` row, which scores the fields the reader extracted and resolved against the case. The stage fields cover only the cases
+that state fields (only 20 cases do): widening that coverage needs more labels, which this harness does not write, so it is **out of scope** here and the figure is read with that base in mind.
+The rows after the stage rows are the other audited ones: false urgent in its four readings and the `ready_with_pendings` what-if, silent wrong changes with and without cascades, ignored requests,
+intent, resolution (the product), the cost per message (mean of the stored stage costs, which a rescore keeps), the end to end as the overall accuracy (mean and range, with and without cascades) and the
+`end_to_end` pass alone. The «before» of a row the stored report does not hold is a recount from the stored records with their stored scores, and says so.
 
 ## Private runs
 
@@ -255,9 +323,18 @@ intent, fields, resolution and decision accuracy (over the messages whose case s
 urgent share with precision and recall, the false urgent share (messages that interrupted the seller without needing it, over the decided messages; the urgent gate is a false urgent share at or under 10 % with urgent recall at 100 %, while the total urgent share and precision are reported only, because the case sets expect about 30 % urgent messages), the «Pedido #N cambió» count apart, cost per message and per stage (photo stages included), and the p95
 from the start of the reading to the decision without queue wait. `eval:compare` calls a metric better or worse only when the ranges of the two
 runs do not overlap; otherwise it prints «not distinguishable». A case states its stages with `stages` (intent, fields, product) and `decision`;
-the cases without them are relabelled by derivation from their notice and outcomes (`lib/stage-facts.ts`; an outcome that is a problem, with no pending beside it, expects an urgent decision), a conversation that deactivates a product restores the catalog's status when it ends, each record keeps the masked output of every stage (`reading`), and `cases/stage-labels.ts` labels
+the cases without them are relabelled by derivation from their notice and outcomes (`lib/stage-facts.ts`, see «How the stages are scored» below), a conversation that deactivates a product restores the catalog's status when it ends, each record keeps the masked output of every stage (`reading`), and `cases/stage-labels.ts` labels
 the cases of the four seed-bank families. Records of the current (legacy) reader path carry no stage facts and feed only the gate flags until
 the suites point at the staged pipeline.
+
+### How the stages are scored
+
+- **Expected requests.** A step states a request unless its outcomes are only `no_intent` or `questions`, or its only expectation is a silent decision (`decision: "silent"`, notice `null`, no outcomes, no order): that step asks nothing, so its intent is `no_intent` (unless it states `stages.intent`) and the reader leaving it alone is neither an ignored request nor a wrong intent.
+- **One decision criterion.** The expected decision (`decisionOf`, when the case does not state `decision`) and the actual one (`lib/staged-answer.ts`) both go through `decisionFromEvidence(notice, outcomes, trace decisions)`, in this order: `urgent` when an urgent notice goes out or a problem outcome is present (with no notice stated, a pending's own «Por resolver» point beside a pending is the pending's); `notice` for an informative notice or a `ready` / `only_item_kept` outcome; `pending` when the message created, updated or split a pending; otherwise the change itself: `doubtful` when the trace marked it, `applied` when it changed the order, `silent` when not. A pending change whose trace decisions are only `doubtful` stays `doubtful` (with a real `pending` action beside it, it is `pending`). A completion of a pending (`added` + `pending_completed`) is a change, so `applied`, though its trace decision is `pending`. An urgent notice always makes the decision urgent: the urgent gate measures interruptions of the seller, so a pending that sends «not_clear» counts as urgent on both sides and a case that labels it `pending` with that notice cannot match (a label to read as inconsistent with production, not a reader error).
+- **`ready_with_pendings` is not urgent in the gate; the report shows what-if.** The production reader lists «listo» with a pending left among its problems (`problemKinds` in `reader/decision.ts`; docs/message-to-order.md «Problems (all urgent)»), but counting it as urgent in the evals changes the definition of the founder's urgent gate, and the founder has not approved that. So it stays an informative notice, as before the unified criterion: `noticeOutcomes` holds it, `urgentNotices` and `urgentOutcomes` do not, and a case that expects «Pedido listo» and gets «Revisa el chat» is not a false urgent. The founder decides, with the what-if line of the report (`audit.readyWithPendings`): the false urgent share and the urgent recall as they would read if it counted as urgent, on the side of the label (unless the label states its own `decision`) and of the answer. A label that states `decision: "urgent"` for its «listo» with a pending left is, as the gate stands, an urgent the reader missed (decision `notice`) even when the message passes; in the what-if it is a hit.
+- **Fields are compared as catalog values.** The answer's fields come from the resolution stage's normalised `values` of each request (Color=Negro, Talla=M for «negros», «eme»), plus `quantity` and `price` from the extraction; the buyer's words are used only for a request with no resolved values. An `add` with no quantity extracted counts as quantity 1, and a connector («en», «a», «de»…) is never taken as the name of an attribute. Names and values compare folding case and accents. A value word the resolution did not map to a catalog value, whether it listed it in `unmatched` or dropped it (the words of a variant the catalog lacks, such as «canalé», «drill», «algodón» or «rib negro» put as a variant value), stays in the answer as a field of its own: an extra field, so the comparison fails, unless the label states that very word (a case that expects «variant not available» for a size the catalog lacks). This holds when the resolution chose one product and when it left the request `between` several; a `between` that mapped no value does not fall back to the buyer's words (they would spell the label's value and pass), its words stay as said and fail. The words are the fallback only when there is no resolution for the request, or it chose no product (`none`). Fields are scored apart from the product choice: a `between` whose words the resolution all mapped and whose catalog values match the label passes the fields, while the resolution accuracy, which has its own metric, counts the product.
+  **Why that is the main metric and what the strict one adds.** The CTO's audit of a holdout run counts the stage fields this way: every value word the resolution did not map is an error, and a `between` that mapped all its words is not. That is the rule above, and the reference of `fieldsAccuracy`. The reader's main failure, a truncated product name, ends as a `between`, which that rule does not lower, so the report prints two more lines apart: the messages with a `between` resolution (per run, of the messages whose case states fields) and the **strict** accuracy, where a message with a `between` never passes the fields (`fieldsBetween` in the facts; `audit.stageFields`). They change no other metric.
+- **A changed line is wrong only in what the message changed.** Each change row says which fields of its line the message touched (`lib/changed-lines.ts` `touched`): a row with a line before and after touched the quantity or the mentioned price only if it differs; a line added by a variant change (the old variant removed, the new one added) carries the quantity and price of the line it replaced, so it touched them only if they differ. A quantity or price the message did not touch is not compared with the expected order, because it is an earlier message's error (an inherited quantity). A line missing from the expected order, or on another variant, is still wrong.
 
 A private run (`EVAL_PRIVATE_DIR`) prints aggregate lines only and writes `<dir>/runs/<run>.summary.json` with the ids of the failed cases and
 the type of each failure (`lib/private-run-summary.ts`); no input, product, judge reason or error text. The holdout ids of the seed bank live

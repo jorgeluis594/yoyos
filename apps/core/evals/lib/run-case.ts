@@ -4,7 +4,8 @@ import { isMessageStep, needsJudge, type ConversationCase, type MessageExpectati
 import type { Claude, JudgeVerdict } from "@core/evals/lib/claude";
 import { appendRecord, type CaseRecord, type ReadingRecord, type StageFacts } from "@core/evals/lib/case-record";
 import { metered, type ModelCall } from "@core/evals/lib/model-meter";
-import { observedTrace, observing, type AppliedMessage, type Observation, type ProductionPath } from "@core/evals/lib/production";
+import { observedTrace, observing, type AppliedConversation, type AppliedMessage, type Observation, type ProductionPath } from "@core/evals/lib/production";
+import { ConversationEventError } from "@core/evals/lib/conversation";
 import { readFixtureImage } from "@core/evals/lib/eval-catalog";
 import { expectedStagesOf, scoreStages } from "@core/evals/lib/stage-facts";
 import { legacyAnswerOf, stagedAnswerOf } from "@core/evals/lib/staged-answer";
@@ -182,13 +183,22 @@ export function runLegacyMessageCase(context: RunCaseContext, testCase: MessageC
 }
 
 /**
- * Runs a conversation and leaves one record per message, with the conversation id. A message the conversation never reached (an
- * earlier step threw) is recorded as failed, so a broken run cannot look like fewer messages.
+ * The records of an applied conversation: one per message, in order, and one for the event that failed, if any. A conversation stops at its
+ * first failed step (lib/conversation.ts `ConversationEventError`), so a message it never reached is recorded as failed with the error that
+ * stopped it, and a broken run cannot look like fewer messages. A failed event is a record of its own (`<conversation id>#event<number>`,
+ * `event` set, no step), placed after the messages that came before it; the messages after it count as carried failures (`stepFailuresOf`).
  */
-export async function runConversationCase(context: RunCaseContext, testCase: ConversationCase, repeat: number): Promise<readonly CaseRecord[]> {
+export function conversationRecordsOf(testCase: ConversationCase, repeat: number, conversation: AppliedConversation, scope: CatalogScope): readonly CaseRecord[] {
   const messages = testCase.steps.filter(isMessageStep);
-  const { results, error } = await context.path.applyConversation(testCase.steps, context.scope, testCase);
+  const { results, error } = conversation;
   const records: CaseRecord[] = [];
+  const eventRecord = (failure: ConversationEventError): CaseRecord => {
+    const evaluated = failedEvaluation(failure, performance.now());
+    return { ...entryOf(testCase, 0, repeat, evaluated, { certainties: [], trace: null }, [], null, false, `${testCase.id}#event${failure.eventNumber}`),
+      conversationId: testCase.id, input: `event ${failure.step.event}`, event: { name: failure.step.event, after: failure.after } };
+  };
+  const failedEvent = error instanceof ConversationEventError ? error : null;
+  if (failedEvent?.after === 0) records.push(eventRecord(failedEvent));
   for (const [index, step] of messages.entries()) {
     const number = index + 1;
     const caseId = `${testCase.id}#${number}`;
@@ -201,14 +211,21 @@ export async function runConversationCase(context: RunCaseContext, testCase: Con
       const { applied, previousOrder, observation, calls } = done.result;
       const actual = messageActualOf(applied);
       const before = previousOrder.map(lineOf);
-      const scored = scoreMessage(actual, [step.expected], before, context.scope);
+      const scored = scoreMessage(actual, [step.expected], before, scope);
       const facts = stageFactsOf(applied, observation.trace, actual, scored, step.expected, before);
       const reading = readingOf(observation.trace);
       const evaluated: Evaluated = { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual), error: actual.error, latencyMs: applied.latencyMs,
         attempts: applied.attempts, message: { ...base, facts, ...(reading ? { reading } : {}), noticeProducts: actual.noticeProducts, previousOrder: before } };
       records.push(entryOf(testCase, 0, repeat, evaluated, observation, calls, null, scored.passed, caseId));
     }
+    if (failedEvent?.after === number) records.push(eventRecord(failedEvent));
   }
+  return records;
+}
+
+/** Runs a conversation and leaves its records (`conversationRecordsOf`). */
+export async function runConversationCase(context: RunCaseContext, testCase: ConversationCase, repeat: number): Promise<readonly CaseRecord[]> {
+  const records = conversationRecordsOf(testCase, repeat, await context.path.applyConversation(testCase.steps, context.scope, testCase), context.scope);
   for (const entry of records) await appendRecord(context.runId, entry);
   return records;
 }
