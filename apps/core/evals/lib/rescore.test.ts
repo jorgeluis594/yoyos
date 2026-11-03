@@ -274,7 +274,7 @@ describe("the before and after table", () => {
     const rows = comparisonOf(file.report, result.report, { stored: file.records, rescored: result.records });
 
     expect(rows.map(({ metric }) => metric)).toEqual(["false urgent share", "false urgent share without the impossible labels", "false urgent share without carried failures (cascades)", "false urgent share without both", "false urgent share if «listo» with pendings counted as urgent (what-if)", "urgent recall", "urgent recall if «listo» with pendings counted as urgent (what-if)", "urgent precision", "silent wrong changes per run", "silent wrong changes per run without cascades", "ignored requests per run",
-      "intent precision (intentAccuracy)", "variant and quantity (fields accuracy)", "stage fields, strict (a between never passes)", "stage fields: messages with a between per run", "final order variant", "final order quantity", "resolution accuracy", "decision accuracy", "end-to-end = overall accuracy: mean", "end-to-end = overall accuracy: range", "end-to-end without cascades: mean", "end-to-end without cascades: range", "end_to_end pass only: mean", "end_to_end pass only: range",
+      "intent precision (intentAccuracy)", "variant and quantity (fields accuracy)", "stage fields, strict (a between never passes)", "stage fields: messages with a between per run", "final order variant", "final order quantity", "resolution accuracy", "decision accuracy", "cost per message, mean of the stored stage costs", "end-to-end = overall accuracy: mean", "end-to-end = overall accuracy: range", "end-to-end without cascades: mean", "end-to-end without cascades: range", "end_to_end pass only: mean", "end_to_end pass only: range",
       "conversation failures own", "conversation failures carried"]);
     const intent = rows.find(({ metric }) => metric.startsWith("intent"))!;
     expect(intent).toMatchObject({ before: "0.0% (min 0.0%, max 0.0%)", after: "100.0% (min 100.0%, max 100.0%)" });
@@ -327,6 +327,16 @@ describe("the before and after table", () => {
     expect(comparisonOf(report, report).find(({ metric }) => metric === "end-to-end = overall accuracy: mean")).toMatchObject({ before: "50.0%", after: "50.0%" });
     const old = { ...report, overallRuns: undefined as never };
     expect(comparisonOf(old, report).find(({ metric }) => metric === "end-to-end = overall accuracy: mean")!.before).toBe("100.0% (1/1), stored report: repeat 0 only");
+  });
+
+  test("the cost per message is the mean of the stored stage costs, and a report that lacks the metric gets a labelled recount", () => {
+    const costly = addedPolo({ caseId: "cost", facts: { ...staleFacts, stageCostsUsd: { intent: 0.001, extraction: 0.002 } } });
+    const report = buildReport([costly], meta);
+    const rows = comparisonOf(report, report, { stored: [costly], rescored: [costly] });
+    expect(rows.find(({ metric }) => metric.startsWith("cost per message"))).toMatchObject({ before: "$0.00300", after: "$0.00300" });
+    const old = { ...report, runs: { count: 1, metrics: { ...report.runs.metrics, costPerMessageUsd: null } } };
+    expect(comparisonOf(old, report, { stored: [costly], rescored: [costly] }).find(({ metric }) => metric.startsWith("cost per message"))!.before)
+      .toBe("$0.00300 (recount with stored scores)");
   });
 
   test("prints aggregates only: no case id and no input", () => {

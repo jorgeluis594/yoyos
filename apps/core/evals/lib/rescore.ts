@@ -155,8 +155,13 @@ const rangeText = (range: MetricRange | null | undefined, show: (value: number) 
   if (!range) return "not measured";
   return range.min === range.max && range.runs === 1 ? show(range.mean) : `${show(range.mean)} (min ${show(range.min)}, max ${show(range.max)})`;
 };
-const metricRow = (metric: string, name: MetricName, before: EvalReport, after: EvalReport, show: (value: number) => string): ComparisonRow =>
-  ({ metric, before: rangeText(before.runs?.metrics?.[name], show), after: rangeText(after.runs.metrics[name], show) });
+const dollars = (value: number) => `$${value.toFixed(5)}`;
+/** A metric row: the stored report's value, or, where it has none and the stored records were given (`recount`), a recount from them with their stored scores, labelled. */
+const metricRow = (metric: string, name: MetricName, before: EvalReport, after: EvalReport, show: (value: number) => string, recount?: EvalReport | null): ComparisonRow => {
+  const stored = before.runs?.metrics?.[name];
+  const counted = recount?.runs.metrics[name];
+  return { metric, before: stored || !counted ? rangeText(stored, show) : `${rangeText(counted, show)} (recount with stored scores)`, after: rangeText(after.runs.metrics[name], show) };
+};
 
 /** The records the table may read besides the two reports: the file's as stored, and as scored again. */
 export type ComparisonRecords = Readonly<{ stored: readonly CaseRecord[]; rescored: readonly CaseRecord[] }>;
@@ -216,25 +221,26 @@ export function comparisonOf(before: EvalReport, after: EvalReport, records?: Co
     { metric: "end-to-end without cascades: range", before: overallBefore("withoutCascades", rangeOf), after: rangeOf(after.overallRuns.withoutCascades) },
   ];
   return [
-    metricRow("false urgent share", "falseUrgentShare", before, after, percent),
+    metricRow("false urgent share", "falseUrgentShare", before, after, percent, stored),
     auditRow("false urgent share without the impossible labels", ({ falseUrgent }) => falseUrgent.withoutImpossibleLabels, percent, true),
     auditRow("false urgent share without carried failures (cascades)", ({ falseUrgent }) => falseUrgent.withoutCascades, percent, true),
     auditRow("false urgent share without both", ({ falseUrgent }) => falseUrgent.withoutBoth, percent, true),
     auditRow("false urgent share if «listo» with pendings counted as urgent (what-if)", ({ readyWithPendings }) => readyWithPendings.falseUrgentShare, percent, true),
-    metricRow("urgent recall", "urgentRecall", before, after, percent),
+    metricRow("urgent recall", "urgentRecall", before, after, percent, stored),
     auditRow("urgent recall if «listo» with pendings counted as urgent (what-if)", ({ readyWithPendings }) => readyWithPendings.urgentRecall, percent, true),
-    metricRow("urgent precision", "urgentPrecision", before, after, percent),
-    metricRow("silent wrong changes per run", "silentWrongChanges", before, after, number),
+    metricRow("urgent precision", "urgentPrecision", before, after, percent, stored),
+    metricRow("silent wrong changes per run", "silentWrongChanges", before, after, number, stored),
     auditRow("silent wrong changes per run without cascades", ({ silentWrongChanges }) => silentWrongChanges.withoutCascades, number, true),
-    metricRow("ignored requests per run", "ignoredRequests", before, after, number),
-    metricRow("intent precision (intentAccuracy)", "intentAccuracy", before, after, percent),
-    metricRow("variant and quantity (fields accuracy)", "fieldsAccuracy", before, after, percent),
+    metricRow("ignored requests per run", "ignoredRequests", before, after, number, stored),
+    metricRow("intent precision (intentAccuracy)", "intentAccuracy", before, after, percent, stored),
+    metricRow("variant and quantity (fields accuracy)", "fieldsAccuracy", before, after, percent, stored),
     auditRow("stage fields, strict (a between never passes)", ({ stageFields }) => stageFields.strictAccuracy, percent),
     auditRow("stage fields: messages with a between per run", ({ stageFields }) => stageFields.between, number),
     orderRow("final order variant", "variant"),
     orderRow("final order quantity", "quantity"),
-    metricRow("resolution accuracy", "resolutionAccuracy", before, after, percent),
-    metricRow("decision accuracy", "decisionAccuracy", before, after, percent),
+    metricRow("resolution accuracy", "resolutionAccuracy", before, after, percent, stored),
+    metricRow("decision accuracy", "decisionAccuracy", before, after, percent, stored),
+    metricRow("cost per message, mean of the stored stage costs", "costPerMessageUsd", before, after, dollars, stored),
     ...overallRows,
     { metric: "end_to_end pass only: mean", before: beforeMean, after: meanOf(after.endToEnd.all) },
     { metric: "end_to_end pass only: range", before: current ? rangeOf(before.endToEnd.all) : recount(rangeOf(stored?.endToEnd.all ?? null)), after: rangeOf(after.endToEnd.all) },
