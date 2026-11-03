@@ -199,6 +199,22 @@ export function comparisonOf(before: EvalReport, after: EvalReport, records?: Co
     return { metric, after: rangeText(pick(stage(after)!), show),
       before: stored_ ? rangeText(pick(stored_), show) : recount && counted ? `${rangeText(pick(counted), show)} (recount with stored scores)` : "n/a in stored report" };
   };
+  const storedOverall = (before as Readonly<{ overallRuns?: EvalReport["overallRuns"] }>).overallRuns;
+  const countedOverall = stored?.overallRuns;
+  const firstOverall = before.overall ? `${percent(before.overall.accuracy)} (${before.overall.passed}/${before.overall.total}), stored report: repeat 0 only` : null;
+  /** The stored overall accuracy of a report older than the range is its first run only: the recount with the stored scores is the comparable «before», and says what it is. */
+  const overallBefore = (view: "all" | "withoutCascades", show: (tally: RunsTally | null) => string): string => {
+    if (storedOverall) return show(storedOverall[view]);
+    if (!countedOverall) return firstOverall ?? "not measured";
+    const note = view === "all" && firstOverall ? `; ${firstOverall}` : "";
+    return `${show(countedOverall[view])} (recount with stored scores, over ${countedOverall[view].runs} runs${note})`;
+  };
+  const overallRows: readonly ComparisonRow[] = [
+    { metric: "end-to-end = overall accuracy: mean", before: overallBefore("all", meanOf), after: meanOf(after.overallRuns.all) },
+    { metric: "end-to-end = overall accuracy: range", before: overallBefore("all", rangeOf), after: rangeOf(after.overallRuns.all) },
+    { metric: "end-to-end without cascades: mean", before: overallBefore("withoutCascades", meanOf), after: meanOf(after.overallRuns.withoutCascades) },
+    { metric: "end-to-end without cascades: range", before: overallBefore("withoutCascades", rangeOf), after: rangeOf(after.overallRuns.withoutCascades) },
+  ];
   return [
     metricRow("false urgent share", "falseUrgentShare", before, after, percent),
     auditRow("false urgent share without the impossible labels", ({ falseUrgent }) => falseUrgent.withoutImpossibleLabels, percent, true),
@@ -219,8 +235,9 @@ export function comparisonOf(before: EvalReport, after: EvalReport, records?: Co
     orderRow("final order quantity", "quantity"),
     metricRow("resolution accuracy", "resolutionAccuracy", before, after, percent),
     metricRow("decision accuracy", "decisionAccuracy", before, after, percent),
-    { metric: "end-to-end mean", before: beforeMean, after: meanOf(after.endToEnd.all) },
-    { metric: "end-to-end range", before: current ? rangeOf(before.endToEnd.all) : recount(rangeOf(stored?.endToEnd.all ?? null)), after: rangeOf(after.endToEnd.all) },
+    ...overallRows,
+    { metric: "end_to_end pass only: mean", before: beforeMean, after: meanOf(after.endToEnd.all) },
+    { metric: "end_to_end pass only: range", before: current ? rangeOf(before.endToEnd.all) : recount(rangeOf(stored?.endToEnd.all ?? null)), after: rangeOf(after.endToEnd.all) },
     { metric: "conversation failures own", before: current ? stepsOf(before.conversationSteps, "own") : recount(stepsOf(stored?.conversationSteps ?? null, "own")), after: stepsOf(after.conversationSteps, "own") },
     { metric: "conversation failures carried", before: current ? stepsOf(before.conversationSteps, "carried") : recount(stepsOf(stored?.conversationSteps ?? null, "carried")),
       after: stepsOf(after.conversationSteps, "carried") },

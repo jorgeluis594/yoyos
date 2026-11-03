@@ -194,9 +194,12 @@ certainties with their gate, the counts above, latency, retries, model calls wit
   steps split into own and carried (see Conversation cases), with counts, counts per run, and the ids of each kind (`own.ids`, `carried.ids`; the full
   summary prints them, the aggregate lines of a private run do not). Known limitations are left out. A conversation scores the same either way:
   carried failures stay failed messages in the gate and the metrics; the split tells which failures are the step's own;
-- **End to end over every run** (`endToEnd`, and the «End to end over N runs» line of the gate summary): the pass rate of the `end_to_end`
-  pass as the mean over all `EVAL_REPEATS` runs with its range (min and max of the runs' rates), whole and split into photo and text
-  messages. `byPass.end_to_end` stays the first run's tally; quote the mean and range, not the first run;
+- **End to end = overall accuracy over every run** (`overallRuns`, and the «End to end, overall accuracy of every message» line of the gate summary): the audited «punta a punta» figure is
+  `overall.accuracy`, the share of right messages over all scored messages of every pass. `overall` and `byPass` count the first run only (a first run of 74.0 % was quoted as the end to end);
+  `overallRuns` gives the **mean over all `EVAL_REPEATS` runs with its range** (min and max of the runs' rates), and the same **without carried failures (cascades)**: a failed message that the own/carried rule
+  classifies as carried leaves the base, numerator and denominator (see «Audit views»). Quote the mean and range, never the first run.
+- **The `end_to_end` pass alone** (`endToEnd`, and the «End to end pass (end_to_end cases only)» line): the pass rate of the `end_to_end` cases as the mean and range over all runs, whole and split into photo and text
+  messages. It is not the overall accuracy: it is kept as a separate, labelled figure. `byPass.end_to_end` stays the first run's tally.
 - **Audit views** (`audit`, `lib/audit.ts`; printed after the end-to-end lines, aggregate numbers only, each as mean and range over all runs). They are variants of measurements
   next to the gate's own and never replace it:
   - **False urgent share** in four readings: as is; without the three impossible labels (`impossibleLabelCaseIds` in `lib/audit.ts`: `h5-100`, `h5-103` and `h5-104`, which state
@@ -230,7 +233,7 @@ run's case inputs like the input does, so keep it where the input would be kept.
 From the stored expectations, reading trace (`reading`), actual result and earlier order (`previousOrder`) it computes again, for every message
 (`lib/rescore.ts`): the intent, the fields, the expected and the actual decision (one criterion for both, `decisionFromEvidence`), the request, the marks,
 the changed lines and the silent ones, the order fields, ignored actions and notices. Then the whole report: the metrics with their range over the
-runs, the end-to-end mean and range, the own and the carried conversation failures. Event records (`<conversation>#event<n>`) and records with no
+runs, the end-to-end (overall accuracy) mean and range with and without cascades, the own and the carried conversation failures. Event records (`<conversation>#event<n>`) and records with no
 facts are left alone.
 
 What it cannot compute stays as stored, and the output counts it («Kept as stored»):

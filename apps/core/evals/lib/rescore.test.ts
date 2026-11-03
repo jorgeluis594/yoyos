@@ -274,7 +274,7 @@ describe("the before and after table", () => {
     const rows = comparisonOf(file.report, result.report, { stored: file.records, rescored: result.records });
 
     expect(rows.map(({ metric }) => metric)).toEqual(["false urgent share", "false urgent share without the impossible labels", "false urgent share without carried failures (cascades)", "false urgent share without both", "false urgent share if «listo» with pendings counted as urgent (what-if)", "urgent recall", "urgent recall if «listo» with pendings counted as urgent (what-if)", "urgent precision", "silent wrong changes per run", "silent wrong changes per run without cascades", "ignored requests per run",
-      "intent precision (intentAccuracy)", "variant and quantity (fields accuracy)", "stage fields, strict (a between never passes)", "stage fields: messages with a between per run", "final order variant", "final order quantity", "resolution accuracy", "decision accuracy", "end-to-end mean", "end-to-end range",
+      "intent precision (intentAccuracy)", "variant and quantity (fields accuracy)", "stage fields, strict (a between never passes)", "stage fields: messages with a between per run", "final order variant", "final order quantity", "resolution accuracy", "decision accuracy", "end-to-end = overall accuracy: mean", "end-to-end = overall accuracy: range", "end-to-end without cascades: mean", "end-to-end without cascades: range", "end_to_end pass only: mean", "end_to_end pass only: range",
       "conversation failures own", "conversation failures carried"]);
     const intent = rows.find(({ metric }) => metric.startsWith("intent"))!;
     expect(intent).toMatchObject({ before: "0.0% (min 0.0%, max 0.0%)", after: "100.0% (min 100.0%, max 100.0%)" });
@@ -300,9 +300,33 @@ describe("the before and after table", () => {
 
     const rows = comparisonOf(old, report, { stored: e2e, rescored: e2e });
 
-    expect(rows.find(({ metric }) => metric === "end-to-end mean")).toMatchObject({ before: "100.0% (stored report: first run only)", after: "50.0%" });
-    expect(rows.find(({ metric }) => metric === "end-to-end range")).toMatchObject({ before: "n/a in stored report; recount with stored scores: 0.0%–100.0%", after: "0.0%–100.0%" });
+    expect(rows.find(({ metric }) => metric === "end_to_end pass only: mean")).toMatchObject({ before: "100.0% (stored report: first run only)", after: "50.0%" });
+    expect(rows.find(({ metric }) => metric === "end_to_end pass only: range")).toMatchObject({ before: "n/a in stored report; recount with stored scores: 0.0%–100.0%", after: "0.0%–100.0%" });
     expect(rows.find(({ metric }) => metric === "conversation failures own")).toMatchObject({ before: "n/a in stored report; recount with stored scores: 0", after: "0" });
+  });
+
+  test("the audited end-to-end is the overall accuracy: an older report's first-run figure is labelled, and the comparable before is a recount with its stored scores", () => {
+    const step = (number: number, passed: boolean, repeat: number) => addedPolo({ caseId: `c#${number}`, pass: "conversation", conversationId: "c", step: number, passed, repeat });
+    const stored = [addedPolo({ caseId: "a", passed: true }), step(1, false, 0), step(2, false, 0), addedPolo({ caseId: "a", passed: true, repeat: 1 }), step(1, true, 1), step(2, true, 1)];
+    const report = buildReport(stored, meta);
+    const old = { ...report, overallRuns: undefined as never };
+
+    const rows = comparisonOf(old, report, { stored, rescored: stored });
+    const row = (metric: string) => rows.find((candidate) => candidate.metric === metric)!;
+
+    expect(row("end-to-end = overall accuracy: mean")).toMatchObject({
+      before: "66.7% (recount with stored scores, over 2 runs; 33.3% (1/3), stored report: repeat 0 only)", after: "66.7%" });
+    expect(row("end-to-end = overall accuracy: range")).toMatchObject({ before: "33.3%–100.0% (recount with stored scores, over 2 runs; 33.3% (1/3), stored report: repeat 0 only)", after: "33.3%–100.0%" });
+    expect(row("end-to-end without cascades: mean")).toMatchObject({ before: "75.0% (recount with stored scores, over 2 runs)", after: "75.0%" });
+    expect(row("end-to-end without cascades: range")).toMatchObject({ before: "50.0%–100.0% (recount with stored scores, over 2 runs)", after: "50.0%–100.0%" });
+  });
+
+  test("a report that already holds the overall runs is shown as stored, and one with no records only has its first run", () => {
+    const records = [addedPolo({ caseId: "a", passed: true }), addedPolo({ caseId: "b", passed: false, repeat: 1 })];
+    const report = buildReport(records, meta);
+    expect(comparisonOf(report, report).find(({ metric }) => metric === "end-to-end = overall accuracy: mean")).toMatchObject({ before: "50.0%", after: "50.0%" });
+    const old = { ...report, overallRuns: undefined as never };
+    expect(comparisonOf(old, report).find(({ metric }) => metric === "end-to-end = overall accuracy: mean")!.before).toBe("100.0% (1/1), stored report: repeat 0 only");
   });
 
   test("prints aggregates only: no case id and no input", () => {

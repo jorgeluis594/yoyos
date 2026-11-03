@@ -50,6 +50,12 @@ export type EvalReport = Readonly<{
   /** The end-to-end pass over every run (`EVAL_REPEATS`): the mean and range of the pass rate, whole and split by input (photo messages and text messages). */
   endToEnd: Readonly<{ all: RunsTally; photo: RunsTally; text: RunsTally }>;
   /**
+   * The audited end to end: the accuracy over all the scored messages of every pass (the figure of `overall`, which counts the first run only), as the mean and range
+   * over every run, whole and without the carried failures (cascades): a failed message that the own/carried rule of the conversations classifies as carried leaves the base.
+   * The `endToEnd` above is the `end_to_end` pass alone and is not this figure.
+   */
+  overallRuns: Readonly<{ all: RunsTally; withoutCascades: RunsTally }>;
+  /**
    * The failed steps of the conversations over every run, own or carried: a failed step is carried when an earlier step (message or failed event) of the same
    * conversation and run already failed, own otherwise (lib/conversation.ts `stepFailuresOf`). Known limitations are left out; `ids` are the step ids of each kind.
    */
@@ -282,6 +288,13 @@ function endToEndOf(records: readonly CaseRecord[]): EvalReport["endToEnd"] {
   return { all: runsTally(messages), photo: runsTally(messages.filter(({ input }) => input.startsWith("photo"))), text: runsTally(messages.filter(({ input }) => !input.startsWith("photo"))) };
 }
 
+/** The accuracy over all scored messages, every run, whole and with the carried failures dropped from the base. `records`: every record of the file but the known limitations. */
+function overallRunsOf(records: readonly CaseRecord[]): EvalReport["overallRuns"] {
+  const carried = new Set(stepFailuresOf(records).filter(({ kind }) => kind === "carried").map(({ record }) => record));
+  const messages = records.filter(({ event }) => event === undefined);
+  return { all: runsTally(messages), withoutCascades: runsTally(messages.filter((record) => !carried.has(record))) };
+}
+
 function conversationStepsOf(records: readonly CaseRecord[]): ConversationSteps {
   const steps = records.filter(({ conversationId, tags }) => conversationId !== null && !tags.includes("known-limitation"));
   const failures = stepFailuresOf(steps);
@@ -427,6 +440,7 @@ export function buildReport(allRecords: readonly CaseRecord[], meta: RunMeta, ex
     readerCalls: readerCallsOf(scored),
     pinnedMiss: pinnedMissOf(records),
     endToEnd: endToEndOf(records.filter((record) => !record.tags.includes("known-limitation"))),
+    overallRuns: overallRunsOf(allRecords.filter(({ tags }) => !tags.includes("known-limitation"))),
     conversationSteps: conversationStepsOf(allRecords),
     knownLimitations: known.map(({ caseId, passed, signature }) => ({ caseId, passed, signature })),
     image: imageView(scored),
@@ -485,8 +499,14 @@ function auditLines({ stageFields, readyWithPendings, falseUrgent, silentWrongCh
 /** The end-to-end pass rate as the mean and range over the runs, whole and split by input; nothing when the run had no end-to-end message. */
 function endToEndLines({ all, photo, text }: EvalReport["endToEnd"]): readonly string[] {
   if (!all.runs) return [];
-  return [`End to end over ${runsLabel(all.runs)} (mean and range): ${rangeText(all)}`,
+  return [`End to end pass (end_to_end cases only) over ${runsLabel(all.runs)} (mean and range): ${rangeText(all)}`,
     ...(photo.runs && text.runs ? [`  photo messages: ${rangeText(photo)}`, `  text messages: ${rangeText(text)}`] : [])];
+}
+
+/** The audited end to end: the overall accuracy of every message over every run (not the `end_to_end` pass), whole and without the carried failures. */
+function overallLines({ all, withoutCascades }: EvalReport["overallRuns"]): readonly string[] {
+  if (!all.runs) return [];
+  return [`End to end, overall accuracy of every message over ${runsLabel(all.runs)} (mean and range): ${rangeText(all)}`, `  without carried failures (cascades): ${rangeText(withoutCascades)}`];
 }
 
 /** Counts only: the ids of the steps are in `formatSummary` and the report file, not in the aggregate lines of a private run. */
@@ -515,6 +535,7 @@ export function formatGateSummary(report: EvalReport): string {
     `Metrics over ${report.runs.count} run${report.runs.count === 1 ? "" : "s"} (mean and range)${typeof report.settings.reader === "string" ? `, ${report.settings.reader} reader` : ""}`,
     ...metricLines(report),
     ...(report.verdicts ? [verdictLine(report.verdicts)] : []),
+    ...overallLines(report.overallRuns),
     ...endToEndLines(report.endToEnd),
     ...auditLines(report.audit),
     ...conversationStepLines(report.conversationSteps),
