@@ -56,6 +56,15 @@ describe("changeRowsOf", () => {
     expect(changeRowsOf([polo], [priced], { priceStated: true })).toHaveLength(1);
   });
 
+  test("a removed line whose earlier price is unknown has the price of the line that replaces it: a variant change touches no price", () => {
+    const priced = { ...actualLine({ ...polo, variant: { Talla: "L", Color: "Negro" } }), mentionedPrice: { amount: 63, units: 1 } };
+
+    const removed = changeRowsOf([polo], [priced]).find(({ after }) => after === null)!;
+
+    expect(removed.before).toMatchObject({ mentionedPrice: { amount: { amount: 63 }, units: 1 } });
+    expect((changeRowsOf([polo], [priced], { priceStated: true }).find(({ after }) => after === null)!.before as { mentionedPrice: unknown }).mentionedPrice).toBeNull();
+  });
+
   test("a product the earlier order stores as unknown is the null product of the actual order", () => {
     expect(changeRowsOf([{ ...polo, product: "unknown" as never }], [{ ...actualLine(polo), product: null }])).toEqual([]);
   });
@@ -145,6 +154,34 @@ describe("rescoreRecord", () => {
 
     expect(rescored.facts).toMatchObject({ changedLines: 1, silentLines: 0 });
     expect(kept).toEqual([]);
+  });
+
+  test("a variant change on a line an earlier step priced is not judged on the price either; one the message states is", () => {
+    const lPolo: OrderLine = { ...polo, variant: { Talla: "L", Color: "Negro" } };
+    const priced = { ...actualLine(lPolo), mentionedPrice: { amount: 63, units: 1 } };
+    const record = addedPolo({ previousOrder: [polo], expected: [{ notice: null, outcomes: ["variant_changed"], order: [{ ...lPolo, mentionedPrice: null }] }],
+      actual: { outcomes: ["variant_changed"], notice: null, noticeProducts: [], order: [priced] }, facts: { ...staleFacts, changedLines: 2, unmarkedLines: 2, silentLines: 1 } });
+    const pricedRequest = { request: "r1", kind: "set_price", quantity: null, price: { amount: 63 }, values: [] };
+    const stated = { ...record, reading: reading([intentStage("requests"), extractionStage([pricedRequest])], "applied") };
+
+    const { record: rescored, kept } = rescoreRecord(record, { hasReadings: true });
+
+    expect(rescored.facts).toMatchObject({ changedLines: 2, silentLines: 0 });
+    expect(kept).toEqual([]);
+    expect(rescoreRecord(stated, { hasReadings: true }).record.facts).toMatchObject({ changedLines: 2, silentLines: 1 });
+  });
+
+  test("a message that states a price and changes more than one priced line cannot say which line the price is for: the stored lines stay", () => {
+    const priced = (line: OrderLine, quantity: number) => ({ ...actualLine(line, quantity), mentionedPrice: { amount: 63, units: 1 } });
+    const pricedRequest = { request: "r1", kind: "set_price", quantity: null, price: { amount: 63 }, values: [] };
+    const record = addedPolo({ previousOrder: [polo, gorra], expected: [{ notice: null, outcomes: ["mentioned_price_set"], order: [{ ...polo, mentionedPrice: null }, { ...gorra, quantity: 2, mentionedPrice: null }] }],
+      actual: { outcomes: ["mentioned_price_set"], notice: null, noticeProducts: [], order: [priced(polo, 1), priced(gorra, 2)] }, facts: { ...staleFacts, changedLines: 2, unmarkedLines: 2, silentLines: 2 },
+      reading: reading([intentStage("requests"), extractionStage([pricedRequest])], "applied") });
+
+    const { record: rescored, kept } = rescoreRecord(record, { hasReadings: true });
+
+    expect(rescored.facts).toMatchObject({ changedLines: 2, silentLines: 2 });
+    expect(kept).toEqual(["changedLines"]);
   });
 
   test("a price change the stored data cannot place keeps the stored lines; one the message states is judged", () => {

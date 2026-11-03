@@ -227,8 +227,8 @@ What it cannot compute stays as stored, and the output counts it («Kept as stor
   that read nothing (skipped), and its outcomes give the facts.
 - The change rows are not stored: they are rebuilt from the order before and after the message. When the rebuilt rows do not number the lines the record
   counted (an event between two messages changed the order), or only some of them were marked, the stored changed lines stay. The earlier order does not
-  store the prices the buyer mentioned, so an earlier price is unknown: a line keeps the price it ends with unless the message states one, and a price-only change
-  the data cannot place keeps the stored lines too.
+  store the prices the buyer mentioned, so an earlier price is unknown: a line (a variant change's removed line included) keeps the price it ends with unless the message
+  states one, a price-only change the data cannot place keeps the stored lines too, and so does a message that states a price and changes more than one priced line.
 - Legacy baseline records (`EVAL_READER=legacy`) state an intent and no decision by design: they are counted apart, not as missing data.
 - The product the reader chose (`resolution`) cannot be named again, because the catalog ids are not stored; the timings and costs are those of the run.
 

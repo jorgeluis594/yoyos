@@ -69,7 +69,11 @@ export function changeRowsOf(previous: readonly Readonly<{ product: string; vari
       const changed = old.quantity !== line.quantity || !samePrice(earlierPrice, line.mentionedPrice);
       return changed ? [row(snapshotOf({ ...old, mentionedPrice: earlierPrice }), snapshotOf(line))] : [];
     }),
-    ...[...before].filter(([key]) => !after.has(key)).map(([, line]) => row(snapshotOf(line), null)),
+    ...[...before].filter(([key]) => !after.has(key)).map(([, line]) => {
+      // A variant change leaves this line as the removed row of its product: with its price unknown, it had the price of the line that replaces it.
+      const replacement = priceStated ? undefined : [...after].find(([key, added]) => !before.has(key) && lineKey(added).split("|")[0] === lineKey(line).split("|")[0])?.[1];
+      return row(snapshotOf({ ...line, mentionedPrice: line.mentionedPrice !== undefined ? line.mentionedPrice : replacement?.mentionedPrice ?? null }), null);
+    }),
   ];
 }
 
@@ -83,7 +87,10 @@ const statesPrice = (reading: ReadingRecord | undefined): boolean => (reading?.s
  * takes the marks from the decisions of its reading.
  */
 function scoredLinesFor(record: CaseRecord, facts: StageFacts, expected: Parameters<typeof expectedOrder>[0]): readonly ScoredChangedLine[] | null {
-  const rows = changeRowsOf(record.previousOrder, (record.actual as MessageActual).order ?? [], { priceStated: statesPrice(record.reading) });
+  const priceStated = statesPrice(record.reading);
+  const rows = changeRowsOf(record.previousOrder, (record.actual as MessageActual).order ?? [], { priceStated });
+  // A stated price may be for any line: with several priced rows, which one it is for is unknown, and a line it is not for would be judged on it.
+  if (priceStated && rows.filter(({ after }) => (after as { mentionedPrice?: unknown } | null)?.mentionedPrice != null).length > 1) return null;
   const kinds = record.reading?.decisions.map(({ decision }) => decision) ?? [];
   let marked: number;
   if (facts.changedLines !== undefined && facts.unmarkedLines !== undefined) {
