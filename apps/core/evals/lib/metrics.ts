@@ -26,6 +26,8 @@ export const silentWrongChangeOf = (facts: StageFacts): boolean => {
   if (facts.silentLines !== undefined) return facts.silentLines > 0;
   return facts.orderMatches === false && (facts.unmarkedLines !== undefined ? facts.unmarkedLines > 0 : facts.changeApplied && !facts.marked);
 };
+/** Whether a message record is a silent wrong change: by its facts, or, with none (the legacy reader path), by the flag its scoring set. */
+export const silentWrongRecord = (record: CaseRecord): boolean => record.facts ? silentWrongChangeOf(record.facts) : record.wrongVisibleField;
 /** A request that left no change, no mark, no «Por resolver» point and no notice. */
 export const ignoredRequestOf = (facts: StageFacts): boolean => facts.requested && !facts.changeApplied && !facts.marked && !facts.point && !facts.noticed;
 
@@ -59,7 +61,7 @@ export function metricsOfRun(records: readonly CaseRecord[]): RunMetrics {
     resolutionAccuracy: rate(stated(({ resolution }) => resolution)),
     decisionAccuracy: rate(stated(({ decision }) => decision)),
     // Records without facts (the legacy reader path) keep the flags their scoring already set.
-    silentWrongChanges: messages.filter((record) => record.facts ? silentWrongChangeOf(record.facts) : record.wrongVisibleField).length,
+    silentWrongChanges: messages.filter(silentWrongRecord).length,
     ignoredRequests: messages.filter((record) => record.facts ? ignoredRequestOf(record.facts) : record.ignoredActions > 0).length,
     urgentShare: decided.length ? urgentActual.length / decided.length : null,
     // The seller is interrupted when the case did not need it: over the decided messages, so an adversarial set cannot hide it behind the share of expected urgents.

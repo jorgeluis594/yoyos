@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { CaseRecord, StageFacts } from "@core/evals/lib/case-record";
 import { messageRecord } from "@core/evals/lib/record-fixture";
-import { auditOf } from "@core/evals/lib/audit";
+import { auditOf, impossibleLabelCaseIds } from "@core/evals/lib/audit";
 import { metricsOfRun } from "@core/evals/lib/metrics";
 
 const facts = (over: Partial<StageFacts> = {}): StageFacts => ({
@@ -60,5 +60,80 @@ describe("what the urgent measures would read if «listo» with pendings counted
     const other = message("notice", "notice", { notice: "ready", outcomes: ["ready"] }, { notice: "ready", outcomes: ["ready"] }, { caseId: "other" });
     expect(auditOf([own, other]).readyWithPendings.falseUrgentShare).toMatchObject({ mean: 0.5 });
     expect(auditOf([other]).readyWithPendings.falseUrgentShare).toMatchObject({ mean: 0 });
+  });
+});
+
+describe("false urgent as is, without impossible labels, without cascades and both", () => {
+  const falseUrgent = { decisionExpected: "applied", decisionActual: "urgent" } as const;
+  const step = (conversation: string, number: number, passed: boolean, over: Partial<StageFacts> = {}, repeat = 0) =>
+    record(over, { caseId: `${conversation}#${number}`, baseId: conversation, conversationId: conversation, step: number, passed, repeat });
+  const shares = (records: readonly CaseRecord[]) => {
+    const { falseUrgent: views } = auditOf(records);
+    return [views.asIs, views.withoutImpossibleLabels, views.withoutCascades, views.withoutBoth].map((range) => range?.mean);
+  };
+
+  test("names the labels that cannot be matched as a constant, apart from the cases, which are not edited", () => {
+    expect([...impossibleLabelCaseIds].sort()).toEqual(["h5-100", "h5-103", "h5-104"]);
+  });
+
+  test("a label that is impossible, by its base id, is not counted as a false urgent, and stays among the decided messages", () => {
+    const records = [
+      record(falseUrgent, { caseId: "h5-100", baseId: "h5-100" }),
+      record(falseUrgent, { caseId: "h5-100-p1", baseId: "h5-100" }),
+      record(falseUrgent, { caseId: "real", baseId: "real" }),
+      record({}, { caseId: "fine", baseId: "fine" }),
+    ];
+    expect(shares(records)).toEqual([0.75, 0.25, 0.75, 0.25]);
+  });
+
+  test("a false urgent that is a carried failure is left out of the cascades view; an own failure and a carried record that is no false urgent stay", () => {
+    const records = [
+      step("c1", 1, false, falseUrgent),
+      step("c1", 2, false, falseUrgent),
+      step("c1", 3, false),
+      record({}, { caseId: "plain" }),
+    ];
+    // The first failed step is the own one; the second is carried and a false urgent, left out; the third is carried but no false urgent, so nothing changes for it.
+    expect(shares(records)).toEqual([0.5, 0.5, 0.25, 0.25]);
+  });
+
+  test("a failed event is no message, but it makes the later messages of the conversation carried", () => {
+    const event = record({}, { caseId: "c2#event1", baseId: "c2", conversationId: "c2", step: null, event: { name: "report_payment", after: 1 }, passed: false, facts: undefined });
+    const records = [step("c2", 1, true), event, step("c2", 2, false, falseUrgent)];
+    expect(shares(records)).toEqual([1 / 2, 1 / 2, 0, 0]);
+  });
+
+  test("each run is read apart: a failure in an earlier run does not make a later run's step carried, and the mean is over the runs", () => {
+    const records = [
+      step("c3", 1, false, falseUrgent, 0), step("c3", 2, false, falseUrgent, 0),
+      step("c3", 1, true, {}, 1), step("c3", 2, false, falseUrgent, 1),
+    ];
+    const { falseUrgent: views } = auditOf(records);
+    expect(views.asIs).toMatchObject({ mean: 0.75, min: 0.5, max: 1 });
+    expect(views.withoutCascades).toMatchObject({ mean: 0.5, min: 0.5, max: 0.5 });
+    const carried = [step("c3", 1, false, {}, 0), step("c3", 2, false, falseUrgent, 0)];
+    expect(auditOf(carried).falseUrgent.withoutCascades).toMatchObject({ mean: 0 });
+  });
+
+  test("a record with no decision (the legacy baseline) is not among the decided messages", () => {
+    const records = [record({ ...falseUrgent, decision: null }), record(falseUrgent, { caseId: "b" })];
+    expect(shares(records)[0]).toBe(1);
+  });
+});
+
+describe("silent wrong changes without the cascades", () => {
+  const silent = { orderMatches: false, changedLines: 1, unmarkedLines: 1, silentLines: 1 } as const;
+  const step = (number: number, passed: boolean, over: Partial<StageFacts> = {}) =>
+    record(over, { caseId: `c#${number}`, baseId: "c", conversationId: "c", step: number, passed });
+
+  test("a silent wrong change that is a carried failure is not counted in the view without cascades; the first one is", () => {
+    const records = [step(1, false, silent), step(2, false, silent), record(silent, { caseId: "alone", passed: false })];
+    const { silentWrongChanges } = auditOf(records);
+    expect(silentWrongChanges.asIs).toMatchObject({ mean: 3 });
+    expect(silentWrongChanges.withoutCascades).toMatchObject({ mean: 2 });
+  });
+
+  test("a record carrying no silent change is not counted either way", () => {
+    expect(auditOf([step(1, false), step(2, false)]).silentWrongChanges).toEqual({ asIs: { mean: 0, min: 0, max: 0, runs: 1 }, withoutCascades: { mean: 0, min: 0, max: 0, runs: 1 } });
   });
 });

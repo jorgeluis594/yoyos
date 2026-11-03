@@ -1,12 +1,22 @@
 import type { DecisionKind } from "@core/evals/cases/schema";
 import { messageExpectationsOf, type CaseRecord } from "@core/evals/lib/case-record";
-import { rangeOfValues, runsOfRecords, type MetricRange } from "@core/evals/lib/metrics";
+import { stepFailuresOf } from "@core/evals/lib/conversation";
+import { rangeOfValues, runsOfRecords, silentWrongRecord, type MetricRange } from "@core/evals/lib/metrics";
 
 /**
  * The views the CTO's audit of PR #393 asked for, next to the metrics of lib/metrics.ts: variants of the same measurements (without label artefacts, without
  * cascades, with `ready_with_pendings` counted as urgent) that never replace the gate's own definition. Computed per run from the stored records and
  * aggregated as mean and range over the runs. Pure: unit-tested in audit.test.ts. Aggregate numbers only.
  */
+
+/**
+ * Labels of the holdout v5 that no reader can match, so a false urgent on them is an artefact of the label, not a reader error. Each one states `decision: "pending"`
+ * beside an urgent notice (`not_clear`, `variant_missing`, `variant_not_available`): the notice interrupts the seller, so under the one criterion of
+ * `decisionFromEvidence` the message is urgent, and a reader cannot send that notice and be a silent pending. Only the false urgent view without them uses this
+ * set; the cases and their labels are not edited, and no other metric excludes them. Matched by the base id of the record, so paraphrases and the steps
+ * of a conversation follow their case.
+ */
+export const impossibleLabelCaseIds: ReadonlySet<string> = new Set(["h5-100", "h5-103", "h5-104"]);
 
 export type AuditReport = Readonly<{
   /** The stage fields compared strictly, apart from the main `fieldsAccuracy` metric (see README «How the stages are scored»). */
@@ -22,6 +32,14 @@ export type AuditReport = Readonly<{
    * (unless it states its own `decision`) and on the side of the answer. The gate does not count it: the founder has not approved that definition.
    */
   readyWithPendings: Readonly<{ falseUrgentShare: MetricRange | null; urgentRecall: MetricRange | null }>;
+  /**
+   * The false urgent share of the gate (messages that interrupted the seller without needing it, over the decided messages) as it is, without the messages of
+   * `impossibleLabelCaseIds`, without the carried failures, and without both. An excluded message is not counted as a false urgent and stays among the decided
+   * messages, so the share is read over the same base in the four views.
+   */
+  falseUrgent: Readonly<{ asIs: MetricRange | null; withoutImpossibleLabels: MetricRange | null; withoutCascades: MetricRange | null; withoutBoth: MetricRange | null }>;
+  /** Silent wrong changes per run (a count), as they are and without the carried failures. */
+  silentWrongChanges: Readonly<{ asIs: MetricRange | null; withoutCascades: MetricRange | null }>;
 }>;
 
 const rate = (values: readonly boolean[]): number | null => values.length ? values.filter(Boolean).length / values.length : null;
@@ -66,7 +84,31 @@ function readyWithPendingsOf(records: readonly CaseRecord[]): AuditReport["ready
   return { falseUrgentShare: measured(share), urgentRecall: measured(recall) };
 }
 
+/**
+ * The records that are carried failures (lib/conversation.ts `stepFailuresOf`: a failed step after an earlier failed step of the same conversation and run).
+ * Read over the records of the whole file, events included, because a failed event makes the later messages carried.
+ */
+const carriedOf = (records: readonly CaseRecord[]): ReadonlySet<CaseRecord> =>
+  new Set(stepFailuresOf(records).filter(({ kind }) => kind === "carried").map(({ record }) => record));
+
+const isFalseUrgent = ({ facts }: CaseRecord) => facts !== undefined && facts.decisionActual === "urgent" && facts.decisionExpected !== "urgent";
+
+function falseUrgentOf(records: readonly CaseRecord[]): AuditReport["falseUrgent"] {
+  const carried = carriedOf(records);
+  const runs = runsWithFacts(records).map(decided).filter((run) => run.length > 0);
+  const view = (dropLabels: boolean, dropCascades: boolean) => rangeOfValues(runs.map((run) =>
+    run.filter((record) => isFalseUrgent(record) && !(dropLabels && impossibleLabelCaseIds.has(record.baseId)) && !(dropCascades && carried.has(record))).length / run.length));
+  return { asIs: view(false, false), withoutImpossibleLabels: view(true, false), withoutCascades: view(false, true), withoutBoth: view(true, true) };
+}
+
+function silentWrongChangesOf(records: readonly CaseRecord[]): AuditReport["silentWrongChanges"] {
+  const carried = carriedOf(records);
+  const runs = runsOfRecords(records.filter(({ event, pass }) => event === undefined && pass !== "image"));
+  return { asIs: rangeOfValues(runs.map((run) => run.filter(silentWrongRecord).length)),
+    withoutCascades: rangeOfValues(runs.map((run) => run.filter((record) => silentWrongRecord(record) && !carried.has(record)).length)) };
+}
+
 /** `records` are the records of the run file without the known limitations, events included. */
 export function auditOf(records: readonly CaseRecord[]): AuditReport {
-  return { stageFields: stageFieldsOf(records), readyWithPendings: readyWithPendingsOf(records) };
+  return { stageFields: stageFieldsOf(records), readyWithPendings: readyWithPendingsOf(records), falseUrgent: falseUrgentOf(records), silentWrongChanges: silentWrongChangesOf(records) };
 }

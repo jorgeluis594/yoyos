@@ -5,7 +5,7 @@ import { gradePick, pickOf } from "@core/evals/lib/picks";
 import { stepFailuresOf } from "@core/evals/lib/conversation";
 import { repeatedNoticeProducts } from "@core/evals/lib/scorers";
 import { percentile } from "@core/evals/lib/stats";
-import { auditOf, type AuditReport } from "@core/evals/lib/audit";
+import { auditOf, impossibleLabelCaseIds, type AuditReport } from "@core/evals/lib/audit";
 import { aggregateRuns, metricNames, metricsOfRun, runsOfRecords, type AggregatedMetrics, type MetricName, type MetricRange } from "@core/evals/lib/metrics";
 import { verdictLine, type VerdictSummary } from "@core/evals/lib/verdicts";
 
@@ -468,9 +468,14 @@ const rangeLine = (range: MetricRange | null, show: (value: number) => string) =
   range ? `${show(range.mean)} (min ${show(range.min)}, max ${show(range.max)})` : "not measured";
 
 /** The stage fields as a stricter reading and the messages left between products, labelled apart from the main `fieldsAccuracy` metric. */
-function auditLines({ stageFields, readyWithPendings }: AuditReport): readonly string[] {
+function auditLines({ stageFields, readyWithPendings, falseUrgent, silentWrongChanges }: AuditReport): readonly string[] {
   const count = (value: number) => String(Math.round(value * 10) / 10);
   return [
+    `False urgent share, as is: ${rangeLine(falseUrgent.asIs, percent)}`,
+    `  without the ${impossibleLabelCaseIds.size} impossible labels: ${rangeLine(falseUrgent.withoutImpossibleLabels, percent)}`,
+    `  without carried failures (cascades): ${rangeLine(falseUrgent.withoutCascades, percent)}`,
+    `  without both: ${rangeLine(falseUrgent.withoutBoth, percent)}`,
+    `Silent wrong changes per run, as is: ${rangeLine(silentWrongChanges.asIs, count)}; without carried failures (cascades): ${rangeLine(silentWrongChanges.withoutCascades, count)}`,
     `Stage fields, messages with a between resolution: ${rangeLine(stageFields.between, count)} per run, of ${rangeLine(stageFields.labelled, count)} messages with fields stated`,
     `Stage fields, strict (a between never passes): ${rangeLine(stageFields.strictAccuracy, percent)}`,
     `What-if, «listo» with pendings counted as urgent (the gate does not count it): false urgent share ${rangeLine(readyWithPendings.falseUrgentShare, percent)}; urgent recall ${rangeLine(readyWithPendings.urgentRecall, percent)}`,
