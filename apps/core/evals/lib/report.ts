@@ -10,6 +10,8 @@ import { verdictLine, type VerdictSummary } from "@core/evals/lib/verdicts";
 /** Aggregation of one run's case records into the report written to eval-results/. Pure: unit-tested in report.test.ts. */
 
 export type Tally = Readonly<{ total: number; passed: number; accuracy: number }>;
+/** A pass rate over the runs: `total`, `passed` and `accuracy` are the mean over the runs, `min` and `max` the range of the accuracy; `perRun` is each run's tally by repeat. */
+export type RunsTally = Tally & Readonly<{ runs: number; min: number; max: number; perRun: readonly Tally[] }>;
 /** Right and wrong model picks in a confidence range; `unverified` picks the case cannot grade (lib/picks.ts). */
 export type Bucket = Readonly<{ range: string; correct: number; wrong: number; unverified: number }>;
 /** Calibration of one certainty source, graded by the model's own pick (lib/picks.ts), not by what its gate then decided. */
@@ -43,8 +45,8 @@ export type EvalReport = Readonly<{
   readerCalls: Readonly<Record<string, ReaderCallLine>>;
   /** Cases tagged `pinned-miss`: the actions ignored per repetition. */
   pinnedMiss: readonly Readonly<{ caseId: string; repeats: readonly Readonly<{ repeat: number; ignoredActions: number }>[]; ignoredInAnyRepeat: boolean }>[];
-  /** The end-to-end pass split by input: photo messages and text messages. */
-  endToEnd: Readonly<{ photo: Tally; text: Tally }>;
+  /** The end-to-end pass over every run (`EVAL_REPEATS`): the mean and range of the pass rate, whole and split by input (photo messages and text messages). */
+  endToEnd: Readonly<{ all: RunsTally; photo: RunsTally; text: RunsTally }>;
   /** Cases tagged `known-limitation`: beyond the documented design, listed here and left out of every score. */
   knownLimitations: readonly Readonly<{ caseId: string; passed: boolean; signature: string }>[];
   retries: Readonly<{ messages: number; attempts: number }>;
@@ -159,6 +161,16 @@ const tally = (records: readonly CaseRecord[]): Tally => {
 
 const round = (value: number, digits = 3) => Math.round(value * 10 ** digits) / 10 ** digits;
 
+/** The records of each run (repeat) tallied apart, then their mean and range; a set with no records has no runs. */
+function runsTally(records: readonly CaseRecord[]): RunsTally {
+  const perRun = runsOfRecords(records).map(tally);
+  if (!perRun.length) return { ...tally([]), runs: 0, min: 0, max: 0, perRun };
+  const mean = (pick: (run: Tally) => number, digits = 3) => round(perRun.reduce((sum, run) => sum + pick(run), 0) / perRun.length, digits);
+  const accuracies = perRun.map(({ accuracy }) => accuracy);
+  return { total: mean(({ total }) => total, 2), passed: mean(({ passed }) => passed, 2), accuracy: mean(({ accuracy }) => accuracy), runs: perRun.length,
+    min: Math.min(...accuracies), max: Math.max(...accuracies), perRun };
+}
+
 function groupBy(records: readonly CaseRecord[], keys: (record: CaseRecord) => readonly string[]): Record<string, Tally> {
   const groups = new Map<string, CaseRecord[]>();
   for (const record of records) for (const key of keys(record)) groups.set(key, [...(groups.get(key) ?? []), record]);
@@ -242,6 +254,11 @@ function tagMetricsOf(scored: readonly CaseRecord[]): TagMetrics {
     paymentInCount: { paymentRequests: payments.length, insideCount: payments.filter((record) => noticeOf(record) === "several_problems").length },
     noticesByKind: Object.fromEntries([...byKind.entries()].sort(([a], [b]) => a.localeCompare(b))),
   };
+}
+
+function endToEndOf(records: readonly CaseRecord[]): EvalReport["endToEnd"] {
+  const messages = records.filter(({ pass }) => pass === "end_to_end");
+  return { all: runsTally(messages), photo: runsTally(messages.filter(({ input }) => input.startsWith("photo"))), text: runsTally(messages.filter(({ input }) => !input.startsWith("photo"))) };
 }
 
 function runsReport(records: readonly CaseRecord[]): EvalReport["runs"] {
@@ -375,10 +392,7 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
     cost: costOfRecords(scored.filter(isMessageRecord)),
     readerCalls: readerCallsOf(scored),
     pinnedMiss: pinnedMissOf(records),
-    endToEnd: {
-      photo: tally(scored.filter(({ pass, input }) => pass === "end_to_end" && input.startsWith("photo"))),
-      text: tally(scored.filter(({ pass, input }) => pass === "end_to_end" && !input.startsWith("photo"))),
-    },
+    endToEnd: endToEndOf(records.filter((record) => !record.tags.includes("known-limitation"))),
     knownLimitations: known.map(({ caseId, passed, signature }) => ({ caseId, passed, signature })),
     image: imageView(scored),
     retries: { messages: records.filter(({ retries }) => retries > 0).length, attempts: records.reduce((sum, { retries }) => sum + retries, 0) },
@@ -411,6 +425,16 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
 const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
 const line = (name: string, value: Tally) => `  ${name.padEnd(34)} ${String(value.passed).padStart(4)}/${String(value.total).padEnd(4)} ${percent(value.accuracy)}`;
 
+const runsLabel = (runs: number) => `${runs} run${runs === 1 ? "" : "s"}`;
+const rangeText = (value: RunsTally) => `${percent(value.accuracy)} (min ${percent(value.min)}, max ${percent(value.max)})`;
+
+/** The end-to-end pass rate as the mean and range over the runs, whole and split by input; nothing when the run had no end-to-end message. */
+function endToEndLines({ all, photo, text }: EvalReport["endToEnd"]): readonly string[] {
+  if (!all.runs) return [];
+  return [`End to end over ${runsLabel(all.runs)} (mean and range): ${rangeText(all)}`,
+    ...(photo.runs && text.runs ? [`  photo messages: ${rangeText(photo)}`, `  text messages: ${rangeText(text)}`] : [])];
+}
+
 const gateText = (name: string, lines: GateLines) => [
   `${name}: right ${lines.right} of ${lines.scored} scored messages (${lines.rightPercent.toFixed(1)}%)`,
   `${name}: ${lines.ignoredActions} ignored actions`,
@@ -430,6 +454,7 @@ export function formatGateSummary(report: EvalReport): string {
     `Metrics over ${report.runs.count} run${report.runs.count === 1 ? "" : "s"} (mean and range)${typeof report.settings.reader === "string" ? `, ${report.settings.reader} reader` : ""}`,
     ...metricLines(report),
     ...(report.verdicts ? [verdictLine(report.verdicts)] : []),
+    ...endToEndLines(report.endToEnd),
     "First run in detail",
     ...gateText("whole run", report.gate.whole),
     ...Object.entries(report.gate.byFamily).flatMap(([family, lines]) => gateText(`family ${family}`, lines)),
@@ -452,8 +477,7 @@ export function formatSummary(report: EvalReport, path: string): string {
   return [
     `Eval run ${report.runId}`,
     line("overall", report.overall),
-    ...section("By pass", report.byPass),
-    ...(report.endToEnd.photo.total && report.endToEnd.text.total ? [line("end_to_end photo messages", report.endToEnd.photo), line("end_to_end text messages", report.endToEnd.text)] : []),
+    ...section("By pass (first run)", report.byPass),
     ...section("By criterion", report.byCriterion),
     ...section("Fields", report.fields),
     formatGateSummary(report),

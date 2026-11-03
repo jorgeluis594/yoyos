@@ -177,8 +177,10 @@ certainties with their gate, the counts above, latency, retries, model calls wit
   tokens, the p95 latency per message, and the model calls per message kind (text, photo, photo with caption) against what the
   design allows (the reader and the vision chooser are not told apart);
 - a `pinned-miss` section: for each case tagged `pinned-miss`, the ignored actions of each repetition;
-- accuracy overall and per pass, criterion, kind, tag and scored field; the end-to-end pass split into photo and text messages;
-  known limitations listed apart;
+- accuracy overall and per pass, criterion, kind, tag and scored field, all over the first run; known limitations listed apart;
+- **End to end over every run** (`endToEnd`, and the «End to end over N runs» line of the gate summary): the pass rate of the `end_to_end`
+  pass as the mean over all `EVAL_REPEATS` runs with its range (min and max of the runs' rates), whole and split into photo and text
+  messages. `byPass.end_to_end` stays the first run's tally; quote the mean and range, not the first run;
 - calibration of the visual search at its production gate (`visual`, `visual_none`, `shows_product`), graded by the model's own pick
   (`lib/picks.ts`). Reading a message has no certainty gate, so there is nothing else to calibrate;
 - prompt injection outcomes, judge rescues and disagreements;

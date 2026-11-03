@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { CaseRecord } from "@core/evals/lib/case-record";
 import { messageRecord } from "@core/evals/lib/record-fixture";
 import type { ModelCall } from "@core/evals/lib/model-meter";
-import { buildReport, calibrate, formatSummary, percentile } from "@core/evals/lib/report";
+import { buildReport, calibrate, formatGateSummary, formatSummary, percentile } from "@core/evals/lib/report";
 
 const call = (over: Partial<ModelCall> = {}): ModelCall =>
   ({ provider: "openai", role: "system", endpoint: "/v1/responses", model: "gpt-6-luna", inputTokens: 1000, outputTokens: 100, durationMs: 300, status: 200, ...over });
@@ -138,10 +138,26 @@ describe("buildReport", () => {
     expect(report.gates).toEqual({ visual: 0.8 });
   });
 
+  test("end-to-end reports the mean over every run with its range, whole and split into photo and text", () => {
+    const run = (repeat: number, passedText: readonly boolean[]) => [
+      record({ caseId: "p", pass: "end_to_end", input: "photo customer/x.jpg caption «2»", repeat, passed: true }),
+      ...passedText.map((passed, index) => record({ caseId: `t${index}`, pass: "end_to_end", input: "text «quiero»", repeat, passed })),
+    ];
+    const report = buildReport([...run(0, [true, true, true, true]), ...run(1, [true, true, false, false]), ...run(2, [true, false, false, false])], meta);
+
+    expect(report.endToEnd.text).toMatchObject({ runs: 3, total: 4, accuracy: 0.583, min: 0.25, max: 1 });
+    expect(report.endToEnd.text.perRun.map(({ passed }) => passed)).toEqual([4, 2, 1]);
+    expect(report.endToEnd.photo).toMatchObject({ runs: 3, total: 1, accuracy: 1, min: 1, max: 1 });
+    expect(report.endToEnd.all).toMatchObject({ runs: 3, total: 5, accuracy: 0.667, min: 0.4, max: 1 });
+    expect(report.byPass.end_to_end).toEqual({ total: 5, passed: 5, accuracy: 1 });
+    expect(formatGateSummary(report)).toContain("End to end over 3 runs (mean and range): 66.7% (min 40.0%, max 100.0%)");
+  });
+
   test("the end-to-end pass is also split into photo and text messages", () => {
     const report = buildReport([record({ pass: "end_to_end", input: "photo customer/x.jpg caption «2»" }), record({ caseId: "b", pass: "end_to_end", passed: false, input: "text «quiero»" })], meta);
 
-    expect(report.endToEnd).toEqual({ photo: { total: 1, passed: 1, accuracy: 1 }, text: { total: 1, passed: 0, accuracy: 0 } });
+    expect(report.endToEnd.photo).toMatchObject({ runs: 1, total: 1, passed: 1, accuracy: 1 });
+    expect(report.endToEnd.text).toMatchObject({ runs: 1, total: 1, passed: 0, accuracy: 0 });
   });
 
   test("the image view splits the near-identical polos and lists negatives accepted at the gate", () => {
