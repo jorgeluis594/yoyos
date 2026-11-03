@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { MessageTrace } from "@core/src/features/orders/domain/reader/trace";
-import { expectedStagesOf } from "@core/evals/lib/stage-facts";
+import { decisionOf, expectedStagesOf, scoreStages } from "@core/evals/lib/stage-facts";
 import { legacyAnswerOf, stagedAnswerOf } from "@core/evals/lib/staged-answer";
 
 const quote = (text: string) => ({ source: "current" as const, text });
@@ -36,6 +36,34 @@ describe("the staged answer read from the reading trace", () => {
     expect(answer.fields).toEqual({ quantity: "3", price: "55", Talla: "L", Color: "Blanco" });
   });
 
+  test("compares the catalog values the resolution chose, not the buyer's words, and counts an add with no quantity as one", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: null, valueWords: quote("negros") }, { attributeWords: quote("talla"), valueWords: quote("eme") }], changeVerb: null };
+    const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "chosen", productId: "id-polo", unmatched: [],
+      values: [{ attribute: "Color", value: "Negro", quote: quote("negros") }, { attribute: "Talla", value: "M", quote: quote("eme") }] }] } };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M", Color: "Negro" } }, outcomes: ["added"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", Color: "Negro", Talla: "M" });
+    expect(scoreStages(expected, answer).fields).toBe(true);
+  });
+
+  test("a quantity the buyer stated is kept, and a request that does not add an item gets no implicit quantity", () => {
+    const request = (kind: string, quantity: object | null) => ({ request: "r1", kind, target: { kind: "none" }, quantity, price: null, values: [], changeVerb: null });
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "2" } }, outcomes: ["added"] });
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [extractionStage([request("add", { value: 2, mode: "add", quote: quote("dos") })])] }), expected }).fields).toEqual({ quantity: "2" });
+    expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [extractionStage([request("remove", null)])] }), expected }).fields).toEqual({});
+  });
+
+  test("without a resolution it falls back to the words, and a preposition is never the name of an attribute", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "none" }, quantity: { value: 1, mode: "add", quote: quote("una") }, price: null,
+      values: [{ attributeWords: quote("en"), valueWords: quote("L") }, { attributeWords: quote("a"), valueWords: quote("Crema") }], changeVerb: null };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "L", Color: "Crema" } }, outcomes: ["added"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [extractionStage([request])] }), expected });
+    expect(Object.keys(answer.fields ?? {})).not.toContain("en");
+    expect(Object.keys(answer.fields ?? {})).not.toContain("a");
+    expect(answer.fields).toEqual({ quantity: "1", Talla: "L", Color: "Crema" });
+  });
+
   test("reads no fields when the extraction stage did not run and ignores the confirming extraction", () => {
     const expected = expectedStagesOf({ stages: { fields: { quantity: "1" } }, outcomes: ["added"] });
     expect(stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests")] }), expected }).fields).toBeNull();
@@ -57,6 +85,35 @@ describe("the staged answer read from the reading trace", () => {
     expect(stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("applied"), decision("doubtful")] }), expected }).decision).toBe("doubtful");
     expect(stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("applied"), decision("pending")] }), expected }).decision).toBe("pending");
     expect(stagedAnswerOf({ ...base, trace: null, outcomes: ["no_intent"], expected }).decision).toBe("silent");
+  });
+
+  test("expected and actual decisions follow one criterion: the same notice and outcomes give the same decision on both sides", () => {
+    const expected = expectedStagesOf({ outcomes: ["added"] });
+    const cases: readonly Readonly<{ notice: string | null; outcomes: readonly string[]; decisions: readonly string[]; decision: string }>[] = [
+      { notice: "not_clear", outcomes: ["pending_created", "not_clear"], decisions: ["pending"], decision: "urgent" },
+      { notice: "several_problems", outcomes: ["pending_created", "variant_missing", "invalid_action"], decisions: ["pending", "urgent"], decision: "urgent" },
+      { notice: "ready_with_pendings", outcomes: ["ready_with_pendings"], decisions: ["applied"], decision: "urgent" },
+      { notice: null, outcomes: ["added", "pending_completed"], decisions: ["pending"], decision: "applied" },
+      { notice: null, outcomes: ["pending_updated"], decisions: ["pending"], decision: "pending" },
+    ];
+    for (const { notice, outcomes, decisions, decision: wanted } of cases) {
+      const trace = traceOf({ decisions: decisions.map((kind) => decision(kind)) });
+      expect(stagedAnswerOf({ ...base, notice, outcomes, trace, expected }).decision, outcomes.join("+")).toBe(wanted);
+      expect(decisionOf({ notice, outcomes } as Parameters<typeof decisionOf>[0]), outcomes.join("+")).toBe(wanted);
+    }
+  });
+
+  test("a change the trace doubted stays doubtful when the outcomes say it was applied", () => {
+    const expected = expectedStagesOf({ outcomes: ["added"] });
+    expect(stagedAnswerOf({ ...base, outcomes: ["quantity_changed"], trace: traceOf({ decisions: [decision("doubtful")] }), expected }).decision).toBe("doubtful");
+  });
+
+  test("a doubtful change to a pending stays doubtful when the trace holds no pending action, and a real pending action beside it stays pending", () => {
+    const expected = expectedStagesOf({ outcomes: ["pending_updated"] });
+    const doubtful = stagedAnswerOf({ ...base, outcomes: ["pending_updated"], trace: traceOf({ decisions: [decision("doubtful")] }), expected });
+    expect(doubtful.decision).toBe("doubtful");
+    const mixed = stagedAnswerOf({ ...base, outcomes: ["pending_updated"], trace: traceOf({ decisions: [decision("pending"), decision("doubtful")] }), expected });
+    expect(mixed.decision).toBe("pending");
   });
 
   test("takes the changed lines from the change rows: a completion is a change and a line mark counts as a mark", () => {

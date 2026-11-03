@@ -1,5 +1,5 @@
 import type { DecisionKind, IntentKind } from "@core/evals/cases/schema";
-import { decisionOf, type ExpectedStages, type StageAnswer } from "@core/evals/lib/stage-facts";
+import { decisionFromEvidence, fold, type ExpectedStages, type StageAnswer } from "@core/evals/lib/stage-facts";
 import type { MessageTrace, TraceShadow, TraceStage } from "@core/src/features/orders/domain/reader/trace";
 
 /**
@@ -15,30 +15,38 @@ function primaryOutput<Stage extends TraceStage["call"]["stage"]>(trace: Message
   return (found?.output as StageOutput<Stage> | null | undefined) ?? null;
 }
 
-const fold = (text: string): string => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+/** Words that join a value to the product (in «en L», «a negro»): never the name of an attribute. */
+const connectors: ReadonlySet<string> = new Set(["en", "a", "de", "del", "la", "el", "los", "las", "un", "una", "con", "para", "por", "y"]);
 
-/** The extracted words under the name the case gives them: `quantity`, `price`, or the attribute the buyer named (the case's own spelling when the words fold to it). */
-function fieldsOf(extraction: StageOutput<"extraction">, expected: Readonly<Record<string, string>> | null): Readonly<Record<string, string>> {
+/**
+ * The fields of the message under the names the case gives them: `quantity`, `price`, and the catalog attribute of each value. The values are the
+ * catalog's (the resolution stage's `values`, e.g. Color=Negro for «negros»), not the buyer's words. A request with no resolved values falls back to its
+ * words, under the case's own spelling when they fold to a stated value. A request that adds an item with no quantity adds one.
+ */
+function fieldsOf(extraction: StageOutput<"extraction">, resolution: StageOutput<"resolution"> | null, expected: Readonly<Record<string, string>> | null): Readonly<Record<string, string>> {
   const fields: Record<string, string> = {};
   for (const request of extraction.requests) {
     if (request.quantity) fields.quantity = String(request.quantity.value);
+    else if (request.kind === "add") fields.quantity = "1";
     if (request.price) fields.price = String(request.price.amount);
+    const resolved = resolution?.resolutions.find((candidate) => candidate.request === request.request);
+    const values = resolved && resolved.kind !== "none" ? resolved.values ?? [] : [];
+    if (values.length > 0) {
+      for (const { attribute, value } of values) fields[attribute] = value;
+      continue;
+    }
     for (const { attributeWords, valueWords } of request.values) {
-      const stated = Object.entries(expected ?? {}).find(([name, value]) => fold(value) === fold(valueWords.text) && (attributeWords === null || fold(attributeWords.text) === fold(name)));
+      const attribute = attributeWords !== null && !connectors.has(fold(attributeWords.text)) ? attributeWords : null;
+      const stated = Object.entries(expected ?? {}).find(([name, value]) => fold(value) === fold(valueWords.text) && (attribute === null || fold(attribute.text) === fold(name)));
       if (stated) fields[stated[0]] = stated[1];
-      else fields[attributeWords?.text ?? valueWords.text] = valueWords.text;
+      else fields[attribute?.text ?? valueWords.text] = valueWords.text;
     }
   }
   return fields;
 }
 
-const severity: readonly DecisionKind[] = ["urgent", "pending", "doubtful", "applied", "silent"];
-
 function decisionKindOf(trace: MessageTrace | null, notice: string | null, outcomes: readonly string[]): DecisionKind {
-  if (notice !== null) return decisionOf({ notice } as Parameters<typeof decisionOf>[0]);
-  const kinds: readonly DecisionKind[] = trace?.decisions.map(({ decision }) => decision) ?? [];
-  const worst = severity.find((kind) => kinds.includes(kind));
-  return worst ?? decisionOf({ outcomes } as Parameters<typeof decisionOf>[0]);
+  return decisionFromEvidence({ notice, outcomes, decisions: trace?.decisions.map(({ decision }) => decision) ?? [] });
 }
 
 function stageCostsOf(trace: MessageTrace | null): Readonly<Record<string, number>> {
@@ -79,7 +87,7 @@ export function stagedAnswerOf(input: StagedAnswerInput): StageAnswer {
   const kinds = decisions.map(({ decision: kind }) => kind);
   return {
     intent: intent?.kind ?? intentFromOutcomes(outcomes),
-    fields: extraction ? fieldsOf(extraction, expected.fields) : null,
+    fields: extraction ? fieldsOf(extraction, primaryOutput(trace, "resolution"), expected.fields) : null,
     product: productId === null ? null : input.productKeyOf(productId),
     decision,
     // The change rows are the truth when read: a completion of a pending changes the order and its decision is `pending`, and a mark can be inherited.

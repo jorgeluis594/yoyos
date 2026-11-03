@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { decisionOf, expectedStagesOf, scoreStages, type StageAnswer } from "@core/evals/lib/stage-facts";
 import { messageExpectation } from "@core/evals/cases/schema";
+import { ignoredRequestOf } from "@core/evals/lib/metrics";
 
 const expectation = (input: object) => messageExpectation.parse(input);
 
@@ -51,4 +52,42 @@ test("states the count of changed lines, of those with no mark and of those sile
 
 test("a pending that a decline ended is a change the buyer asked for", () => {
   expect(decisionOf({ outcomes: ["pending_ended"] })).toBe("applied");
+});
+
+test("a step whose only expectation is a silent decision asks nothing: no intent, not a request that could be ignored", () => {
+  expect(expectedStagesOf(expectation({ notice: null, decision: "silent" }))).toMatchObject({ intent: "no_intent", requested: false, decision: "silent" });
+  expect(expectedStagesOf(expectation({ notice: null, decision: "silent", stages: { intent: "requests" } }))).toMatchObject({ intent: "requests", requested: true });
+  expect(expectedStagesOf(expectation({ notice: null, decision: "silent", order: [] }))).toMatchObject({ intent: "requests", requested: true });
+  expect(expectedStagesOf(expectation({ notice: "not_applied", decision: "urgent" }))).toMatchObject({ intent: "requests", requested: true });
+  expect(expectedStagesOf(expectation({ notice: null, decision: "doubtful", order: [] }))).toMatchObject({ intent: "requests", requested: true });
+});
+
+test("a silent step the reader left alone is neither an ignored request nor a wrong intent", () => {
+  const expected = expectedStagesOf(expectation({ notice: null, decision: "silent" }));
+  const facts = scoreStages(expected, { intent: "no_intent", fields: null, product: null, decision: "silent", changeApplied: false, marked: false, point: false, noticed: false,
+    changedNotice: false, orderMatches: null, readingMs: 900, queuedMs: 0, stageCostsUsd: {} });
+  expect(facts).toMatchObject({ intent: true, requested: false });
+  expect(ignoredRequestOf(facts)).toBe(false);
+});
+
+test("«listo» with pendings left is urgent, as the production reader treats it: a problem of the message, not an informative notice", () => {
+  expect(decisionOf(expectation({ notice: "ready_with_pendings" }))).toBe("urgent");
+  expect(decisionOf(expectation({ notice: null, outcomes: ["ready_with_pendings"] }))).toBe("urgent");
+  expect(decisionOf(expectation({ notice: "ready_with_pendings", outcomes: ["pending_created", "ready_with_pendings"] }))).toBe("urgent");
+  expect(decisionOf(expectation({ notice: "ready", outcomes: ["ready"] }))).toBe("notice");
+});
+
+test("an urgent notice that goes out makes the decision urgent even beside a pending; with no notice stated a pending's own point is the pending", () => {
+  expect(decisionOf(expectation({ notice: "not_clear", outcomes: ["pending_created", "not_clear"] }))).toBe("urgent");
+  expect(decisionOf(expectation({ notice: "several_problems", outcomes: ["pending_created", "variant_missing", "invalid_action"] }))).toBe("urgent");
+  expect(decisionOf(expectation({ notice: "variant_missing" }))).toBe("urgent");
+  expect(decisionOf(expectation({ outcomes: ["pending_created", "variant_missing"] }))).toBe("pending");
+  expect(decisionOf(expectation({ outcomes: ["pending_created", "unclear_item"] }))).toBe("urgent");
+});
+
+test("compares the fields folding case and accents, in names and values", () => {
+  const expected = expectedStagesOf(expectation({ notice: null, outcomes: ["added"], stages: { fields: { quantity: "1", Talla: "M", Color: "Crema" } } }));
+  expect(scoreStages(expected, answer({ fields: { quantity: "1", talla: "m", Color: "CREMÁ" } })).fields).toBe(true);
+  expect(scoreStages(expected, answer({ fields: { quantity: "1", Talla: "M", Color: "Negro" } })).fields).toBe(false);
+  expect(scoreStages(expected, answer({ fields: { quantity: "1", Talla: "M" } })).fields).toBe(false);
 });
