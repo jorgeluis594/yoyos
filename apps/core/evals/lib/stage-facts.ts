@@ -43,7 +43,8 @@ export type DecisionEvidence = Readonly<{
  * 1. urgent: an urgent notice (the seller is interrupted, whatever else the message did) or a problem outcome; with no notice, a pending's own point
  *    (`pendingPoints`) beside a pending is the pending's, not a problem. So «pending created + not_clear» that sends «not_clear» is urgent, on both sides.
  * 2. notice: an informative notice, or «listo» / «only item kept» outcomes.
- * 3. pending: the message created, updated or split a pending. A completion is not one: it adds the item, so it is a change.
+ * 3. pending: the message created, updated or split a pending, unless the trace's only decisions are `doubtful` (a marked change to the pending is a
+ *    mark, not lost behind its outcome). A completion is not one: it adds the item, so it is a change.
  * 4. else the change itself: `doubtful` when the reader marked it, `applied` when it changed the order, `silent` otherwise.
  */
 export function decisionFromEvidence({ notice, outcomes, decisions = [] }: DecisionEvidence): DecisionKind {
@@ -52,7 +53,7 @@ export function decisionFromEvidence({ notice, outcomes, decisions = [] }: Decis
   const noticeIsUrgent = notice !== null && urgentNotices.has(notice);
   if (problems.length > 0 || noticeIsUrgent) return "urgent";
   if ((notice !== null && !urgentNotices.has(notice)) || outcomes.some((kind) => noticeOutcomes.has(kind))) return "notice";
-  if (pending) return "pending";
+  if (pending) return decisions.includes("doubtful") && !decisions.includes("pending") ? "doubtful" : "pending";
   if (outcomes.length === 0) return severity.find((kind) => decisions.includes(kind)) ?? "silent";
   if (!outcomes.some((kind) => !noChangeOutcomes.has(kind))) return "silent";
   return decisions.includes("doubtful") ? "doubtful" : "applied";

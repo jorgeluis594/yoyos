@@ -108,6 +108,14 @@ describe("the staged answer read from the reading trace", () => {
     expect(stagedAnswerOf({ ...base, outcomes: ["quantity_changed"], trace: traceOf({ decisions: [decision("doubtful")] }), expected }).decision).toBe("doubtful");
   });
 
+  test("a doubtful change to a pending stays doubtful when the trace holds no pending action, and a real pending action beside it stays pending", () => {
+    const expected = expectedStagesOf({ outcomes: ["pending_updated"] });
+    const doubtful = stagedAnswerOf({ ...base, outcomes: ["pending_updated"], trace: traceOf({ decisions: [decision("doubtful")] }), expected });
+    expect(doubtful.decision).toBe("doubtful");
+    const mixed = stagedAnswerOf({ ...base, outcomes: ["pending_updated"], trace: traceOf({ decisions: [decision("pending"), decision("doubtful")] }), expected });
+    expect(mixed.decision).toBe("pending");
+  });
+
   test("takes the changed lines from the change rows: a completion is a change and a line mark counts as a mark", () => {
     const expected = expectedStagesOf({ outcomes: ["added"] });
     const completion = stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("pending")] }), expected, changedLines: [{ marked: false, wrong: false }] });
