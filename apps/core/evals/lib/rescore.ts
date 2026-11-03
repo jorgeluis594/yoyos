@@ -4,6 +4,7 @@ import type { ProductKey } from "@core/evals/fixtures/catalog";
 import type { CaseRecord, ReadingRecord, StageFacts } from "@core/evals/lib/case-record";
 import { changedLinesOf, scoredLinesOf, type ChangeRow, type ScoredChangedLine } from "@core/evals/lib/changed-lines";
 import { messageExpectationsOf, rebuildResult, rescoreMessage, type ResultFile } from "@core/evals/lib/rebuild";
+import type { AuditReport } from "@core/evals/lib/audit";
 import { buildReport, type EvalReport, type RunsTally } from "@core/evals/lib/report";
 import { runsOfRecords, type MetricName, type MetricRange } from "@core/evals/lib/metrics";
 import { expectedOrder, type ActualLine, type MessageActual } from "@core/evals/lib/scorers";
@@ -190,6 +191,14 @@ export function comparisonOf(before: EvalReport, after: EvalReport, records?: Co
     ? { metric, before: rangeText(orderFieldRange(records.stored, name), percent), after: rangeText(orderFieldRange(records.rescored, name), percent),
       note: "before counted from the stored records, with their stored scores" }
     : { metric, before: `${before.fields?.[name] ? percent(before.fields[name]!.accuracy) : "not measured"} (first run only)`, after: `${after.fields?.[name] ? percent(after.fields[name]!.accuracy) : "not measured"} (first run only)` };
+  const stage = (report: EvalReport | null) => (report as Readonly<{ audit?: AuditReport }> | null)?.audit;
+  /** A row of the audit views: the stored report's value when it has them, else (when `recount`) a recount from the stored records, labelled; they are new, so the stored scores never held them. */
+  const auditRow = (metric: string, pick: (audit: AuditReport) => MetricRange | null | undefined, show: (value: number) => string, recount = false): ComparisonRow => {
+    const stored_ = stage(before);
+    const counted = stage(stored);
+    return { metric, after: rangeText(pick(stage(after)!), show),
+      before: stored_ ? rangeText(pick(stored_), show) : recount && counted ? `${rangeText(pick(counted), show)} (recount with stored scores)` : "n/a in stored report" };
+  };
   return [
     metricRow("false urgent share", "falseUrgentShare", before, after, percent),
     metricRow("urgent recall", "urgentRecall", before, after, percent),
@@ -198,6 +207,8 @@ export function comparisonOf(before: EvalReport, after: EvalReport, records?: Co
     metricRow("ignored requests per run", "ignoredRequests", before, after, number),
     metricRow("intent precision (intentAccuracy)", "intentAccuracy", before, after, percent),
     metricRow("variant and quantity (fields accuracy)", "fieldsAccuracy", before, after, percent),
+    auditRow("stage fields, strict (a between never passes)", ({ stageFields }) => stageFields.strictAccuracy, percent),
+    auditRow("stage fields: messages with a between per run", ({ stageFields }) => stageFields.between, number),
     orderRow("final order variant", "variant"),
     orderRow("final order quantity", "quantity"),
     metricRow("resolution accuracy", "resolutionAccuracy", before, after, percent),

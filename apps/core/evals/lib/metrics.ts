@@ -76,16 +76,18 @@ export function metricsOfRun(records: readonly CaseRecord[]): RunMetrics {
   };
 }
 
+/** Mean, min and max of values over the runs that measured them; null when none did. */
+export function rangeOfValues(values: readonly number[]): MetricRange | null {
+  if (!values.length) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  // Floating-point sums can leave the mean a hair outside identical values.
+  return { mean: Math.min(max, Math.max(min, mean(values)!)), min, max, runs: values.length };
+}
+
 /** Mean, min and max of each metric over the runs that measured it; null when none did. */
 export function aggregateRuns(runs: readonly RunMetrics[]): AggregatedMetrics {
-  return Object.fromEntries(metricNames.map((name) => {
-    const values = runs.flatMap((run) => run[name] === null ? [] : [run[name]]);
-    if (!values.length) return [name, null];
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    // Floating-point sums can leave the mean a hair outside identical values.
-    return [name, { mean: Math.min(max, Math.max(min, mean(values)!)), min, max, runs: values.length }];
-  })) as AggregatedMetrics;
+  return Object.fromEntries(metricNames.map((name) => [name, rangeOfValues(runs.flatMap((run) => run[name] === null ? [] : [run[name]]))])) as AggregatedMetrics;
 }
 
 export type Comparison = "better" | "worse" | "different" | "not distinguishable" | "not measured";

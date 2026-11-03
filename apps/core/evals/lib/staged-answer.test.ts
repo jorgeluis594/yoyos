@@ -47,6 +47,60 @@ describe("the staged answer read from the reading trace", () => {
     expect(scoreStages(expected, answer).fields).toBe(true);
   });
 
+  test("a value word the resolution left unmatched is an extra field, so the comparison fails", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: quote("talla"), valueWords: quote("eme") }, { attributeWords: null, valueWords: quote("canalé") }], changeVerb: null };
+    const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "chosen", productId: "id-polo", unmatched: [quote("canalé")],
+      values: [{ attribute: "Talla", value: "M", quote: quote("eme") }] }] } };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M" } }, outcomes: ["added"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", Talla: "M", canalé: "canalé" });
+    expect(scoreStages(expected, answer).fields).toBe(false);
+  });
+
+  test("an unmatched word the label states as the value (a variant the catalog lacks) still matches, under the case's spelling", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: quote("talla"), valueWords: quote("xxl") }], changeVerb: null };
+    const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "chosen", productId: "id-polo", unmatched: [quote("xxl")], values: [] }] } };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "XXL" } }, outcomes: ["variant_not_available"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", Talla: "XXL" });
+    expect(scoreStages(expected, answer).fields).toBe(true);
+  });
+
+  test("a word the resolution dropped without listing it is an extra field too, in a chosen product and in a between", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: quote("talla"), valueWords: quote("eme") }, { attributeWords: null, valueWords: quote("rib negro") }], changeVerb: null };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M" } }, outcomes: ["added"] });
+    for (const resolved of [{ kind: "chosen", productId: "id-polo", unmatched: [] }, { kind: "between", productIds: ["id-polo", "id-gorra"] }]) {
+      const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", ...resolved, values: [{ attribute: "Talla", value: "M", quote: quote("eme") }] }] } };
+      const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+      expect(answer.fields, resolved.kind).toEqual({ quantity: "1", Talla: "M", "rib negro": "rib negro" });
+      expect(scoreStages(expected, answer).fields, resolved.kind).toBe(false);
+    }
+  });
+
+  test("a between whose words are all mapped passes the fields on its values, and says it was between so the strict reading can leave it out", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null,
+      values: [{ attributeWords: quote("talla"), valueWords: quote("eme") }], changeVerb: null };
+    const resolution = { call: call("resolution", "primary", 0.0003), output: { stage: "resolution", resolutions: [{ request: "r1", kind: "between", productIds: ["id-polo", "id-gorra"],
+      values: [{ attribute: "Talla", value: "M", quote: quote("eme") }] }] } };
+    const expected = expectedStagesOf({ stages: { fields: { quantity: "1", Talla: "M" } }, outcomes: ["added"] });
+    const answer = stagedAnswerOf({ ...base, trace: traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolution] }), expected });
+    expect(answer.fields).toEqual({ quantity: "1", Talla: "M" });
+    expect(answer.fieldsBetween).toBe(true);
+    expect(scoreStages(expected, answer)).toMatchObject({ fields: true, fieldsBetween: true });
+  });
+
+  test("a chosen resolution is not between, and a case that states no fields records no between", () => {
+    const request = { request: "r1", kind: "add", target: { kind: "named", words: quote("polo") }, quantity: null, price: null, values: [], changeVerb: null };
+    const trace = traceOf({ stages: [intentStage("requests"), extractionStage([request]), resolutionStage("id-polo")] });
+    const withFields = expectedStagesOf({ stages: { fields: { quantity: "1" } }, outcomes: ["added"] });
+    expect(scoreStages(withFields, stagedAnswerOf({ ...base, trace, expected: withFields }))).toMatchObject({ fields: true, fieldsBetween: false });
+    const without = expectedStagesOf({ outcomes: ["added"] });
+    expect(scoreStages(without, stagedAnswerOf({ ...base, trace, expected: without }))).not.toHaveProperty("fieldsBetween");
+  });
+
   test("a quantity the buyer stated is kept, and a request that does not add an item gets no implicit quantity", () => {
     const request = (kind: string, quantity: object | null) => ({ request: "r1", kind, target: { kind: "none" }, quantity, price: null, values: [], changeVerb: null });
     const expected = expectedStagesOf({ stages: { fields: { quantity: "2" } }, outcomes: ["added"] });

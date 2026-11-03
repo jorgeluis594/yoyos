@@ -13,6 +13,8 @@ import { privateDirOf } from "@core/evals/cases/private";
 export type StageFacts = Readonly<{
   intent: boolean | null;
   fields: boolean | null;
+  /** Only where the case states fields: the resolution left some request between several products. The strict reading of the fields counts `fields && !fieldsBetween`. */
+  fieldsBetween?: boolean;
   resolution: boolean | null;
   decision: boolean | null;
   decisionExpected: DecisionKind;

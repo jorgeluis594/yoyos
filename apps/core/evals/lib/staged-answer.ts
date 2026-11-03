@@ -1,6 +1,7 @@
 import type { DecisionKind, IntentKind } from "@core/evals/cases/schema";
 import { decisionFromEvidence, fold, type ExpectedStages, type StageAnswer } from "@core/evals/lib/stage-facts";
 import type { MessageTrace, TraceShadow, TraceStage } from "@core/src/features/orders/domain/reader/trace";
+import type { ExtractedRequest } from "@core/src/features/orders/domain/reader/readings";
 
 /**
  * What the reading trace of the staged `applyChatMessage` says, as the `StageAnswer` that `scoreStages` compares with the case (technical design 6.3).
@@ -22,27 +23,40 @@ const connectors: ReadonlySet<string> = new Set(["en", "a", "de", "del", "la", "
  * The fields of the message under the names the case gives them: `quantity`, `price`, and the catalog attribute of each value. The values are the
  * catalog's (the resolution stage's `values`, e.g. Color=Negro for «negros»), not the buyer's words. A request with no resolved values falls back to its
  * words, under the case's own spelling when they fold to a stated value. A request that adds an item with no quantity adds one.
+ * A value word the resolution did not map to a catalog value (listed in `unmatched` or silently dropped, whether it chose a product or stayed `between`
+ * several) stays in the answer as a word of its own: an extra field, so the comparison fails unless the label states that very word.
+ * `between` tells that some request was left undecided between products, which the strict reading of the fields never passes.
  */
-function fieldsOf(extraction: StageOutput<"extraction">, resolution: StageOutput<"resolution"> | null, expected: Readonly<Record<string, string>> | null): Readonly<Record<string, string>> {
+function fieldsOf(extraction: StageOutput<"extraction">, resolution: StageOutput<"resolution"> | null, expected: Readonly<Record<string, string>> | null): Readonly<{ fields: Readonly<Record<string, string>>; between: boolean }> {
   const fields: Record<string, string> = {};
+  let between = false;
+  const addWord = ({ attributeWords, valueWords }: ExtractedRequest["values"][number]) => {
+    const attribute = attributeWords !== null && !connectors.has(fold(attributeWords.text)) ? attributeWords : null;
+    const stated = Object.entries(expected ?? {}).find(([name, value]) => fold(value) === fold(valueWords.text) && (attribute === null || fold(attribute.text) === fold(name)));
+    if (stated) fields[stated[0]] = stated[1];
+    else fields[attribute?.text ?? valueWords.text] = valueWords.text;
+  };
   for (const request of extraction.requests) {
     if (request.quantity) fields.quantity = String(request.quantity.value);
     else if (request.kind === "add") fields.quantity = "1";
     if (request.price) fields.price = String(request.price.amount);
     const resolved = resolution?.resolutions.find((candidate) => candidate.request === request.request);
+    if (resolved?.kind === "between") between = true;
     const values = resolved && resolved.kind !== "none" ? resolved.values ?? [] : [];
-    if (values.length > 0) {
-      for (const { attribute, value } of values) fields[attribute] = value;
+    if (values.length === 0) {
+      request.values.forEach(addWord);
       continue;
     }
-    for (const { attributeWords, valueWords } of request.values) {
-      const attribute = attributeWords !== null && !connectors.has(fold(attributeWords.text)) ? attributeWords : null;
-      const stated = Object.entries(expected ?? {}).find(([name, value]) => fold(value) === fold(valueWords.text) && (attribute === null || fold(attribute.text) === fold(name)));
-      if (stated) fields[stated[0]] = stated[1];
-      else fields[attribute?.text ?? valueWords.text] = valueWords.text;
+    for (const { attribute, value } of values) fields[attribute] = value;
+    const covered = new Set(values.map(({ quote }) => fold(quote.text)));
+    const left = request.values.filter(({ valueWords }) => !covered.has(fold(valueWords.text)));
+    left.forEach(addWord);
+    const unmatched = resolved?.kind === "chosen" ? resolved.unmatched ?? [] : [];
+    for (const { text } of unmatched) {
+      if (!covered.has(fold(text)) && !left.some(({ valueWords }) => fold(valueWords.text) === fold(text))) addWord({ attributeWords: null, valueWords: { source: "current", text } });
     }
   }
-  return fields;
+  return { fields, between };
 }
 
 function decisionKindOf(trace: MessageTrace | null, notice: string | null, outcomes: readonly string[]): DecisionKind {
@@ -85,9 +99,11 @@ export function stagedAnswerOf(input: StagedAnswerInput): StageAnswer {
     ?? primaryOutput(trace, "resolution")?.resolutions.find((resolution) => resolution.kind === "chosen")?.productId ?? null;
   const decision = decisionKindOf(trace, notice, outcomes);
   const kinds = decisions.map(({ decision: kind }) => kind);
+  const read = extraction ? fieldsOf(extraction, primaryOutput(trace, "resolution"), expected.fields) : null;
   return {
     intent: intent?.kind ?? intentFromOutcomes(outcomes),
-    fields: extraction ? fieldsOf(extraction, primaryOutput(trace, "resolution"), expected.fields) : null,
+    fields: read?.fields ?? null,
+    ...(read?.between ? { fieldsBetween: true } : {}),
     product: productId === null ? null : input.productKeyOf(productId),
     decision,
     // The change rows are the truth when read: a completion of a pending changes the order and its decision is `pending`, and a mark can be inherited.

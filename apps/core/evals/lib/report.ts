@@ -5,7 +5,8 @@ import { gradePick, pickOf } from "@core/evals/lib/picks";
 import { stepFailuresOf } from "@core/evals/lib/conversation";
 import { repeatedNoticeProducts } from "@core/evals/lib/scorers";
 import { percentile } from "@core/evals/lib/stats";
-import { aggregateRuns, metricNames, metricsOfRun, runsOfRecords, type AggregatedMetrics, type MetricName } from "@core/evals/lib/metrics";
+import { auditOf, type AuditReport } from "@core/evals/lib/audit";
+import { aggregateRuns, metricNames, metricsOfRun, runsOfRecords, type AggregatedMetrics, type MetricName, type MetricRange } from "@core/evals/lib/metrics";
 import { verdictLine, type VerdictSummary } from "@core/evals/lib/verdicts";
 
 /** Aggregation of one run's case records into the report written to eval-results/. Pure: unit-tested in report.test.ts. */
@@ -53,6 +54,8 @@ export type EvalReport = Readonly<{
    * conversation and run already failed, own otherwise (lib/conversation.ts `stepFailuresOf`). Known limitations are left out; `ids` are the step ids of each kind.
    */
   conversationSteps: ConversationSteps;
+  /** The variants of some measurements the CTO's audit asked for (lib/audit.ts), over every run. */
+  audit: AuditReport;
   /** Cases tagged `known-limitation`: beyond the documented design, listed here and left out of every score. */
   knownLimitations: readonly Readonly<{ caseId: string; passed: boolean; signature: string }>[];
   retries: Readonly<{ messages: number; attempts: number }>;
@@ -431,6 +434,7 @@ export function buildReport(allRecords: readonly CaseRecord[], meta: RunMeta, ex
     calibration,
     gates: Object.fromEntries(records.flatMap(({ certainties }) => certainties.map(({ source, gate }) => [source, gate] as const)).sort(([a], [b]) => a.localeCompare(b))),
     runs: runsReport(records.filter((record) => !record.tags.includes("known-limitation"))),
+    audit: auditOf(allRecords.filter((record) => !record.tags.includes("known-limitation"))),
     verdicts,
     consistency: consistencyOf(repeated, flipped),
     tagMetrics: tagMetricsOf(scored),
@@ -459,6 +463,18 @@ const line = (name: string, value: Tally) => `  ${name.padEnd(34)} ${String(valu
 
 const runsLabel = (runs: number) => `${runs} run${runs === 1 ? "" : "s"}`;
 const rangeText = (value: RunsTally) => `${percent(value.accuracy)} (min ${percent(value.min)}, max ${percent(value.max)})`;
+
+const rangeLine = (range: MetricRange | null, show: (value: number) => string) =>
+  range ? `${show(range.mean)} (min ${show(range.min)}, max ${show(range.max)})` : "not measured";
+
+/** The stage fields as a stricter reading and the messages left between products, labelled apart from the main `fieldsAccuracy` metric. */
+function auditLines({ stageFields }: AuditReport): readonly string[] {
+  const count = (value: number) => String(Math.round(value * 10) / 10);
+  return [
+    `Stage fields, messages with a between resolution: ${rangeLine(stageFields.between, count)} per run, of ${rangeLine(stageFields.labelled, count)} messages with fields stated`,
+    `Stage fields, strict (a between never passes): ${rangeLine(stageFields.strictAccuracy, percent)}`,
+  ];
+}
 
 /** The end-to-end pass rate as the mean and range over the runs, whole and split by input; nothing when the run had no end-to-end message. */
 function endToEndLines({ all, photo, text }: EvalReport["endToEnd"]): readonly string[] {
@@ -494,6 +510,7 @@ export function formatGateSummary(report: EvalReport): string {
     ...metricLines(report),
     ...(report.verdicts ? [verdictLine(report.verdicts)] : []),
     ...endToEndLines(report.endToEnd),
+    ...auditLines(report.audit),
     ...conversationStepLines(report.conversationSteps),
     "First run in detail",
     ...gateText("whole run", report.gate.whole),

@@ -93,6 +93,8 @@ export type StageAnswer = Readonly<{
   product: string | null;
   /** Null when the path states no decision (the legacy baseline, which only has an intent and a cost). */
   decision: DecisionKind | null;
+  /** Some request of the message was left undecided between products by the resolution (a message that chose no single product). */
+  fieldsBetween?: boolean;
   /** The path reads the intent only: fields, product and decision are not scored. */
   intentOnly?: boolean;
   changeApplied: boolean;
@@ -124,6 +126,7 @@ export function scoreStages(expected: ExpectedStages, answer: StageAnswer): Stag
   return {
     intent: expected.intent === answer.intent,
     fields: expected.fields && !answer.intentOnly ? sameFields(expected.fields, answer.fields) : null,
+    ...(expected.fields && !answer.intentOnly ? { fieldsBetween: answer.fieldsBetween === true } : {}),
     resolution: expected.product !== null && !answer.intentOnly ? expected.product === answer.product : null,
     decision: answer.decision === null ? null : expected.decision === answer.decision,
     decisionExpected: expected.decision,

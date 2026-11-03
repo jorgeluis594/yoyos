@@ -274,7 +274,7 @@ describe("the before and after table", () => {
     const rows = comparisonOf(file.report, result.report, { stored: file.records, rescored: result.records });
 
     expect(rows.map(({ metric }) => metric)).toEqual(["false urgent share", "urgent recall", "urgent precision", "silent wrong changes per run", "ignored requests per run",
-      "intent precision (intentAccuracy)", "variant and quantity (fields accuracy)", "final order variant", "final order quantity", "resolution accuracy", "decision accuracy", "end-to-end mean", "end-to-end range",
+      "intent precision (intentAccuracy)", "variant and quantity (fields accuracy)", "stage fields, strict (a between never passes)", "stage fields: messages with a between per run", "final order variant", "final order quantity", "resolution accuracy", "decision accuracy", "end-to-end mean", "end-to-end range",
       "conversation failures own", "conversation failures carried"]);
     const intent = rows.find(({ metric }) => metric.startsWith("intent"))!;
     expect(intent).toMatchObject({ before: "0.0% (min 0.0%, max 0.0%)", after: "100.0% (min 100.0%, max 100.0%)" });
