@@ -201,7 +201,9 @@ export function comparisonOf(before: EvalReport, after: EvalReport, records?: Co
   };
   return [
     metricRow("false urgent share", "falseUrgentShare", before, after, percent),
+    auditRow("false urgent share if «listo» with pendings counted as urgent (what-if)", ({ readyWithPendings }) => readyWithPendings.falseUrgentShare, percent, true),
     metricRow("urgent recall", "urgentRecall", before, after, percent),
+    auditRow("urgent recall if «listo» with pendings counted as urgent (what-if)", ({ readyWithPendings }) => readyWithPendings.urgentRecall, percent, true),
     metricRow("urgent precision", "urgentPrecision", before, after, percent),
     metricRow("silent wrong changes per run", "silentWrongChanges", before, after, number),
     metricRow("ignored requests per run", "ignoredRequests", before, after, number),

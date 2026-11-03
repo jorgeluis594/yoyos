@@ -146,7 +146,7 @@ describe("the staged answer read from the reading trace", () => {
     const cases: readonly Readonly<{ notice: string | null; outcomes: readonly string[]; decisions: readonly string[]; decision: string }>[] = [
       { notice: "not_clear", outcomes: ["pending_created", "not_clear"], decisions: ["pending"], decision: "urgent" },
       { notice: "several_problems", outcomes: ["pending_created", "variant_missing", "invalid_action"], decisions: ["pending", "urgent"], decision: "urgent" },
-      { notice: "ready_with_pendings", outcomes: ["ready_with_pendings"], decisions: ["applied"], decision: "urgent" },
+      { notice: "ready_with_pendings", outcomes: ["ready_with_pendings"], decisions: ["applied"], decision: "notice" },
       { notice: null, outcomes: ["added", "pending_completed"], decisions: ["pending"], decision: "applied" },
       { notice: null, outcomes: ["pending_updated"], decisions: ["pending"], decision: "pending" },
     ];

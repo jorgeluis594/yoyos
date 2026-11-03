@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { DecisionKind, EvalPass } from "@core/evals/cases/schema";
+import type { DecisionKind, EvalPass, MessageExpectation } from "@core/evals/cases/schema";
 import type { JudgeVerdict } from "@core/evals/lib/claude";
 import type { ModelCall } from "@core/evals/lib/model-meter";
 import type { FieldScores } from "@core/evals/lib/scorers";
@@ -104,6 +104,10 @@ export type CaseRecord = Readonly<{
   calls: readonly ModelCall[];
   error: string | null;
 }>;
+
+/** The expectations of a message record that state a notice or outcomes: the ones `expectationIndex` points into. */
+export const messageExpectationsOf = (record: CaseRecord): readonly MessageExpectation[] =>
+  Array.isArray(record.expected) ? (record.expected as readonly MessageExpectation[]).filter((expectation) => "notice" in expectation || "outcomes" in expectation) : [];
 
 /** Where a run leaves its files: `eval-results/`, or `<EVAL_PRIVATE_DIR>/runs/` in a private run. */
 export const resultsDirOf = (env: Readonly<Record<string, string | undefined>> = process.env): string =>

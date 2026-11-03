@@ -468,11 +468,12 @@ const rangeLine = (range: MetricRange | null, show: (value: number) => string) =
   range ? `${show(range.mean)} (min ${show(range.min)}, max ${show(range.max)})` : "not measured";
 
 /** The stage fields as a stricter reading and the messages left between products, labelled apart from the main `fieldsAccuracy` metric. */
-function auditLines({ stageFields }: AuditReport): readonly string[] {
+function auditLines({ stageFields, readyWithPendings }: AuditReport): readonly string[] {
   const count = (value: number) => String(Math.round(value * 10) / 10);
   return [
     `Stage fields, messages with a between resolution: ${rangeLine(stageFields.between, count)} per run, of ${rangeLine(stageFields.labelled, count)} messages with fields stated`,
     `Stage fields, strict (a between never passes): ${rangeLine(stageFields.strictAccuracy, percent)}`,
+    `What-if, «listo» with pendings counted as urgent (the gate does not count it): false urgent share ${rangeLine(readyWithPendings.falseUrgentShare, percent)}; urgent recall ${rangeLine(readyWithPendings.urgentRecall, percent)}`,
   ];
 }
 
