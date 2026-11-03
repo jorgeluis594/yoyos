@@ -6,19 +6,19 @@ const snapshot = (variantId: string, quantity: number, mentioned: { amount: numb
   itemId: "i", variantId, productName: "p", variantAttributes: { Talla: "M" }, sku: null, quantity, unitPrice: { amount: 10, currency: "PEN" }, position: 0,
   mentionedPrice: mentioned ? { amount: { amount: mentioned.amount, currency: "PEN" }, units: mentioned.units } : null,
 });
-const productOf = (variantId: string) => variantId === "v-polera" ? "polera-algodon" as const : null;
+const productOf = (variantId: string) => variantId === "v-polera" ? "polera-algodon" as const : variantId === "v-gorra" ? "gorra-trucker" as const : null;
 
 describe("changedLinesOf (the message's change rows)", () => {
   test("reads an added line unmarked, a doubtful one marked, and a removal as a line with no state after", () => {
     const rows: readonly ChangeRow[] = [
       { decision: "applied", before: null, after: snapshot("v-polera", 2) },
       { decision: "doubtful", before: null, after: snapshot("v-polera", 3, { amount: 8, units: 1 }) },
-      { decision: "applied", before: snapshot("v-polera", 2), after: null },
+      { decision: "applied", before: snapshot("v-gorra", 2), after: null },
     ];
     expect(changedLinesOf(rows, productOf)).toEqual([
-      { product: "polera-algodon", variant: { Talla: "M" }, marked: false, after: { quantity: 2, mentionedPrice: null } },
-      { product: "polera-algodon", variant: { Talla: "M" }, marked: true, after: { quantity: 3, mentionedPrice: { amount: 8, units: 1 } } },
-      { product: "polera-algodon", variant: { Talla: "M" }, marked: false, after: null },
+      { product: "polera-algodon", variant: { Talla: "M" }, marked: false, after: { quantity: 2, mentionedPrice: null }, touched: { quantity: true, mentionedPrice: true } },
+      { product: "polera-algodon", variant: { Talla: "M" }, marked: true, after: { quantity: 3, mentionedPrice: { amount: 8, units: 1 } }, touched: { quantity: true, mentionedPrice: true } },
+      { product: "gorra-trucker", variant: { Talla: "M" }, marked: false, after: null, touched: { quantity: true, mentionedPrice: true } },
     ]);
   });
 
@@ -27,8 +27,10 @@ describe("changedLinesOf (the message's change rows)", () => {
   });
 });
 
-const line = (over: Partial<ChangedLine> = {}): ChangedLine => ({ product: "polera-algodon", variant: { Talla: "M" }, marked: false, after: { quantity: 2, mentionedPrice: null }, ...over });
+const line = (over: Partial<ChangedLine> = {}): ChangedLine => ({ product: "polera-algodon", variant: { Talla: "M" }, marked: false, after: { quantity: 2, mentionedPrice: null },
+  touched: { quantity: true, mentionedPrice: true }, ...over });
 const wanted = (over: Partial<FinalLine> = {}): FinalLine => ({ product: "polera-algodon", variant: { Talla: "M" }, quantity: 2, mentionedPrice: null, ...over });
+const wantedL = (quantity: number): FinalLine => wanted({ variant: { Talla: "L" }, quantity });
 
 describe("lineDiffers (the changed line against the expected order)", () => {
   test("a line equal to the expected one does not differ", () => {
@@ -63,5 +65,41 @@ describe("the per-line silent change", () => {
 
   test("a real silent change: an unmarked changed line that the expected order does not have", () => {
     expect(scoredLinesOf([line(), line({ marked: true })], [wanted({ quantity: 5 })])).toEqual([{ marked: false, wrong: true }, { marked: true, wrong: true }]);
+  });
+});
+
+describe("the fields a message touched on a line", () => {
+  const tallaL = (quantity: number, mentioned: { amount: number; units: number } | null = null) => ({ ...snapshot("v-polera", quantity, mentioned), variantAttributes: { Talla: "L" } });
+  const tallaM = (quantity: number, mentioned: { amount: number; units: number } | null = null) => ({ ...snapshot("v-polera-m", quantity, mentioned), variantAttributes: { Talla: "M" } });
+  const productOfVariant = (variantId: string) => variantId.startsWith("v-polera") ? "polera-algodon" as const : null;
+
+  test("a variant change carries the quantity of the line it replaces: the new line's quantity is not the message's", () => {
+    const rows: readonly ChangeRow[] = [{ decision: "applied", before: null, after: tallaL(1) }, { decision: "applied", before: tallaM(1), after: null }];
+    expect(changedLinesOf(rows, productOfVariant).map(({ touched }) => touched)).toEqual([{ quantity: false, mentionedPrice: false }, { quantity: true, mentionedPrice: true }]);
+  });
+
+  test("a variant change that also sets another quantity or states a price touches them", () => {
+    const rows: readonly ChangeRow[] = [{ decision: "applied", before: null, after: tallaL(3, { amount: 8, units: 1 }) }, { decision: "applied", before: tallaM(1), after: null }];
+    expect(changedLinesOf(rows, productOfVariant)[0]!.touched).toEqual({ quantity: true, mentionedPrice: true });
+  });
+
+  test("a new line with nothing to inherit from, and a row that changed the quantity or only the price, touch what they changed", () => {
+    expect(changedLinesOf([{ decision: "applied", before: null, after: tallaL(2) }], productOfVariant)[0]!.touched).toEqual({ quantity: true, mentionedPrice: true });
+    expect(changedLinesOf([{ decision: "applied", before: tallaL(2), after: tallaL(3) }], productOfVariant)[0]!.touched).toEqual({ quantity: true, mentionedPrice: false });
+    expect(changedLinesOf([{ decision: "applied", before: tallaL(2), after: tallaL(2, { amount: 8, units: 1 }) }], productOfVariant)[0]!.touched).toEqual({ quantity: false, mentionedPrice: true });
+  });
+
+  test("a quantity the message did not change is not its error, a quantity it did change is", () => {
+    const inherited = changedLinesOf([{ decision: "applied", before: null, after: tallaL(1) }, { decision: "applied", before: tallaM(1), after: null }], productOfVariant);
+    const wanted = [wantedL(2)];
+    expect(scoredLinesOf(inherited, wanted)).toEqual([{ marked: false, wrong: false }, { marked: false, wrong: false }]);
+    const changed = changedLinesOf([{ decision: "applied", before: tallaL(2), after: tallaL(3) }], productOfVariant);
+    expect(scoredLinesOf(changed, wanted)).toEqual([{ marked: false, wrong: true }]);
+    expect(scoredLinesOf(changedLinesOf([{ decision: "applied", before: tallaL(2), after: tallaL(2) }], productOfVariant), [wantedL(5)])).toEqual([{ marked: false, wrong: false }]);
+  });
+
+  test("a line the message put on the wrong variant is still wrong, whatever it inherited", () => {
+    const rows: readonly ChangeRow[] = [{ decision: "applied", before: null, after: tallaL(1) }, { decision: "applied", before: tallaM(1), after: null }];
+    expect(scoredLinesOf(changedLinesOf(rows, productOfVariant), [wanted({ variant: { Talla: "M" }, quantity: 1 })])).toEqual([{ marked: false, wrong: true }, { marked: false, wrong: true }]);
   });
 });
