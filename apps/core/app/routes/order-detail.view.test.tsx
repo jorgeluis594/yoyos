@@ -9,6 +9,7 @@ import resources from "@core/app/locales";
 import OrderDetail, { shouldRevalidate } from "@core/app/routes/order-detail";
 import { homeDelivery, order1042, orderId, pen, revisions, yape } from "@core/src/features/orders/presentation/order-1042.fixture";
 import { deadpoolM, lineCatalog } from "@core/src/features/orders/presentation/order-1042.fixture";
+import { catalogPaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -20,7 +21,7 @@ void i18n.use(initReactI18next).init({ lng: "es", resources, interpolation: { es
 type Order = ReturnType<typeof order1042>;
 type LoaderData = { order: Order; revisions: typeof revisions; lineCatalog: typeof lineCatalog | null };
 const loaderData = (patch: Partial<LoaderData> = {}) => ({ order: order1042(), revisions, lineCatalog, base: "/es-PE/orders", manualPaymentId: "00000000-0000-4000-8000-0000000000f2",
-  receiptUrls: {}, settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" as const }, ...patch });
+  receiptUrls: {}, settings: null, settingsPath: "/es-PE/settings/delivery", paymentOptions: catalogPaymentOptions, paymentSettingsPath: "/es-PE/settings/payments", link: { kind: "unavailable" as const }, ...patch });
 const raisedDeadpool = (order: Order, quantity = 2): Order => ({ ...order, total: pen(298 + 120 * (quantity - 1)), itemsTotal: pen(298 + 120 * (quantity - 1)), balanceDue: pen(148 + 120 * (quantity - 1)),
   items: order.items.map((item) => item.variantId === deadpoolM ? { ...item, quantity, subtotal: pen(120 * quantity) } : item) });
 

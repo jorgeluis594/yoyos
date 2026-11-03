@@ -7,6 +7,7 @@ import { createMemoryRouter, data, redirect, RouterProvider } from "react-router
 import { afterEach, expect, test, vi } from "vitest";
 import resources from "@core/app/locales";
 import OrderNew from "@core/app/routes/order-new";
+import { catalogPaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -29,7 +30,7 @@ async function mount(action: Answer, fetchOrder: () => Promise<Response> = async
   vi.stubGlobal("fetch", fetchStub);
   const router = createMemoryRouter([
     { path: "/orders", element: <p>Lista de ventas</p> },
-    { path: "/orders/new", Component: OrderNew, loader: () => ({ base: "/orders", orderId, currency: "PEN", settings: null }),
+    { path: "/orders/new", Component: OrderNew, loader: () => ({ base: "/orders", orderId, currency: "PEN", settings: null, paymentOptions: catalogPaymentOptions }),
       action: async ({ request }) => { const body = JSON.parse(String((await request.formData()).get("order"))); submitted.push(body); return action(body); } },
     { path: "/orders/:id", element: <p>Pedido guardado</p> },
   ], { initialEntries: ["/orders", "/orders/new"], initialIndex: 1 });

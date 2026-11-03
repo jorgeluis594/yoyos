@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
+import { Switch } from "@core/app/components/ui/switch";
 import { Textarea } from "@core/app/components/ui/textarea";
 import { ProductPhotosField, useProductPhotos, type SavedPhoto } from "@core/src/features/products/presentation/product-photos-field";
 import { useClientReady } from "@core/app/use-client-ready";
@@ -23,7 +24,7 @@ import { VariantsCard } from "@core/src/features/products/presentation/variants-
 export type ProductFormValues = Readonly<{ name: string; description: string; sku: string; salePrice: string; purchasePrice: string; initialStock: string }>;
 export const emptyProductFormValues: ProductFormValues = { name: "", description: "", sku: "", salePrice: "", purchasePrice: "", initialStock: "" };
 
-export type ProductFormSubmission = Readonly<{ values: ProductFormValues; photos: PhotosToSave; draft: EditorDraft }>;
+export type ProductFormSubmission = Readonly<{ values: ProductFormValues; photos: PhotosToSave; draft: EditorDraft; hidden: boolean }>;
 
 const noFeedback: SaveFeedback = { errors: {}, issues: [] };
 const noTargets: FeedbackTargets = { rows: {}, options: {}, values: {}, blockedValues: new Set() };
@@ -57,25 +58,28 @@ export type ProductFormProps = {
   submitLabel?: string;
   /** The photos the product has, primary first. */
   photos?: readonly SavedPhoto[];
+  /** The stored visibility of the product; a new product starts visible. */
+  hidden?: boolean;
 };
 
-export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending, onSave, onReload, variantHref, values: initialValues = emptyProductFormValues, draft: initialDraft = emptyDraft, originalNames = {}, submitLabel, photos: savedPhotos = noPhotos }: ProductFormProps) {
+export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending, onSave, onReload, variantHref, values: initialValues = emptyProductFormValues, draft: initialDraft = emptyDraft, originalNames = {}, submitLabel, photos: savedPhotos = noPhotos, hidden: storedHidden = false }: ProductFormProps) {
   const { t } = useTranslation();
   const errors: FormErrors = feedback.errors;
   const [values, setValues] = useState<ProductFormValues>(initialValues);
   const [draft, setDraft] = useState<EditorDraft>(initialDraft);
+  const [hidden, setHidden] = useState(storedHidden);
   const photos = useProductPhotos(savedPhotos);
   const [photosUnusable, setPhotosUnusable] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [targets, setTargets] = useState<FeedbackTargets>(noTargets);
   const submitted = useRef<EditorDraft>(initialDraft);
-  const [opened] = useState(() => draftSnapshot([initialValues, initialDraft, "keep"]));
+  const [opened] = useState(() => draftSnapshot([initialValues, initialDraft, "keep", storedHidden]));
   // The form submits only through React, so a click before hydration would navigate with a native GET.
   const ready = useClientReady();
   const withOptions = hasOptions(draft);
   const saved = draft.saved;
   const fields: readonly (keyof ProductFormValues)[] = withOptions ? ["name", "description"] : ["name", "description", "sku", "salePrice", "purchasePrice"];
-  const dirty = draftSnapshot([values, draft, "keep"]) !== opened || photos.dirty;
+  const dirty = draftSnapshot([values, draft, "keep", hidden]) !== opened || photos.dirty;
   const guard = useDiscardGuard(dirty);
 
   useEffect(() => {
@@ -95,7 +99,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
     const final = withOptions ? draft : syncValues(draft, values);
     submitted.current = final;
     guard.allowLeaving();
-    onSave({ values, photos: toSave, draft: final });
+    onSave({ values, photos: toSave, draft: final, hidden });
   }
 
   const commitOption = (buffer: OptionBuffer): Edit => applyOptionBuffer(withOptions ? draft : syncValues(draft, values), buffer);
@@ -108,8 +112,12 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
   return <form onSubmit={save} noValidate className="mt-8 flex flex-col gap-6">
     {notice && <Alert variant="warning"><AlertDescription className="flex flex-wrap items-center gap-3">{notice}
       {onReload && <Button type="button" variant="outline" size="sm" onClick={reload}>{t("productEditor.reload")}</Button>}</AlertDescription></Alert>}
-    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-      <div className="grid gap-5">
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:grid-rows-[auto_1fr]">
+      <Field orientation="horizontal" data-disabled={pending || undefined} className="w-auto items-center justify-self-end gap-3 lg:col-start-2 lg:row-start-1">
+        <FieldLabel htmlFor="hidden">{t("products.hideProduct")}</FieldLabel>
+        <Switch id="hidden" name="hidden" checked={hidden} disabled={pending} onCheckedChange={setHidden} />
+      </Field>
+      <div className="grid gap-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
       <section aria-labelledby="product-data-heading" className="grid gap-4 sm:grid-cols-2">
         <h2 id="product-data-heading" className="text-base font-semibold sm:col-span-2">{t("products.data")}</h2>
       {fields.map((key) => {
@@ -129,7 +137,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
       <VariantsCard draft={draft} setDraft={setDraft} variantHref={variantHref} currency={currency} originalNames={originalNames} targets={targets} commitOption={commitOption}
         onClearOptions={() => setDraft((current) => clearOptions(current))} />
       </div>
-      <aside className="grid gap-5">
+      <aside className="grid gap-5 lg:col-start-2 lg:row-start-2">
       <ProductPhotosField photos={photos} error={errors.photos ?? (photosUnusable ? t("productPhotos.unusableField") : undefined)} />
       {readOnlyStock ? <Field>
         <FieldLabel htmlFor="initialStock">{t("products.stock")}</FieldLabel>

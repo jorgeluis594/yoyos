@@ -37,11 +37,10 @@ test("refuses a reversed price range", () => {
   expect(parseSearchCriteria({ priceFromCents: -1, sort: "recent", page: 1 })).toMatchObject({ success: false, error: { code: "INVALID_PRICE" } });
 });
 
-test("refuses a variant filter together with en_catalogo no", () => {
+test("accepts a variant filter together with en_catalogo no", () => {
   const base = { inCatalog: false, sort: "recent", page: 1 } as const;
-  for (const filter of [{ values: ["Azul"] }, { priceFromCents: 1 }, { priceToCents: 1 }, { stock: "low" }] as const)
-    expect(parseSearchCriteria({ ...base, ...filter })).toMatchObject({ success: false, error: { code: "VARIANT_FILTER_OUTSIDE_CATALOG" } });
-  expect(parseSearchCriteria({ ...base, text: "polo" })).toMatchObject({ success: true });
+  for (const filter of [{ values: ["Azul"] }, { priceFromCents: 1 }, { priceToCents: 1 }, { stock: "low" }, { text: "polo" }] as const)
+    expect(parseSearchCriteria({ ...base, ...filter })).toMatchObject({ success: true });
   expect(parseSearchCriteria({ inCatalog: true, values: ["Azul"], sort: "name", page: 2 })).toMatchObject({ success: true });
 });
 

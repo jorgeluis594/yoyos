@@ -112,11 +112,11 @@ describe("chooseSellerNotice with the single reader", () => {
   });
 
   test("counts product not available as a problem", () => {
-    expect(chooseSellerNotice(outcomes({ kind: "product_not_available", productId: product(33) }))).toEqual({ kind: "product_not_available", productId: product(33), newOrderId: null });
-    expect(chooseSellerNotice(outcomes({ kind: "product_not_available", productId: null }))).toEqual({ kind: "product_not_available", productId: null, newOrderId: null });
+    expect(chooseSellerNotice(outcomes({ kind: "product_not_available", productId: product(33), reason: "not_sold" }))).toEqual({ kind: "product_not_available", productId: product(33), reason: "not_sold", newOrderId: null });
+    expect(chooseSellerNotice(outcomes({ kind: "product_not_available", productId: null, reason: "hidden" }))).toEqual({ kind: "product_not_available", productId: null, reason: "hidden", newOrderId: null });
     expect(chooseSellerNotice(outcomes({ kind: "variant_for_several_pendings", productIds: [product(31), product(32)], unnamed: 1 })))
       .toEqual({ kind: "variant_for_several_pendings", productIds: [product(31), product(32)], unnamed: 1, newOrderId: null });
-    expect(chooseSellerNotice(outcomes({ kind: "product_not_available", productId: product(33) }, { kind: "reader_doubt", orderId: null }, missing(34))))
+    expect(chooseSellerNotice(outcomes({ kind: "product_not_available", productId: product(33), reason: "not_sold" }, { kind: "reader_doubt", orderId: null }, missing(34))))
       .toEqual({ kind: "several_problems", problemCount: 3, productIds: [product(33), product(34)], newOrderId: null });
   });
 
@@ -131,7 +131,7 @@ describe("chooseSellerNotice with the single reader", () => {
     for (const notice of [
       { kind: "not_applied", orderId: order(1), newOrderId: null },
       { kind: "payment_request", order: { kind: "none" }, productIds: [], unnamed: 0, newOrderId: null },
-      { kind: "product_not_available", productId: null, newOrderId: null },
+      { kind: "product_not_available", productId: null, reason: "not_sold", newOrderId: null },
       { kind: "variant_for_several_pendings", productIds: [], unnamed: 2, newOrderId: null },
       { kind: "ready_with_pendings", orderId: order(1), productIds: [], unnamed: 1 },
     ] satisfies SellerNotice[]) expect(sellerNoticeTarget(notice)).toEqual({ kind: "message" });
@@ -149,7 +149,7 @@ describe("chooseSellerNotice with the single reader", () => {
       .toEqual({ orderIds: [order(1)], productIds: [product(1), product(2)] });
     expect(noticeReferences({ kind: "variant_for_several_pendings", productIds: [product(1), product(1)], unnamed: 0, newOrderId: null }).productIds).toEqual([product(1)]);
     expect(noticeReferences({ kind: "not_applied", orderId: order(3), newOrderId: order(4) }).orderIds).toEqual([order(3), order(4)]);
-    expect(noticeReferences({ kind: "product_not_available", productId: null, newOrderId: null })).toEqual({ orderIds: [], productIds: [] });
+    expect(noticeReferences({ kind: "product_not_available", productId: null, reason: "not_sold", newOrderId: null })).toEqual({ orderIds: [], productIds: [] });
   });
 });
 

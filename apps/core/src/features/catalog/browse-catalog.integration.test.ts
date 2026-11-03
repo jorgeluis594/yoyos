@@ -31,11 +31,11 @@ async function createCompany(published: boolean) {
 }
 
 /** Each product is newer than the previous one. */
-function addProduct(companyId: string, name: string, variants: VariantSeed[], options: { currency?: string; options?: { name: string; values: string[] }[] } = {}) {
+function addProduct(companyId: string, name: string, variants: VariantSeed[], options: { currency?: string; hidden?: boolean; options?: { name: string; values: string[] }[] } = {}) {
   return withTenantIsolation(companyId, async () => {
     const id = randomUUID() as ProductId;
     const when = new Date(clock += 1000);
-    await seedProduct({ id, name, currency: options.currency ?? "PEN", createdAt: when, updatedAt: when, options: options.options, variants: variants.map((variant) => ({
+    await seedProduct({ id, name, currency: options.currency ?? "PEN", hidden: options.hidden, createdAt: when, updatedAt: when, options: options.options, variants: variants.map((variant) => ({
       attributes: variant.attributes ?? {}, sku: variant.sku, salePrice: variant.price, purchasePrice: variant.purchasePrice, stock: variant.stock, status: variant.status })) });
     return id;
   });
@@ -131,6 +131,36 @@ test("search finds «POLO OVERSIZE» and «Polo básico» for «polo» and ignor
   expect(all).toMatchObject({ success: true, data: { hasMore: false } });
 });
 
+const setHidden = (companyId: string, productId: string, hidden: boolean) =>
+  withTenantIsolation(companyId, async () => await prisma.product.update({ where: { id: productId }, data: { hidden } }));
+
+test("a hidden product is not listed, not found by search and its page is not found", async () => {
+  const companyId = await createCompany(true);
+  const shown = await addProduct(companyId, "Polo básico", [{ price: 45, stock: 3 }]);
+  const hidden = await addProduct(companyId, "Polo oculto", [{ price: 45, stock: 3 }], { hidden: true });
+  const page = await browse(companyId);
+  expect(page.success && page.data.items.map(({ id }) => id)).toEqual([shown]);
+  expect(await browse(companyId, "oculto")).toMatchObject({ success: true, data: { items: [] } });
+  expect(await catalogBrowse.getProduct(hidden, await storefront(companyId))).toMatchObject({ success: true, data: { kind: "unavailable" } });
+  expect(await catalogBrowse.getProduct(shown, await storefront(companyId))).toMatchObject({ success: true, data: { kind: "found" } });
+});
+
+test("a store whose products are all hidden lists no products", async () => {
+  const companyId = await createCompany(true);
+  await addProduct(companyId, "Polo básico", [{ price: 45, stock: 3 }], { hidden: true });
+  await addProduct(companyId, "Casaca jean", [{ price: 120, stock: 1 }], { hidden: true });
+  expect(await browse(companyId)).toMatchObject({ success: true, data: { items: [], hasMore: false } });
+});
+
+test("showing a hidden product again lists it and opens its page", async () => {
+  const companyId = await createCompany(true);
+  const product = await addProduct(companyId, "Polo básico", [{ price: 45, stock: 3 }], { hidden: true });
+  expect(await browse(companyId)).toMatchObject({ success: true, data: { items: [] } });
+  await setHidden(companyId, product, false);
+  expect(await browse(companyId)).toMatchObject({ success: true, data: { items: [{ id: product }] } });
+  expect(await catalogBrowse.getProduct(product, await storefront(companyId))).toMatchObject({ success: true, data: { kind: "found" } });
+});
+
 test("an unpublished catalog and an unknown company return the same unavailable result", async () => {
   const hidden = await createCompany(false);
   await withTenantIsolation(hidden, async () => await prisma.company.update({ where: { id: hidden }, data: { catalogSubdomain: subdomainOf(hidden) } }));
@@ -161,6 +191,20 @@ test("preview cards read a hidden catalog's products only for the seller's compa
   expect(cards.success && cards.data.map(({ name }) => name)).toEqual(["Nuevo", "Medio", "Agotado"]);
   expect(cards.success && cards.data.find(({ name }) => name === "Agotado")?.soldOut).toBe(true);
   expect(await resolve(subdomainOf(hidden))).toEqual({ success: true, data: { kind: "unavailable" } });
+});
+
+test("the appearance preview leaves hidden products out", async () => {
+  const companyId = await createCompany(false);
+  await addProduct(companyId, "Visible", [{ price: 10, stock: 1 }]);
+  await addProduct(companyId, "Oculto", [{ price: 20, stock: 1 }], { hidden: true });
+  const cards = await catalogBrowse.previewCards({ companyId });
+  expect(cards.success && cards.data.map(({ name }) => name)).toEqual(["Visible"]);
+});
+
+test("the appearance preview of a store with every product hidden gets no cards", async () => {
+  const companyId = await createCompany(false);
+  await addProduct(companyId, "Oculto", [{ price: 20, stock: 1 }], { hidden: true });
+  expect(await catalogBrowse.previewCards({ companyId })).toEqual({ success: true, data: [] });
 });
 
 test("public catalog product hides inactive variants and orders selectors by saved order", async () => {

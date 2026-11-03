@@ -6,6 +6,7 @@ import { mentionedPriceOf, type StatedPrice } from "@core/src/features/orders/do
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import { conflictsWithKnown, describePendings, normalizeValue, pendingPriceOf, resolveVariant, type AdvanceRequest, type AttributeChoice } from "@core/src/features/orders/domain/pending-transitions";
 import { choicesFromWords, openAttributes, questionValues } from "@core/src/features/orders/domain/reader/check-questions";
+import { notAvailableReason, refusesRaise } from "@core/src/features/orders/domain/product-availability";
 import type { CheckedAction } from "@core/src/features/orders/domain/reader/decide";
 import type { CertaintySignals, DoubtReason, ProblemKind } from "@core/src/features/orders/domain/reader/decision";
 import type { VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
@@ -621,6 +622,11 @@ function checkQuantity(said: Said, env: Env): CheckedAction {
   const { item } = found;
   const target = variantTarget(item);
   const signals = signalsOf(said, named(found));
+  const refusal = quantity.mode === "add" ? { kind: "increase_quantity" as const } : quantity.mode === "set" ? { kind: "set_quantity" as const, quantity: quantity.value } : null;
+  if (refusal && refusesRaise(productOfItem(item, env.snapshot) ?? null, item, refusal)) {
+    const product = productOfItem(item, env.snapshot)!;
+    return checked(said, report({ kind: "product_not_available", productId: product.productId, reason: "hidden" }), signals, { urgent: { problem: "product_not_available", question: null } });
+  }
   switch (quantity.mode) {
     case "set": return checked(said, { kind: "set_quantity", target, quantity: quantity.value }, signals, { doubt: quantity.value >= 1 ? { kind: "quantity_set", quantity: quantity.value as PositiveInteger } : { kind: "removed", product: item.productName } });
     case "add": return checked(said, { kind: "increase_quantity", target, quantity: quantity.value as PositiveInteger }, signals, { doubt: { kind: "added_by_reference", quantity: quantity.value as PositiveInteger, quote: null } });
@@ -723,7 +729,7 @@ function checkVariant(said: Said, env: Env): CheckedAction {
   if (!found.named && !photoAllows(item, snapshot.lastPhoto)) return variantOnly([item], "which_product_for_value");
   const product = productOfItem(item, snapshot);
   if (!product) return problem(said, { kind: "unclear_item", orderId: null, namedItem: found.named, namedProductId: item.productId }, "unclear_item", null);
-  if (!product.sellable) return problem(said, { kind: "product_not_available", productId: product.productId }, "product_not_available", null);
+  if (!product.sellable) return problem(said, { kind: "product_not_available", productId: product.productId, reason: notAvailableReason(product) }, "product_not_available", null);
   const choices = choicesOf(product);
   if (hasConflict(choices)) return problem(said, { kind: "variant_only" }, "variant_only", null, named(found));
   const resolution = resolveVariant(product, item.variantAttributes, choices);
@@ -828,7 +834,11 @@ function checkReferencedAdd(said: Said, env: Env, quantity: number, snapshot: Ch
   const { target } = said.request;
   const signals = signalsOf(said, "context");
   const added: DoubtReason = { kind: "added_by_reference", quantity: quantity as PositiveInteger, quote: null };
-  const raise = (item: CheckItem, over: CertaintySignals = signals) => [checked(said, { kind: "increase_quantity", target: variantTarget(item), quantity: quantity as PositiveInteger }, over, { doubt: added })];
+  const raise = (item: CheckItem, over: CertaintySignals = signals) => {
+    const product = productOfItem(item, snapshot);
+    if (product?.hidden) return [checked(said, report({ kind: "product_not_available", productId: product.productId, reason: "hidden" }), over, { urgent: { problem: "product_not_available", question: null } })];
+    return [checked(said, { kind: "increase_quantity", target: variantTarget(item), quantity: quantity as PositiveInteger }, over, { doubt: added })];
+  };
   const fits = (item: CheckItem) => {
     const product = productOfItem(item, snapshot);
     if (!product) return true;
@@ -928,7 +938,7 @@ function withProduct(said: Said, env: Env, product: CheckProduct, choices: reado
 function withChoices(said: Said, env: Env, product: CheckProduct, choices: readonly AttributeChoice[], quantity: number, signals: CertaintySignals, doubt: DoubtReason): CheckedAction {
   const { request } = said;
   const stated = request.price ? statedOf(request.price) : null;
-  if (!product.sellable) return checked(said, report({ kind: "product_not_available", productId: product.productId }), signals, { urgent: { problem: "product_not_available", question: null } });
+  if (!product.sellable) return checked(said, report({ kind: "product_not_available", productId: product.productId, reason: notAvailableReason(product) }), signals, { urgent: { problem: "product_not_available", question: null } });
   const identification = identificationOf(product);
   const resolution = resolveVariant(product, {}, choices);
   const fresh: ResolvedChatAction = resolution.kind === "resolved"

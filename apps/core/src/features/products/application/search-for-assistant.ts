@@ -13,7 +13,7 @@ export type ActiveSummary =
       onlyLevel: StockLevel | null; sku: SkuSummary }>;               // onlyLevel: the level when there is exactly one active variant
 export type SearchedVariant = Readonly<{ id: VariantId; values: readonly string[]; sku: string | null; salePrice: Money; stock: number; level: StockLevel }>;
 export type SearchedProduct = Readonly<{
-  id: ProductId; name: string; currency: Currency; variantCount: number; inactiveCount: number; active: ActiveSummary;
+  id: ProductId; name: string; hidden: boolean; currency: Currency; variantCount: number; inactiveCount: number; active: ActiveSummary;
   matching: Readonly<{ variants: readonly SearchedVariant[]; total: number }> | null;  // null without variant filters; at most 10 variants
 }>;
 export type ProductSearchPage = Readonly<{ items: readonly SearchedProduct[]; page: number; total: number; storeHasProducts: boolean }>;

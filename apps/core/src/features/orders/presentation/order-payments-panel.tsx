@@ -1,17 +1,18 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Form, useNavigation } from "react-router";
+import { Form, Link, useNavigation } from "react-router";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Search } from "lucide-react";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { subtract, type Money } from "@shared/money";
 import { offersPartialStockDeduction } from "@shared/orders-payment";
-import { paymentChoices, paymentFromChoice, walletProviderLabel, type PaymentChoice } from "@shared/wallet-providers";
+import { walletProviderLabel } from "@shared/wallet-providers";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { paymentErrorKey, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
 import { isValidPaymentAmount, PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
+import { offeredChoiceName, offeredChoiceOf, offeredPayment, type OfferedChoice, type PaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 import { paymentDate, paymentRowId, type PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
 import { PaymentDialog, type PaymentDialogKind } from "@core/src/features/orders/presentation/receipt-dialog";
 import type { Estimate, PaymentRow } from "@core/src/features/orders/presentation/order-view-state";
@@ -59,6 +60,9 @@ type Common = Readonly<{
   hasProducts: boolean;
   /** A save, a payment action or a fulfillment action is in flight or in doubt. */
   busy?: boolean;
+  /** The methods the company's payment settings offer, and where they are configured. */
+  paymentOptions: PaymentOptions;
+  paymentSettingsHref: string;
 }>;
 type SavedProps = Readonly<{
   mode: "saved"; order: Order; receiptUrls: Record<string, string>; manualPaymentId: string; voidResult: PaymentDecisionResult | undefined;
@@ -71,17 +75,19 @@ type NewProps = Readonly<{
 }>;
 export type PaymentsPanelProps = Common & (SavedProps | NewProps);
 
-function ActionButtons({ choices, blockedNote, disabled, onPick }: { choices: readonly PaymentChoice[]; blockedNote: string | null; disabled: boolean; onPick: (choice: PaymentChoice, element: HTMLElement) => void }) {
+function ActionButtons({ options, settingsHref, blockedNote, disabled, onPick }: { options: PaymentOptions; settingsHref: string; blockedNote: string | null; disabled: boolean; onPick: (choice: OfferedChoice, element: HTMLElement) => void }) {
   const { t } = useTranslation();
   const noteId = useId();
   return <div id="payment-actions" className="flex flex-col gap-2 border-t pt-4">
-    <div className="flex flex-wrap gap-2">{choices.map(choice => {
+    <div className="flex flex-wrap gap-2">{options.choices.map(choice => {
       const blocked = blockedNote !== null;
-      const label = choice === "bank_transfer" ? t("orderView.payments.bankTransfer") : t("orderView.payments.addWallet", { wallet: walletProviderLabel(choice) });
+      const label = choice === "bank_transfer" ? t("orderView.payments.bankTransfer") : t("orderView.payments.addWallet", { wallet: offeredChoiceName(choice, options, { wallet: t("orders.wallet"), bankTransfer: t("orders.bankTransfer") }) });
       return <Button key={choice} type="button" variant="outline" className="min-h-touch md:min-h-control" disabled={disabled}
         aria-disabled={blocked ? true : undefined} aria-describedby={blocked ? noteId : undefined}
         onClick={event => { if (!blocked) onPick(choice, event.currentTarget); }}>{label}</Button>;
     })}</div>
+    {options.unconfigured && <p className="text-sm text-muted-foreground">{t("orderView.payments.unconfigured")}{" "}
+      <Link to={settingsHref} className="text-link underline underline-offset-4">{t("orderView.payments.configure")}</Link></p>}
     {blockedNote && <p id={noteId} className="sr-only">{blockedNote}</p>}
   </div>;
 }
@@ -118,14 +124,14 @@ function offersStockBox(totals: Totals, row: PaymentRow) {
   return offersPartialStockDeduction({ stockDeducted: false, balanceDue: balanceWithout(totals, row) }, typed);
 }
 
-function DraftRow({ row, index, totals, invalid, autoFocus, busy, onChange, onRemove }: { row: PaymentRow; index: number; totals: Totals; invalid: boolean; autoFocus: boolean; busy: boolean;
+function DraftRow({ row, index, totals, options, invalid, autoFocus, busy, onChange, onRemove }: { row: PaymentRow; index: number; totals: Totals; options: PaymentOptions; invalid: boolean; autoFocus: boolean; busy: boolean;
   onChange: (row: PaymentRow) => void; onRemove: () => void }) {
   const { t } = useTranslation();
   const stockBox = offersStockBox(totals, row);
   const value: PaymentDraft = { amount: row.amount, method: row.method, walletProvider: row.walletProvider, deductStockIfPartial: row.deductStockIfPartial && stockBox };
-  const label = methodLabel(t, row);
+  const label = offeredChoiceName(offeredChoiceOf(row), options, { wallet: t("orders.wallet"), bankTransfer: t("orders.bankTransfer") });
   return <li id={draftPaymentRowId(row.paymentId)} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-start">
-    <PaymentFields value={value} showStockBox={stockBox} autoFocusAmount={autoFocus} invalid={invalid}
+    <PaymentFields value={value} options={options} showStockBox={stockBox} autoFocusAmount={autoFocus} invalid={invalid}
       onChange={next => onChange({ paymentId: row.paymentId, amount: next.amount, method: next.method, walletProvider: next.walletProvider, deductStockIfPartial: next.deductStockIfPartial })} />
     {invalid && row.amount === "" && <p role="alert" className="col-span-full text-sm text-destructive">{t("orders.paymentInvalidAmount")}</p>}
     <Button type="button" variant="outline" className="min-h-touch self-end sm:col-start-3 sm:row-start-1 md:min-h-control" disabled={busy} aria-label={`${t("orderView.payments.remove")} ${index + 1}: ${label}`}
@@ -133,7 +139,7 @@ function DraftRow({ row, index, totals, invalid, autoFocus, busy, onChange, onRe
   </li>;
 }
 
-function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentIds = [], hasProducts, busy = false, format }: Common & NewProps) {
+function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentIds = [], hasProducts, busy = false, format, paymentOptions, paymentSettingsHref }: Common & NewProps) {
   const { t } = useTranslation();
   const [lastAdded, setLastAdded] = useState<string | null>(null);
   const removed = useRef(false);
@@ -154,8 +160,8 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
     if (!payments.some(row => row.deductStockIfPartial && !offersStockBox(estimate, row))) return;
     onChange(payments.map(row => row.deductStockIfPartial && !offersStockBox(estimate, row) ? { ...row, deductStockIfPartial: false } : row));
   }, [payments, estimate, onChange]);
-  const add = (choice: PaymentChoice) => {
-    const row: PaymentRow = { paymentId: newPaymentId(), amount: estimate.balance.amount.toFixed(2), deductStockIfPartial: false, ...paymentFromChoice(choice) };
+  const add = (choice: OfferedChoice) => {
+    const row: PaymentRow = { paymentId: newPaymentId(), amount: estimate.balance.amount.toFixed(2), deductStockIfPartial: false, ...offeredPayment(choice) };
     setLastAdded(row.paymentId);
     onChange([...payments, row]);
   };
@@ -165,11 +171,11 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
       {hasProducts && <Summary totals={estimate} reviewPending={false} format={format} />}
       {!hasProducts && payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderView.payments.needProducts")}</p>
         : payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderView.payments.empty")}</p>
-        : <ul className="flex flex-col gap-3">{payments.map((row, index) => <DraftRow key={row.paymentId} row={row} index={index} totals={estimate} busy={busy}
+        : <ul className="flex flex-col gap-3">{payments.map((row, index) => <DraftRow key={row.paymentId} row={row} index={index} totals={estimate} options={paymentOptions} busy={busy}
             invalid={invalidPaymentIds.includes(row.paymentId)} autoFocus={row.paymentId === lastAdded}
             onChange={next => onChange(payments.map(item => item.paymentId === row.paymentId ? next : item))}
             onRemove={() => { removed.current = true; onChange(payments.filter(item => item.paymentId !== row.paymentId)); }} />)}</ul>}
-      {canAdd && <ActionButtons choices={paymentChoices} blockedNote={null} disabled={busy} onPick={add} />}
+      {canAdd && <ActionButtons options={paymentOptions} settingsHref={paymentSettingsHref} blockedNote={null} disabled={busy} onPick={add} />}
     </CardContent>
   </Card>;
 }
@@ -177,9 +183,9 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
 // ---------------------------------------------------------------------------------------------------------------------
 // Saved order: payments are recorded at once
 
-type OpenDialog = Readonly<{ kind: PaymentDialogKind; paymentId: string; choice?: PaymentChoice }>;
+type OpenDialog = Readonly<{ kind: PaymentDialogKind; paymentId: string; choice?: OfferedChoice }>;
 
-function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedChanges, hasProducts, busy = false, format }: Common & SavedProps) {
+function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedChanges, hasProducts, busy = false, format, paymentOptions, paymentSettingsHref }: Common & SavedProps) {
   const { t } = useTranslation();
   const navigation = useNavigation();
   const idle = navigation.state === "idle" && !busy;
@@ -200,7 +206,7 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
   const totals = { total: order.total, paid: order.paidAmount, balance: order.balanceDue, excess: order.overpaidAmount };
   const reviewPending = !order.cancelled && order.payments.some(payment => payment.status === "reported");
   const canAdd = !order.cancelled && hasProducts && order.balanceDue.amount > 0;
-  const open = (kind: PaymentDialogKind, paymentId: string, element: HTMLElement, choice?: PaymentChoice) => {
+  const open = (kind: PaymentDialogKind, paymentId: string, element: HTMLElement, choice?: OfferedChoice) => {
     opener.current = element; decided.current = false; setSaved(null); setDismissedVoid(voidResult); setDialog({ kind, paymentId, choice });
   };
   // The decided row may only exist after the order reloads, so the focus waits for the next render that finds it.
@@ -253,11 +259,11 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
           </li>;
         })}</ul>}
       {blockedNote && history.some(payment => rowActions(payment, order).approve) && <p id={approveNoteId} className="sr-only">{blockedNote}</p>}
-      {canAdd && <ActionButtons choices={paymentChoices} blockedNote={blockedNote} disabled={!idle}
+      {canAdd && <ActionButtons options={paymentOptions} settingsHref={paymentSettingsHref} blockedNote={blockedNote} disabled={!idle}
         onPick={(choice, element) => open("register", manualPaymentId, element, choice)} />}
     </CardContent>
     {dialog && <PaymentDialog key={`${dialog.kind}-${dialog.paymentId}`} kind={dialog.kind} paymentId={dialog.paymentId} payment={dialogPayment} order={order}
-      receiptUrl={receiptUrls[dialog.paymentId] ?? null} format={format} initialChoice={dialog.choice} approveBlockedNote={blockedNote ?? undefined}
+      receiptUrl={receiptUrls[dialog.paymentId] ?? null} format={format} options={paymentOptions} initialChoice={dialog.choice} approveBlockedNote={blockedNote ?? undefined}
       onClose={() => setDialog(null)} onSubmitted={paymentId => { submitted.current = { paymentId, order }; }}
       onUncertain={paymentId => setUncertain(submitted.current?.paymentId === paymentId ? submitted.current : null)}
       onDone={(paymentId, result) => { decided.current = true; pendingFocus.current = paymentId; setDialog(null); setSaved(result.recorded && result.order ? paymentRecordedKey(result.order) : "orders.paymentSaved"); }}

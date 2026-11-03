@@ -24,8 +24,8 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await page.getByLabel("Precio de compra (PEN)").fill("4.00");
     await page.getByLabel("Stock inicial").fill("4");
     await page.getByRole("button", { name: "Guardar producto" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
-    const firstProductUrl = page.url();
+    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+(\?saved=1)?$/);
+    const firstProductUrl = page.url().replace(/\?saved=1$/, "");
     const firstProductId = firstProductUrl.split("/").pop()!;
     await page.goto(`${firstProductUrl}/edit`);
     await browserExpect(page).toHaveURL(firstProductUrl);
@@ -74,7 +74,7 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await page.getByLabel("SKU").fill("DUP-1");
     await page.getByLabel("Precio de venta (PEN) *").fill("5");
     await page.getByRole("button", { name: "Guardar producto" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
+    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+(\?saved=1)?$/);
     await page.goto(firstProductUrl);
     await page.getByLabel("SKU").fill("DUP-1");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
@@ -114,7 +114,7 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await prepareVerifiedCompany(page, { email: otherEmail, name: "Otra persona", companyName: "Otra empresa", country: "US" });
     await page.goto("/es-US/dashboard");
     await page.goto(firstProductUrl);
-    await browserExpect(page).toHaveURL(/\/es-US\/products\/[0-9a-f-]+$/);
+    await browserExpect(page).toHaveURL(/\/es-US\/products\/[0-9a-f-]+(\?saved=1)?$/);
     await browserExpect(page.getByRole("heading", { name: "Producto no encontrado" })).toBeVisible();
   } finally {
     for (const accountEmail of [email, otherEmail]) {

@@ -276,3 +276,36 @@ test("hasIndexedProducts and findNearestProductImages ignore a product whose var
     });
   }
 });
+
+test("nearest images and indexed products exclude hidden products and show them again once visible", async () => {
+  const company = randomUUID();
+  await withTenantIsolation(company, async () => await prisma.company.create({ data: { id: company, name: company, country: "PE" } }));
+  try {
+    const hiddenImage = await image(company);
+    const visibleImage = await image(company);
+    const hiddenId = randomUUID() as ProductId;
+    const visibleId = randomUUID() as ProductId;
+    await withTenantIsolation(company, async () => {
+      await seedProduct({ id: hiddenId, name: "Casaca jean", qrCode: hiddenId, photoIds: [hiddenImage], hidden: true });
+      await seedProduct({ id: visibleId, name: "Polo", qrCode: visibleId, photoIds: [visibleImage] });
+      await saveEmbedding({ imageId: hiddenImage, model: searchModel, vector: vector(1, 0, 0) });
+    });
+    await withTenantIsolation(company, async () => {
+      // Only the hidden product has an embedding: nothing is indexed for buyers.
+      expect(await hasIndexedProducts(searchModel)).toEqual({ success: true, data: false });
+      expect(await findNearestProductImages(vector(1, 0, 0), searchModel, 5)).toEqual({ success: true, data: [] });
+      await saveEmbedding({ imageId: visibleImage, model: searchModel, vector: vector(0, 1, 0) });
+      const nearest = await findNearestProductImages(vector(1, 0, 0), searchModel, 5);
+      expect(nearest.success && nearest.data.map(({ productId }) => productId)).toEqual([visibleId]);
+      await prisma.product.update({ where: { id: hiddenId }, data: { hidden: false } });
+      const shown = await findNearestProductImages(vector(1, 0, 0), searchModel, 5);
+      expect(shown.success && shown.data.map(({ productId }) => productId)).toEqual([hiddenId, visibleId]);
+    });
+  } finally {
+    await withTenantIsolation(company, async () => {
+      await deleteSeededProducts();
+      await prisma.image.deleteMany();
+      await prisma.company.delete({ where: { id: company } });
+    });
+  }
+});

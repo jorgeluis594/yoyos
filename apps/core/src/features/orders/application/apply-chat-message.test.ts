@@ -44,7 +44,7 @@ const variant = (n: number, name: string, attributes: Record<string, string>, am
 const poloM = variant(1, "Polo básico", { Talla: "M" });
 const poloL = variant(2, "Polo básico", { Talla: "L" });
 const cap = variant(3, "Gorra", {}, 25);
-const forReading = (productId: ProductId, name: string, variants: readonly CatalogItem[], sellable = true): ProductForReading => ({ productId, name, sellable,
+const forReading = (productId: ProductId, name: string, variants: readonly CatalogItem[], sellable = true): ProductForReading => ({ productId, name, hidden: false, sellable,
   attributes: Object.entries(variants.reduce<Record<string, string[]>>((all, { variantAttributes }) => {
     for (const [attribute, value] of Object.entries(variantAttributes)) all[attribute] = [...new Set([...(all[attribute] ?? []), value])];
     return all;
@@ -789,3 +789,23 @@ describe("applyChatMessage: a set quantity right after a photo that left a pendi
     expect(h.changeSaves[0]?.changes ?? []).toHaveLength(0);
   });
 });
+
+describe("applyChatMessage: a text miss in a company without offered products", () => {
+  const zapatillasMiss = (readiness?: CatalogSearchReadiness) => harness({ message: textMessage("quiero zapatillas"), readiness,
+    script: { intent: requestsOf(intent("R1", "add", "quiero zapatillas")),
+      extraction: [extracted("R1", "add", { target: { kind: "named", words: current("zapatillas") } })],
+      resolutions: [{ request: "R1" as RequestRef, kind: "none" }] } });
+
+  test("keeps a text miss silent in a company without active products", async () => {
+    expect(await succeeded(zapatillasMiss("no_active_products").run())).toMatchObject({ outcomes: [{ kind: "not_identified", source: "text", silent: true }], noticeDue: false });
+  });
+
+  test("text misses stay silent when all products are hidden", async () => {
+    expect(await succeeded(zapatillasMiss("all_products_hidden").run())).toMatchObject({ outcomes: [{ kind: "not_identified", source: "text", silent: true }], noticeDue: false });
+  });
+
+  test("tells the seller about a text miss in a company with products", async () => {
+    expect(await succeeded(zapatillasMiss().run())).toMatchObject({ outcomes: [{ kind: "not_identified", source: "text", silent: false }], noticeDue: true });
+  });
+});
+

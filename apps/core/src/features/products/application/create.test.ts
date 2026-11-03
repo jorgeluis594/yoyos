@@ -106,7 +106,7 @@ describe("create product", () => {
     expect(context.stored?.variants[0].id).toBe("00000000-0000-4000-8000-000000000002");
     expect(context.stored?.variants[0].qrCode).toBe("00000000-0000-4000-8000-000000000003");
     expect(context.stored?.qrCode).toBe("00000000-0000-4000-8000-000000000004");
-    expect(context.created).toEqual([{ productId: context.stored?.id, optionCount: 0, variantCount: 1, photoCount: 0 }]);
+    expect(context.created).toEqual([{ productId: context.stored?.id, optionCount: 0, variantCount: 1, photoCount: 0, hidden: false }]);
   });
 
   test("creates Talla and Color combinations in saved order without the unused S / Azul", async () => {
@@ -121,7 +121,7 @@ describe("create product", () => {
     expect(context.stored?.variants.map((variant) => Object.values(variant.combination))).toEqual(combos);
     expect(new Set(context.stored?.variants.map((variant) => variant.qrCode)).size).toBe(5);
     expect(context.stored?.variants.every((variant) => variant.status === "active" && variant.stock.quantity === 2)).toBe(true);
-    expect(context.created).toEqual([{ productId: context.stored?.id, optionCount: 2, variantCount: 5, photoCount: 0 }]);
+    expect(context.created).toEqual([{ productId: context.stored?.id, optionCount: 2, variantCount: 5, photoCount: 0, hidden: false }]);
   });
 
   test("a create whose variants never use Azul stores Color without Azul", async () => {
@@ -289,5 +289,17 @@ describe("create product", () => {
     const deps: CreateDependencies = { ...context.deps, transaction: async (companyId, work) => { seen.push(companyId); return work(); } };
     await createProduct(base, access, deps);
     expect(seen).toEqual([access.companyId]);
+  });
+});
+
+describe("create product visibility", () => {
+  test("stores the visibility the seller chose and defaults to visible", async () => {
+    const hidden = setup();
+    expect((await createProduct({ ...base, hidden: true }, access, hidden.deps)).success).toBe(true);
+    expect(hidden.stored?.hidden).toBe(true);
+    expect(hidden.created).toEqual([expect.objectContaining({ hidden: true })]);
+    const visible = setup();
+    await createProduct(base, access, visible.deps);
+    expect(visible.stored?.hidden).toBe(false);
   });
 });

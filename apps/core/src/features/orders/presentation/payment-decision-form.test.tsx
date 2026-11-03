@@ -6,6 +6,7 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 import resources from "@core/app/locales";
 import { PaymentDecisionForm } from "@core/src/features/orders/presentation/payment-decision-form";
+import { catalogPaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -23,7 +24,7 @@ async function submitWith(initialChoice?: "yape" | "plin" | "bank_transfer") {
   container = document.body.appendChild(document.createElement("div"));
   root = createRoot(container);
   await act(async () => root!.render(<I18nextProvider i18n={i18n}>
-    <PaymentDecisionForm kind="register" paymentId="p-1" order={order} heading={false} fetcher={fetcher} onSubmit={() => undefined} onCancel={() => undefined} initialChoice={initialChoice} /></I18nextProvider>));
+    <PaymentDecisionForm kind="register" paymentId="p-1" order={order} heading={false} fetcher={fetcher} onSubmit={() => undefined} onCancel={() => undefined} options={catalogPaymentOptions} initialChoice={initialChoice} /></I18nextProvider>));
   await act(async () => container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
   return submit.mock.calls[0]![0] as FormData;
 }

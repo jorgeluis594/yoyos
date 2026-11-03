@@ -6,6 +6,7 @@ import {
   productIdResponseSchema,
   productListResponseSchema,
   saveProductRequestSchema,
+  saveProductResponseSchema,
   updateVariantRequestSchema,
   changeCombinationRequestSchema,
   changeVariantStatusRequestSchema,
@@ -50,6 +51,8 @@ export type ListProductsError = ProductTransportFailure
   | Readonly<{ code: "INVALID_INPUT"; message: string; issues: readonly [ProductListInputIssue, ...ProductListInputIssue[]] }>
   | Readonly<{ code: "VALIDATION_ERROR"; message: string; issues: readonly [ProductListCriteriaIssue, ...ProductListCriteriaIssue[]] }>;
 export type CreateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "PRODUCT_ID_CONFLICT" | "ID_CONFLICT" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
+/** The saved detail plus whether this save hid the last product a published catalog showed. */
+export type SavedProduct = Readonly<{ product: Product; catalogEmptied: boolean }>;
 export type SaveProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "PRODUCT_CHANGED" | "ID_CONFLICT" | "VARIANT_HAS_ORDERS" | "PRODUCT_NOT_FOUND" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 type VariantNotFound = "PRODUCT_NOT_FOUND" | "VARIANT_NOT_FOUND";
 export type UpdateVariantError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | VariantNotFound }>;
@@ -120,6 +123,7 @@ function productListItem(item: ReturnType<typeof productListResponseSchema.parse
     price: item.minSalePrice,
     priceFrom: item.hasDifferentPrices,
     stock: item.totalStock,
+    hidden: item.hidden,
     ...(item.image === undefined ? {} : { photo: { id: item.image.id as ImageId, url: item.image.url } }),
   };
 }
@@ -152,6 +156,7 @@ function productDetail(dto: ReturnType<typeof productDetailResponseSchema.parse>
     currency: dto.product.currency,
     photos: dto.product.photos.map((photo) => ({ id: photo.id as ImageId, url: photo.url })),
     structureVersion: dto.product.structureVersion,
+    hidden: dto.product.hidden,
     options: dto.product.options.map((option) => ({ id: option.id as OptionId, name: option.name, values: option.values.map((value) => ({ id: value.id as OptionValueId, name: value.name })) })),
     variants: dto.product.variants.map((variant) => ({
       id: variant.id as VariantId,
@@ -230,7 +235,7 @@ export function createProductApi(request: Request, sessionGeneration: () => numb
       return result.success ? ok({ id: result.data.id as ImageId, url: result.data.url }) : result;
     },
     /** The editor's «Guardar cambios»: answers the full detail, so the screen needs no follow-up read. */
-    async save(id: ProductId, input: SaveProductRequest): Promise<Result<Product, SaveProductError>> {
+    async save(id: ProductId, input: SaveProductRequest): Promise<Result<SavedProduct, SaveProductError>> {
       const body = saveProductRequestSchema.safeParse(input);
       if (!body.success) return err({ code: "INVALID_INPUT", message: "Invalid product input" });
       const codes = ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "DUPLICATE_COMBINATION", "PRODUCT_CHANGED", "ID_CONFLICT", "VARIANT_HAS_ORDERS", "PRODUCT_NOT_FOUND", "IMAGE_NOT_FOUND", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE"] as const;
@@ -238,8 +243,8 @@ export function createProductApi(request: Request, sessionGeneration: () => numb
         method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body.data),
       }, [...codes, "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), codes);
       if (!result.success) return result;
-      const parsed = productDetailResponseSchema.safeParse(result.data);
-      return parsed.success ? ok(productDetail(parsed.data)) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product data"));
+      const parsed = saveProductResponseSchema.safeParse(result.data);
+      return parsed.success ? ok({ product: productDetail(parsed.data), catalogEmptied: parsed.data.catalogEmptied }) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product data"));
     },
     async updateVariant(productId: ProductId, variantId: VariantId, input: UpdateVariantRequest): Promise<Result<Product, UpdateVariantError>> {
       const body = updateVariantRequestSchema.safeParse(input);

@@ -211,7 +211,7 @@ type TraceData = Readonly<{
   answer: ReadingTrace["answer"];
   actionKinds: readonly string[];
 }>;
-type Staged = Readonly<{ plan: Plan; data: TraceData }>;
+type Staged = Readonly<{ plan: Plan; data: TraceData; /** The unlocked checks already hold a text miss, so the catalog readiness decides their silence. */ hasTextMiss: boolean }>;
 type Applied = Readonly<{ applied: AppliedChatMessage; decided: DecidedChanges | null; commitAt: Date }>;
 
 const emptyData = (startedAt: Date, answer: ReadingTrace["answer"] = "no_intent"): TraceData =>
@@ -244,7 +244,15 @@ export async function applyChatMessage(input: Input, deps: ApplyChatMessageDepen
       if (staged.error.trace) await afterCommit(message, staged.error.trace, null, null, shadow, deps);
       return staged.error.code === "MESSAGE_ALREADY_PROCESSED" ? rereadProcessed(input.messageId, deps) : err(toApplyError(staged.error));
     }
-    const committed = await deps.transaction(input.companyId, () => applyInTransaction(message, staged.data.plan, deps));
+    // A text miss stays silent while the company's catalog cannot answer (no active products, or only hidden ones): the readiness is read only when the unlocked checks already hold a miss,
+    // like the photo miss path reads it. A failed readiness read fails the message, like the old path did.
+    let plan = staged.data.plan;
+    if (staged.data.hasTextMiss) {
+      const readiness = await deps.catalogSearchReadiness();
+      if (!readiness.success) return err(toApplyError(readiness.error));
+      if (readiness.data === "no_active_products" || readiness.data === "all_products_hidden") plan = withSilentTextMisses(plan);
+    }
+    const committed = await deps.transaction(input.companyId, () => applyInTransaction(message, plan, deps));
     if (!committed.success) return committed.error.code === "MESSAGE_ALREADY_PROCESSED" ? rereadProcessed(input.messageId, deps) : err(toApplyError(committed.error));
     const { applied, decided, commitAt } = committed.data;
     const trace = await afterCommit(message, staged.data.data, decided, commitAt, shadow, deps);
@@ -289,7 +297,7 @@ const textTooLong = (): ReportOutcome => ({ kind: "invalid_action", orderId: nul
 
 async function applyText(message: ChatSourceMessage, state: ChatState, deps: ApplyChatMessageDependencies, signal: AbortSignal, startedAt: Date): Promise<Result<Staged, RunFailure>> {
   const text = message.text ?? "";
-  if (text.length > deps.limits.maxReaderTextChars) return ok({ plan: reportPlan(textTooLong()), data: emptyData(startedAt) });
+  if (text.length > deps.limits.maxReaderTextChars) return ok({ plan: reportPlan(textTooLong()), data: emptyData(startedAt), hasTextMiss: false });
   const context = await deps.loadReadingContext(readingMessageOf(message), state.target, state.pendings, state.memory.lastIncomingPhoto);
   if (!context.success) return context;
   return readStaged({ message, state, deps, signal, startedAt, context: context.data, kind: "text", shown: [], photo: null });
@@ -321,10 +329,10 @@ async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>>
   if (read.kind === "photo_product" && (primary.intent.kind !== "requests" || !primary.chain)) {
     // The photo is the request: a caption that reads as no intent, or that cannot be read, leaves the shown products added (or pending), with a doubt for the unreadable one.
     const fixed = await fixedPhoto(read.message, shown, primary.intent.kind !== "no_intent", state, deps, read.signal, read.startedAt, read.photo!);
-    return fixed.success ? ok({ plan: fixed.data.plan, data: { ...data, answer: "fixed", actionKinds: fixed.data.data.actionKinds } }) : fixed;
+    return fixed.success ? ok({ plan: fixed.data.plan, data: { ...data, answer: "fixed", actionKinds: fixed.data.data.actionKinds }, hasTextMiss: false }) : fixed;
   }
-  if (primary.intent.kind === "no_intent") return ok({ plan: reportPlan({ kind: "no_intent" }, read.kind === "text" ? "text" : "photo"), data });
-  if (primary.intent.kind === "unsure" || !primary.chain) return ok({ plan: reportPlan({ kind: "reader_doubt", orderId: null }, read.kind === "text" ? "text" : "photo"), data: { ...data, answer: "doubt" } });
+  if (primary.intent.kind === "no_intent") return ok({ plan: reportPlan({ kind: "no_intent" }, read.kind === "text" ? "text" : "photo"), data, hasTextMiss: false });
+  if (primary.intent.kind === "unsure" || !primary.chain) return ok({ plan: reportPlan({ kind: "reader_doubt", orderId: null }, read.kind === "text" ? "text" : "photo"), data: { ...data, answer: "doubt" }, hasTextMiss: false });
   const chain = primary.chain;
   const language = primary.intent.language;
   const snapshotOf = (locked: Pick<Locked, "target" | "alive" | "memory">) => buildCheckSnapshot({ kind: read.kind, language, reading: context.input, products: primary.catalog.products, shown,
@@ -348,7 +356,7 @@ async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>>
       const decided = decideChanges([...checks, ...lost, ...checkShownPhoto(snapshot, chain.requests, chain.resolutions), ...tooManyActions(primary.overflow)], confirmed, { captionUnread: primary.questionCaption === true });
       return { actions: nonEmpty(decided.actions, { kind: "report", outcome: { kind: "no_intent" } }), decided };
     } };
-  return ok({ plan, data: { ...data, confirmingRun, answer: "actions", actionKinds: chain.requests.map(({ request }) => request.kind) } });
+  return ok({ plan, data: { ...data, confirmingRun, answer: "actions", actionKinds: chain.requests.map(({ request }) => request.kind) }, hasTextMiss: read.kind === "text" && early.some(({ action }) => isTextMiss(action)) });
 }
 
 /** The requests beyond `maxReaderActions` are cut; the message reports `too_many_actions` for them, urgent like any invalid action. */
@@ -398,11 +406,11 @@ async function applyPhoto(message: ChatSourceMessage, imageId: ImageId, state: C
   if (signal.aborted) return err({ code: "DEADLINE_EXCEEDED", message: "The attempt deadline passed" });
   const products = productsOf(identified.data);
   const photo = photoTrace(identified.data, products, Math.round(performance.now() - cascadeStarted));
-  if (products === "not_found") return ok({ plan: await missPlan(deps), data: { ...emptyData(startedAt), photo } });
-  if (products === "not_product" && !caption) return ok({ plan: reportPlan({ kind: "no_intent" }, "photo"), data: { ...emptyData(startedAt), photo } });
+  if (products === "not_found") return ok({ plan: await missPlan(deps), data: { ...emptyData(startedAt), photo }, hasTextMiss: false });
+  if (products === "not_product" && !caption) return ok({ plan: reportPlan({ kind: "no_intent" }, "photo"), data: { ...emptyData(startedAt), photo }, hasTextMiss: false });
   const shown = products === "not_product" ? [] : products;
   if (shown.length && (!readable || caption === null)) return fixedPhoto(message, shown, caption !== null && !readable, state, deps, signal, startedAt, photo);
-  if (!deps.stages || caption === null) return ok({ plan: reportPlan({ kind: "no_intent" }, "photo"), data: { ...emptyData(startedAt), photo } });
+  if (!deps.stages || caption === null) return ok({ plan: reportPlan({ kind: "no_intent" }, "photo"), data: { ...emptyData(startedAt), photo }, hasTextMiss: false });
   return readStaged({ message, state, deps, signal, startedAt, context: context.data, kind: products === "not_product" ? "photo_not_product" : "photo_product", shown, photo, intent });
 }
 
@@ -412,6 +420,17 @@ async function missPlan(deps: ApplyChatMessageDependencies): Promise<Plan> {
   const silent = !readiness.success || readiness.data !== "ready";
   return reportPlan({ kind: "not_identified", source: "photo", identification: null, silent }, "photo");
 }
+
+/** A text miss the seller should not hear about: no offered products to answer with, so every text would notify. */
+const isTextMiss = (action: ResolvedChatAction): boolean => action.kind === "report"
+  && (action.outcome.kind === "not_identified" || action.outcome.kind === "not_clear") && !action.outcome.silent;
+
+/** The plan with its text misses marked silent; applied by the transaction on the locked state, like the checks it wraps. */
+const withSilentTextMisses = (plan: Plan): Plan => ({ ...plan, decide: (locked) => {
+  const { actions, decided } = plan.decide(locked);
+  return { actions: actions.map((action) => action.kind === "report" && (action.outcome.kind === "not_identified" || action.outcome.kind === "not_clear")
+    ? { ...action, outcome: { ...action.outcome, silent: true } } : action) as [ResolvedChatAction, ...ResolvedChatAction[]], decided };
+} });
 
 /** A product photo with no readable caption: the shown products are added with their QR values and no model is called; an unreadable caption marks the add «Con duda». */
 async function fixedPhoto(message: ChatSourceMessage, shown: readonly IdentifiedProduct[], captionDoubt: boolean, state: ChatState, deps: ApplyChatMessageDependencies, signal: AbortSignal,
@@ -427,7 +446,7 @@ async function fixedPhoto(message: ChatSourceMessage, shown: readonly Identified
   const missing = shown.filter(({ productId }) => !present.has(productId))
     .map((entry): ResolvedChatAction => ({ kind: "report", outcome: { kind: "not_identified", source: "photo", identification: entry.identification, silent: false } }));
   const shownIds = shown.map(({ productId }) => productId);
-  if (missing.length === shown.length) return ok({ plan: { ...reportPlan((missing[0] as Extract<ResolvedChatAction, { kind: "report" }>).outcome, "photo"), shownProductIds: shownIds }, data: { ...emptyData(startedAt, "fixed"), photo } });
+  if (missing.length === shown.length) return ok({ plan: { ...reportPlan((missing[0] as Extract<ResolvedChatAction, { kind: "report" }>).outcome, "photo"), shownProductIds: shownIds }, data: { ...emptyData(startedAt, "fixed"), photo }, hasTextMiss: false });
   const answered = await legacyAnswerFor({ ...context, text: null }, legacy, { companyId: message.companyId, messageId: message.id }, signal,
     { candidateMs: null, candidateMatchCount: null, candidatesTimedOut: false });
   if (!answered.success) return answered;
@@ -439,7 +458,7 @@ async function fixedPhoto(message: ChatSourceMessage, shown: readonly Identified
       const decided = decideChanges(checked, null, { captionUnread: captionDoubt });
       return { actions: nonEmpty(decided.actions, { kind: "report", outcome: { kind: "no_intent" } }), decided };
     } };
-  return ok({ plan, data: { ...emptyData(startedAt, "fixed"), photo, actionKinds: resolved.map(({ kind }) => kind) } });
+  return ok({ plan, data: { ...emptyData(startedAt, "fixed"), photo, actionKinds: resolved.map(({ kind }) => kind) }, hasTextMiss: false });
 }
 
 /** The change rows of the message, with `seq` after the order's highest, the decision of each line, its quote and the earlier changes it supersedes. */

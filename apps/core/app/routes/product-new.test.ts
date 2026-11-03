@@ -7,7 +7,7 @@ import type { ProductId } from "@core/src/features/products/domain/product";
 
 const context = { get: () => ({ company: { id: "00000000-0000-4000-8000-000000000001", country: "PE" } }) } as unknown as ActionFunctionArgs["context"];
 const valid = {
-  id: "00000000-0000-4000-8000-000000000001", name: "Cuaderno", description: null, photoIds: [], currency: "PEN", options: [],
+  id: "00000000-0000-4000-8000-000000000001", name: "Cuaderno", description: null, photoIds: [], hidden: false, currency: "PEN", options: [],
   variants: [{ values: [], sku: null, salePrice: 12.5, purchasePrice: null, initialStock: 0 }],
 };
 
@@ -33,7 +33,7 @@ test("keeps Portuguese in the product redirect", async () => {
   const request = new Request("http://localhost/pt-BR/products/new", { method: "POST", body: JSON.stringify(valid) });
   const response = await action({ request, context } as ActionFunctionArgs);
   expect(response).toBeInstanceOf(Response);
-  expect((response as Response).headers.get("Location")).toBe("/pt-BR/products/00000000-0000-4000-8000-000000000002");
+  expect((response as Response).headers.get("Location")).toBe("/pt-BR/products/00000000-0000-4000-8000-000000000002?saved=1");
 });
 
 test("returns Portuguese validation errors for Portuguese routes", async () => {
@@ -60,4 +60,12 @@ test("a gateway failure on the creation keeps the form with the uncertain-result
 test("a client error from the server still reaches the error boundary", async () => {
   const refused = new Response("nope", { status: 403 });
   await expect(clientRun(async () => { throw refused; })).rejects.toBe(refused);
+});
+
+test("creating a hidden product stores it hidden and redirects to its page with the saved confirmation", async () => {
+  const create = vi.spyOn(productEditing, "create").mockResolvedValue({ success: true, data: "00000000-0000-4000-8000-000000000002" as ProductId });
+  const request = new Request("http://localhost/es-PE/products/new", { method: "POST", body: JSON.stringify({ ...valid, hidden: true }) });
+  const response = await action({ request, context } as ActionFunctionArgs) as Response;
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ hidden: true }));
+  expect(response.headers.get("Location")).toMatch(/\/es-PE\/products\/[0-9a-f-]+\?saved=1$/);
 });

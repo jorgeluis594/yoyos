@@ -34,6 +34,8 @@ export type Product = Readonly<{
   currency: Currency;
   qrCode: string;
   status: "active";
+  /** The seller hides the product from buyers: the public catalog and message reading. The seller still sells it. */
+  hidden: boolean;
   createdAt: Date;
   updatedAt: Date;
   structureVersion: number;

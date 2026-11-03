@@ -7,6 +7,7 @@ import { createRoutesStub } from "react-router";
 import { afterEach, expect, test } from "vitest";
 import resources from "@core/app/locales";
 import { PaymentDialog } from "@core/src/features/orders/presentation/receipt-dialog";
+import { catalogPaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -24,7 +25,7 @@ const format = { amount: (value: { amount: number }) => `S/ ${value.amount.toFix
 async function mount(extra: { initialChoice?: "plin"; approveBlockedNote?: string } = {}) {
   const noop = () => undefined;
   const Stub = createRoutesStub([{ path: "*", Component: () => <PaymentDialog kind="receipt" paymentId="p-2" payment={reported} order={order} receiptUrl={null} format={format}
-    onClose={noop} onDone={noop} onSubmitted={noop} onUncertain={noop} onCloseAutoFocus={noop} {...extra} /> }]);
+    onClose={noop} onDone={noop} onSubmitted={noop} onUncertain={noop} onCloseAutoFocus={noop} options={catalogPaymentOptions} {...extra} /> }]);
   container = document.body.appendChild(document.createElement("div"));
   root = createRoot(container);
   await act(async () => root!.render(<I18nextProvider i18n={i18n}><Stub initialEntries={["/"]} /></I18nextProvider>));

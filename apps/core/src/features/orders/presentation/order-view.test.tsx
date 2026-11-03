@@ -10,6 +10,7 @@ import { OrderView, type OrderViewProps, type SavedViewProps } from "@core/src/f
 import { initialDraft, type OrderViewState } from "@core/src/features/orders/presentation/order-view-state";
 import { deadpoolM, order1042, savedState } from "@core/src/features/orders/presentation/order-1042.fixture";
 import type { LeaveGuard } from "@core/src/features/orders/presentation/use-unsaved-changes-guard";
+import { catalogPaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -27,7 +28,7 @@ let container: HTMLDivElement;
 afterEach(() => { act(() => root?.unmount()); root = undefined; container?.remove(); vi.unstubAllGlobals(); });
 
 const baseProps = (over: Partial<OrderViewProps> = {}): Omit<OrderViewProps, "state" | "onStateChange"> => ({
-  settings: null, links: { sales: "/es-PE/orders", deliverySettings: "/es-PE/settings/delivery", createProduct: "/es-PE/products/new" }, catalogEpoch: 0, guard: guard(),
+  settings: null, paymentOptions: catalogPaymentOptions, links: { sales: "/es-PE/orders", deliverySettings: "/es-PE/settings/delivery", paymentSettings: "/es-PE/settings/payments", createProduct: "/es-PE/products/new" }, catalogEpoch: 0, guard: guard(),
   saving: false, notice: null, attempts: 0, unavailableVariantId: null, coverRequired: false, format: { amount: (money) => `S/ ${money.amount.toFixed(2)}`, date: (iso) => iso },
   newPaymentId: () => "00000000-0000-4000-8000-0000000000f1", onSave: vi.fn(), onCheckAgain: vi.fn(), onDiscard: vi.fn(), ...over });
 

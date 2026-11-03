@@ -26,7 +26,7 @@ await i18nPt.use(initReactI18next).init({ lng: "pt", resources });
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const savedPhotos = (count: number) => Array.from({ length: count }, (_, index) => ({ id: id(200 + index), url: `https://img.test/${index}.png` }));
 const emptyProduct: ProductDetailResponse["product"] = {
-  id: id(50), name: "Polo", description: null, photos: [], currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
+  id: id(50), name: "Polo", description: null, hidden: false, photos: [], currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
   options: [], variants: [{ id: id(60), combination: [], sku: null, salePrice: { amount: 10, currency: "PEN" }, purchasePrice: null, qrCode: id(70), status: "active", stock: 0, hasOrders: false }],
 };
 

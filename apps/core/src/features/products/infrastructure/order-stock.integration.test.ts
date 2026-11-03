@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { ok } from "@shared/functional";
 import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
-import { deductStockBulk, findSellableVariantStock, findVariantStock, lockVariantStock, searchSaleCatalog } from "@core/src/features/products/infrastructure/order-stock";
+import { deductStockBulk, findOfferedVariants, findSellableVariantsByQrCodes, findSellableVariants, findSellableVariantStock, findVariantStock, lockVariantStock, searchSaleCatalog } from "@core/src/features/products/infrastructure/order-stock";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 
@@ -101,5 +101,33 @@ test("reads the stock of active variants and leaves deactivated ones out", async
     const stock = await findSellableVariantStock(ids);
     expect(stock.success && Object.fromEntries(stock.data)).toEqual({ [active]: 4, [empty.variantIds[0]]: 0 });
     expect(await findSellableVariantStock([])).toEqual(ok(new Map()));
+  });
+});
+
+test("a hidden product's variants are sellable but not offered", async () => {
+  const companyId = randomUUID();
+  await withTenantIsolation(companyId, async () => { await prisma.company.create({ data: { id: companyId, name: companyId, country: "PE" } }); });
+  await withTenantIsolation(companyId, async () => {
+    const visible = await seedProduct({ variants: [{ stock: 4 }] });
+    const hidden = await seedProduct({ hidden: true, variants: [{ stock: 2 }] });
+    const ids = [visible.variantIds[0], hidden.variantIds[0]];
+    const sellable = await findSellableVariants(ids);
+    expect(sellable.success && sellable.data.map((item) => item.variantId).sort()).toEqual([...ids].sort());
+    const offered = await findOfferedVariants(ids);
+    expect(offered.success && offered.data.map((item) => item.variantId)).toEqual([visible.variantIds[0]]);
+  });
+});
+
+test("the sale catalog search and the QR lookup still offer a hidden product", async () => {
+  const companyId = randomUUID();
+  const name = `Casaca ${companyId.slice(0, 8)}`;
+  await withTenantIsolation(companyId, async () => { await prisma.company.create({ data: { id: companyId, name: companyId, country: "PE" } }); });
+  await withTenantIsolation(companyId, async () => {
+    const hidden = await seedProduct({ name, hidden: true, variants: [{ qrCode: randomUUID(), stock: 2 }] });
+    const found = await searchSaleCatalog(name);
+    expect(found.success && found.data.map((item) => item.id)).toContain(hidden.productId);
+    const code = (await prisma.productVariant.findUniqueOrThrow({ where: { id: hidden.variantIds[0] } })).qrCode;
+    const byQr = await findSellableVariantsByQrCodes([code]);
+    expect(byQr.success && byQr.data.map((item) => item.variantId)).toEqual([hidden.variantIds[0]]);
   });
 });

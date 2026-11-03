@@ -27,7 +27,7 @@ type CoverageRow = z.infer<typeof coverageRowSchema>;
 const idsOf = (rows: readonly CoverageRow[], sellable: boolean) => rows.filter((row) => row.sellable === sellable).map(({ id }) => id as ProductId);
 
 /**
- * The company's products ranked by coverage, the sum of `word_similarity` over the words their name matches (design §5.2):
+ * Offered products (active, not hidden) ranked by coverage, the sum of `word_similarity` over the words their name matches:
  * the sellable ones (an active variant) and, apart, the ones with no active variant, which the reader gets as not sellable.
  * Scans the company's products as the app role under RLS, because the trigram index cannot serve these matches;
  * the cost is words × products, so the words are capped from the catalog size. A statement timeout is a result, not an error.
@@ -39,7 +39,7 @@ export async function searchProductsByCoverage(words: readonly string[], limits:
     const found = await withinTransaction(async () => {
       await prisma.$queryRaw`SELECT set_config('jit', 'off', true)`;
       const [{ total }] = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`
-        SELECT count(*)::int AS total FROM "Product" WHERE "companyId" = ${companyId}::uuid AND status = 'active'`);
+        SELECT count(*)::int AS total FROM "Product" WHERE "companyId" = ${companyId}::uuid AND status = 'active' AND NOT hidden`);
       const searched = words.slice(0, searchedWordCap(total, limits));
       const rows = await prisma.$queryRaw<unknown[]>(coverageQuery(companyId, searched, limits));
       return ok({ rows, wordsSearched: searched.length });
@@ -84,7 +84,7 @@ export function mentionCoverageQuery(companyId: string, mentions: readonly numbe
              EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active') AS sellable
       FROM "Product" p
       CROSS JOIN LATERAL (SELECT w.mention, word_similarity(w.word, p.name) AS sim FROM w) m
-      WHERE p."companyId" = ${companyId}::uuid AND p.status = 'active' AND m.sim >= ${limits.minSimilarity}
+      WHERE p."companyId" = ${companyId}::uuid AND p.status = 'active' AND NOT p.hidden AND m.sim >= ${limits.minSimilarity}
       GROUP BY m.mention, p."companyId", p.id, p.name
     ),
     keyed AS (
@@ -131,7 +131,7 @@ export async function searchMentionsByCoverage(mentions: readonly string[], limi
       const limitStatement = () => prisma.$queryRaw`SELECT set_config('statement_timeout', ${`${Math.max(remainingMs(), MIN_STATEMENT_MS)}ms`}, true), set_config('jit', 'off', true)`;
       await limitStatement();
       const [{ total }] = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`
-        SELECT count(*)::int AS total FROM "Product" WHERE "companyId" = ${companyId}::uuid AND status = 'active'`);
+        SELECT count(*)::int AS total FROM "Product" WHERE "companyId" = ${companyId}::uuid AND status = 'active' AND NOT hidden`);
       const searched = allocateMentionWords(mentions, total, limits);
       const pairs = searched.flatMap((words, mention) => words.map((word) => ({ mention, word })));
       if (!pairs.length) return ok({ kind: "searched" as const, searched, rows: [] as unknown[] });

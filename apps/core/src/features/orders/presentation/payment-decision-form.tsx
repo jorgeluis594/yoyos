@@ -2,13 +2,13 @@ import { useState } from "react";
 import type { FetcherWithComponents } from "react-router";
 import { useTranslation } from "react-i18next";
 import { offersPartialStockDeduction } from "@shared/orders-payment";
-import { defaultPaymentChoice, paymentFromChoice, type PaymentChoice } from "@shared/wallet-providers";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import { formatCurrency } from "@core/app/format-currency";
 import { isValidPaymentAmount, PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
+import { offeredPayment, type OfferedChoice, type PaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 
 /** What the route action answers to a payment decision. A recorded payment carries the order it left, which chooses the success text. */
 export type PaymentDecisionResult = Readonly<{ success: boolean; error: string | false; recorded?: boolean; order?: Pick<OrderAggregateResponse, "stockDue"> }>;
@@ -24,13 +24,13 @@ export function paymentErrorKey(error: string) {
 
 /** The fetcher belongs to the dialog: the form unmounts as soon as the reload shows the payment decided, before it could report the answer. */
 type FormProps = Readonly<{ kind: DecisionKind; paymentId: string; order: Pick<OrderAggregateResponse, "stockDeducted" | "balanceDue" | "total">;
-  heading: boolean; fetcher: FetcherWithComponents<unknown>; onSubmit: () => void; onCancel: () => void;
-  /** The method the form opens with; the first wallet when absent. */
-  initialChoice?: PaymentChoice }>;
+  heading: boolean; fetcher: FetcherWithComponents<unknown>; onSubmit: () => void; onCancel: () => void; options: PaymentOptions;
+  /** The method the form opens with; the first offered choice when absent. */
+  initialChoice?: OfferedChoice }>;
 
-export function PaymentDecisionForm({ kind, paymentId, order, heading, fetcher, onSubmit, onCancel, initialChoice }: FormProps) {
+export function PaymentDecisionForm({ kind, paymentId, order, heading, fetcher, onSubmit, onCancel, options, initialChoice }: FormProps) {
   const { t, i18n } = useTranslation();
-  const [draft, setDraft] = useState<PaymentDraft>({ amount: order.balanceDue.amount > 0 ? order.balanceDue.amount.toFixed(2) : "", ...paymentFromChoice(initialChoice ?? defaultPaymentChoice), deductStockIfPartial: false });
+  const [draft, setDraft] = useState<PaymentDraft>({ amount: order.balanceDue.amount > 0 ? order.balanceDue.amount.toFixed(2) : "", ...offeredPayment(initialChoice ?? options.choices[0]), deductStockIfPartial: false });
   const [reason, setReason] = useState("");
   const pending = fetcher.state !== "idle";
 
@@ -61,7 +61,7 @@ export function PaymentDecisionForm({ kind, paymentId, order, heading, fetcher, 
       {heading && <div className="col-span-full flex flex-col gap-1"><h3 className="font-semibold">{t("orders.rejectTitle")}</h3><p className="text-muted-foreground">{t("orders.rejectBody")}</p></div>}
       <Field className="col-span-full min-w-0"><FieldLabel htmlFor={`reject-reason-${paymentId}`}>{t("orders.rejectReasonLabel")}</FieldLabel>
         <Input id={`reject-reason-${paymentId}`} className="h-control" maxLength={200} value={reason} onChange={event => setReason(event.target.value)} autoFocus /></Field>
-    </> : <PaymentFields value={draft} onChange={setDraft} showStockBox={stockBox} autoFocusAmount />}
+    </> : <PaymentFields value={draft} onChange={setDraft} options={options} showStockBox={stockBox} autoFocusAmount />}
     <div className="col-span-full flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
       <Button type="button" variant="outline" className="min-h-touch md:min-h-control" onClick={onCancel}>{t(kind === "reject" ? "orders.backDecision" : "orders.cancelDecision")}</Button>
       <Button type="submit" variant={kind === "reject" ? "destructive" : "default"} className="min-h-touch md:min-h-control" disabled={pending || (kind !== "reject" && !validAmount)}>{submitLabel}</Button>

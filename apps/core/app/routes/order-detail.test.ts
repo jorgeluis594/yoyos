@@ -21,6 +21,8 @@ import { paymentRecordedKey } from "@core/src/features/orders/presentation/stock
 import type { OrderReviewProjection } from "@core/src/features/orders/domain/order-review";
 import type { ChangeSeq } from "@core/src/features/orders/domain/message-changes";
 import type { OrderRevision } from "@core/src/features/orders/domain/order-revisions";
+import { catalogPaymentOptions } from "@core/src/features/orders/presentation/payment-options";
+import { companyPaymentSettings } from "@core/src/features/companies";
 
 vi.mock("@core/src/shared/images", async (importOriginal) => ({ ...await importOriginal<typeof import("@core/src/shared/images")>(), resolvePublicImages: vi.fn() }));
 
@@ -48,6 +50,7 @@ beforeEach(() => {
   vi.spyOn(orders, "loadOrderReview").mockResolvedValue(ok(emptyReview()));
   vi.spyOn(orders, "lineCatalog").mockResolvedValue(null);
   vi.spyOn(deliverySettings, "get").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" }));
+  vi.spyOn(companyPaymentSettings, "getConfiguration").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" }) as never);
   vi.mocked(resolvePublicImages).mockReset().mockResolvedValue(ok({ images: [], failures: [] }));
 });
 const loaderArgs = (company: Record<string, unknown> = { id: companyId, country: "PE" }) => ({ params: { orderId },
@@ -177,7 +180,7 @@ test("order detail names the origin in the subtitle, drops the «Desde el catál
   const render = (order: OrderAggregate) => {
     const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
       hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order, null), base: "/es-PE/orders", manualPaymentId: id(5), receiptUrls: {},
-        settings: null, settingsPath: "/es-PE/settings/delivery", revisions: testRevisions, lineCatalog: null, link: { kind: "ready", url: "https://fantasio.yoyos.lat/checkout/7bf00000-0000-4000-8000-000000000002" } } } } });
+        settings: null, settingsPath: "/es-PE/settings/delivery", paymentOptions: catalogPaymentOptions, paymentSettingsPath: "/es-PE/settings/payments", revisions: testRevisions, lineCatalog: null, link: { kind: "ready", url: "https://fantasio.yoyos.lat/checkout/7bf00000-0000-4000-8000-000000000002" } } } } });
     try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
     finally { router.dispose(); }
   };
@@ -201,7 +204,7 @@ test("order detail offers «Imprimir rótulo» for any order, cancelled included
   const render = (order: OrderAggregate) => {
     const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
       hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order, null), base: "/es-PE/orders", manualPaymentId: id(5), receiptUrls: {},
-        settings: null, settingsPath: "/es-PE/settings/delivery", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
+        settings: null, settingsPath: "/es-PE/settings/delivery", paymentOptions: catalogPaymentOptions, paymentSettingsPath: "/es-PE/settings/payments", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
     try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
     finally { router.dispose(); }
   };
@@ -243,7 +246,7 @@ test("order detail labels a rejected payment as Pago rechazado and never as conf
     data: { report: { receiptImageId: id(20), reportedAt: at }, rejectedAt: at, rejectedBy: "seller", reason: "No coincide" } }] } as unknown as OrderAggregate;
   const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
     hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order, null), base: "/es-PE/orders", manualPaymentId: id(5),
-      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
+      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", paymentOptions: catalogPaymentOptions, paymentSettingsPath: "/es-PE/settings/payments", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
   try {
     const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
     expect(html).toContain("Pago rechazado");
@@ -295,7 +298,7 @@ test("receipt thumbnails load lazily with fixed dimensions", async () => {
     data: { receiptImageId: id(20), reportedAt: at } }] } as unknown as OrderAggregate;
   const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
     hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(withReport, null), base: "/es-PE/orders", manualPaymentId: id(5),
-      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
+      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", paymentOptions: catalogPaymentOptions, paymentSettingsPath: "/es-PE/settings/payments", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
   try {
     const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
     expect(html).toMatch(/<img[^>]*src="https:\/\/cdn.example\/20.png"[^>]*loading="lazy"[^>]*decoding="async"[^>]*width="56"[^>]*height="80"/);
@@ -335,7 +338,7 @@ async function renderStockDetail(patch: { stockDue: StockDueJson; stockDeducted?
     stockDeducted: patch.stockDeducted ?? false, stockDue: patch.stockDue };
   const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
     hydrationData: { loaderData: { detail: { order, base: "/es-PE/orders", manualPaymentId: stockId(5), receiptUrls: {}, settings: null,
-      settingsPath: "/es-PE/settings/delivery", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
+      settingsPath: "/es-PE/settings/delivery", paymentOptions: catalogPaymentOptions, paymentSettingsPath: "/es-PE/settings/payments", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
   try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
   finally { router.dispose(); }
 }

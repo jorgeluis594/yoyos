@@ -15,7 +15,7 @@ import { promptRegistry } from "@core/src/features/orders/infrastructure/reader/
 const quote = (text: string): Quote => ({ source: "current", text });
 const request = (n: number) => `R${n}` as RequestRef;
 const productId = (n: number) => `product-${n}` as ProductId;
-const product = (n: number, name: string, attributes: ProductForReading["attributes"] = [], sellable = true): ProductForReading => ({ productId: productId(n), name, sellable, attributes, variants: [] });
+const product = (n: number, name: string, attributes: ProductForReading["attributes"] = [], sellable = true): ProductForReading => ({ productId: productId(n), name, hidden: false, sellable, attributes, variants: [] });
 const mention = (n: number, words: string, values: ProductMention["values"] = [], candidateIds?: readonly ProductId[]): ProductMention =>
   ({ request: request(n), words: quote(words), values, ...candidateIds ? { candidateIds } : {} });
 const value = (valueWords: string, attributeWords: string | null = null) => ({ attributeWords: attributeWords ? quote(attributeWords) : null, valueWords: quote(valueWords) });

@@ -9,6 +9,7 @@ import resources from "@core/app/locales";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { PaymentRow } from "@core/src/features/orders/presentation/order-view-state";
 import { OrderPaymentsPanel, paymentsSummary, type PaymentsPanelProps } from "@core/src/features/orders/presentation/order-payments-panel";
+import { catalogPaymentOptions, type PaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -30,7 +31,7 @@ function savedOrder(overrides: Record<string, unknown> = {}) {
     deliveryCharge: money(0), payments: [confirmed], ...overrides } as unknown as OrderAggregateResponse;
 }
 const savedProps = (order: OrderAggregateResponse, extra: Record<string, unknown> = {}) =>
-  ({ mode: "saved", order, receiptUrls: {}, manualPaymentId: "new-payment", voidResult: undefined, unsavedChanges: false, hasProducts: true, format, ...extra }) as unknown as PaymentsPanelProps;
+  ({ mode: "saved", order, receiptUrls: {}, manualPaymentId: "new-payment", voidResult: undefined, unsavedChanges: false, hasProducts: true, format, paymentOptions: catalogPaymentOptions, paymentSettingsHref: "/es-PE/settings/payments", ...extra }) as unknown as PaymentsPanelProps;
 const estimate = (total: number, paid: number) => ({ total: money(total), paid: money(paid), balance: money(Math.max(total - paid, 0)), excess: money(Math.max(paid - total, 0)) });
 
 async function mount(element: React.ReactElement) {
@@ -47,7 +48,7 @@ const type = (input: HTMLInputElement, value: string) => act(() => {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 });
 
-function NewSale({ total: initialTotal, products = true, initial = [], togglable = false, onRows }: { total: number; products?: boolean; initial?: PaymentRow[]; togglable?: boolean; onRows?: (rows: readonly PaymentRow[]) => void }) {
+function NewSale({ total: initialTotal, products = true, initial = [], togglable = false, onRows, options = catalogPaymentOptions }: { total: number; products?: boolean; initial?: PaymentRow[]; togglable?: boolean; onRows?: (rows: readonly PaymentRow[]) => void; options?: PaymentOptions }) {
   const [payments, setPayments] = useState<readonly PaymentRow[]>(initial);
   onRows?.(payments);
   const [total, setTotal] = useState(initialTotal);
@@ -56,7 +57,7 @@ function NewSale({ total: initialTotal, products = true, initial = [], togglable
   return <>
     {togglable && <button type="button" data-testid="products-change" onClick={() => setTotal(total + 100)} />}
     <OrderPaymentsPanel mode="new" hasProducts={products} format={format} payments={payments} onChange={setPayments}
-      estimate={estimate(total, paid)} newPaymentId={() => `draft-${++next}`} />
+      estimate={estimate(total, paid)} newPaymentId={() => `draft-${++next}`} paymentOptions={options} paymentSettingsHref="/es-PE/settings/payments" />
   </>;
 }
 
@@ -67,6 +68,34 @@ test("shows one button per wallet of the country plus bank transfer", async () =
   container.remove();
   await mount(<OrderPaymentsPanel {...savedProps(savedOrder())} />);
   expect(buttons().map(button => button.textContent)).toEqual(expect.arrayContaining(["Agregar Yape", "Agregar Plin", "Transferencia bancaria"]));
+});
+
+test("offers only the methods the payment settings enable, on a new sale and a saved order", async () => {
+  const options: PaymentOptions = { choices: ["plin", "bank_transfer"], walletName: "Plin", unconfigured: false };
+  await mount(<NewSale total={418} options={options} />);
+  expect(buttons().map(button => button.textContent)).toEqual(["Agregar Plin", "Transferencia bancaria"]);
+  act(() => root!.unmount());
+  container.remove();
+  await mount(<OrderPaymentsPanel {...savedProps(savedOrder(), { paymentOptions: options })} />);
+  expect(buttons().map(button => button.textContent)).not.toContain("Agregar Yape");
+  expect(buttons().map(button => button.textContent)).toEqual(expect.arrayContaining(["Agregar Plin", "Transferencia bancaria"]));
+});
+
+test("records the company's own wallet under its configured name and without a provider", async () => {
+  let rows: readonly PaymentRow[] = [];
+  await mount(<NewSale total={418} options={{ choices: ["digital_wallet"], walletName: "Lukita", unconfigured: false }} onRows={next => { rows = next; }} />);
+  act(() => buttonNamed("Agregar Lukita")!.click());
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ method: "digital_wallet" });
+  expect(rows[0]).not.toHaveProperty("walletProvider");
+  expect(container.textContent).toContain("Lukita");
+});
+
+test("offers the whole catalog and links to the settings while no method is configured", async () => {
+  await mount(<NewSale total={418} options={{ ...catalogPaymentOptions, unconfigured: true }} />);
+  expect(buttons().map(button => button.textContent)).toEqual(["Agregar Yape", "Agregar Plin", "Transferencia bancaria"]);
+  const link = [...container.querySelectorAll("a")].find(anchor => anchor.textContent === "Configurar medios de cobro");
+  expect(link?.getAttribute("href")).toBe("/es-PE/settings/payments");
 });
 
 test("adds a draft row prefilled with the balance and removes it with Quitar", async () => {

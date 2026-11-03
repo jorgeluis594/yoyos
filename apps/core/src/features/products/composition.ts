@@ -19,7 +19,7 @@ import type { ListImageDependencies, ListImageFailure } from "@core/src/features
 import { z } from "zod";
 import { identifyProductsInImage, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
 import type { ImageBytes, MatchConfidence, VariantQrCode } from "@core/src/features/products/domain/image-identification";
-import { findSellableVariantsByQrCodes } from "@core/src/features/products/infrastructure/order-stock";
+import { findOfferedVariants, findSellableVariantsByQrCodes } from "@core/src/features/products/infrastructure/order-stock";
 import { findNearestProductImages, hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
 import { readQrCodes } from "@core/src/shared/images/infrastructure/qr-code-reader";
 import { brightenDimPhoto } from "@core/src/features/products/infrastructure/product-matching/dim-photo";
@@ -32,7 +32,7 @@ import { findVariantPhotos } from "@core/src/features/products/application/varia
 import { findVariantImages } from "@core/src/features/products/infrastructure/variant-photo-repository";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { catalogSearchReadiness } from "@core/src/features/products/application/catalog-search-readiness";
-import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
+import { productPresence } from "@core/src/features/products/infrastructure/catalog-search-readiness";
 import { findProductsForReading } from "@core/src/features/products/application/find-products-for-reading";
 import { findMessageCandidates } from "@core/src/features/products/application/find-message-candidates";
 import { findMentionCandidates } from "@core/src/features/products/application/find-mention-candidates";
@@ -160,7 +160,7 @@ const mentionSearchLimits = createMentionSearchLimits(process.env);
 
 const visualSearchSetup = createVisualSearch(process.env);
 export const imageEmbedder = visualSearchSetup.embedder;
-const readinessDependencies = { visualModel: visualSearchSetup.visual?.model ?? null, hasActiveProducts, hasIndexedProducts };
+const readinessDependencies = { visualModel: visualSearchSetup.visual?.model ?? null, productPresence, hasIndexedProducts };
 
 const identificationDependencies = {
   readQrCodes,
@@ -232,6 +232,8 @@ export const products = {
   /** The candidates of every mention of a message, searched in one statement; a timeout returns every mention empty with `timedOut`. */
   findMentionCandidates: (mentions: readonly string[]) => findMentionCandidates(mentions, { searchMentions: (texts) => searchMentionsByCoverage(texts, mentionSearchLimits) }),
   catalogSearchReadiness: () => catalogSearchReadiness(readinessDependencies),
+  /** Active variants of offered products (active and not hidden) with their stock: the buyer's cart and **Continuar**. */
+  findOfferedVariants,
   listForCatalog: (criteria: Parameters<typeof listCatalogProducts>[0]) =>
     listCatalogProducts(criteria, { repository: catalogProductRepository, images: listImages }),
   findVariantPhotos: (variantIds: readonly VariantId[]) => findVariantPhotos(variantIds, { findVariantImages, images: listImages }),

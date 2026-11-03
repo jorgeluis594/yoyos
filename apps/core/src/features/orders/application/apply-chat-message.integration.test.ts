@@ -870,3 +870,34 @@ test("an edit sets the verdict of the edited items' changes, clears their marks 
     expect((await inTenant(f, () => prisma.order.findUniqueOrThrow({ where: { id: order!.id } }))).sellerActedAt).not.toBeNull();
   } finally { await f.cleanup(); }
 });
+
+const hideProduct = (f: Fixture, productId: string, hidden = true) => inTenant(f, () => prisma.product.update({ where: { id: productId }, data: { hidden } }));
+const outcomesOf = (messageId: string, f: Fixture) => inTenant(f, () => prisma.chatMessageOutcome.findFirstOrThrow({ where: { messageId } })).then((row) => row.outcomes);
+const unoMas: Reader = (text) => ({ intent: { kind: "requests", requests: [{ id: "R1" as RequestRef, kind: "change_quantity", quote: quote(text) }], language: "es", addresses: [] },
+  extraction: [{ request: "R1" as RequestRef, kind: "change_quantity", target: { kind: "context", basis: "only_item", ref: "I1" as never }, values: [], quantity: { value: 1, mode: "add", quote: quote(text) }, price: null, changeVerb: null }] });
+
+test("a photo of a hidden product's QR label gives the hidden notice and adds nothing", async () => {
+  const f = await fixture();
+  try {
+    await hideProduct(f, f.productId);
+    const messageId = await message(f, { codes: [f.variantIds[0]!] });
+    expect(await apply(f, messageId)).toMatchObject({ success: true, data: { kind: "applied", noticeDue: true } });
+    expect(await outcomesOf(messageId, f)).toEqual([{ kind: "product_not_available", productId: f.productId, reason: "hidden" }]);
+    expect(await inTenant(f, () => prisma.orderItem.count())).toBe(0);
+  } finally { await f.cleanup(); }
+});
+
+test("a buyer cannot raise a hidden item by message", async () => {
+  const f = await fixture();
+  try {
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    await hideProduct(f, f.productId);
+    const done = await say(f, "uno más", unoMas);
+    expect(outcomeKindsOf(done)).toEqual(["product_not_available"]);
+    expect(noticeDue(done)).toBe(true);
+    expect(await outcomesOf(done.messageId, f)).toEqual([{ kind: "product_not_available", productId: f.productId, reason: "hidden" }]);
+    const [order] = await chatOrders(f);
+    expect(quantities(order!)).toEqual({ [f.variantIds[0]!]: 1 });
+  } finally { await f.cleanup(); }
+});
+

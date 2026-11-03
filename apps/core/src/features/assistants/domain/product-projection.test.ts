@@ -16,14 +16,30 @@ const some = (overrides: Partial<Extract<ProjectableActive, { kind: "some" }>> =
 const none: ProjectableActive = { kind: "none", sku: { kind: "single", sku: null } };
 const line = (overrides: Partial<ProjectableVariantLine> = {}): ProjectableVariantLine => ({ values: ["M", "Azul"], sku: "POL-M-AZ", salePrice: pen(39.9), stock: 2, level: "low", ...overrides });
 const summary = (overrides: Partial<ProjectableProductSummary> = {}): ProjectableProductSummary => ({
-  id, name: "Polo básico", variantCount: 6, inactiveCount: 1, active: some(), customerLink: "https://rosa.yoyos.lat/productos/x", matching: null, ...overrides,
+  id, name: "Polo básico", hidden: false, variantCount: 6, inactiveCount: 1, active: some(), customerLink: "https://rosa.yoyos.lat/productos/x", matching: null, ...overrides,
 });
 const product = (overrides: Partial<ProjectableProduct> = {}): ProjectableProduct => ({
-  id, name: "Polo básico", description: "Algodón pima", options: [{ name: "Talla", values: ["M", "L"] }, { name: "Color", values: ["Azul", "Rojo"] }], active: some(),
+  id, name: "Polo básico", hidden: false, description: "Algodón pima", options: [{ name: "Talla", values: ["M", "L"] }, { name: "Color", values: ["Azul", "Rojo"] }], active: some(),
   customerLink: null, variants: [{ ...line(), purchasePrice: pen(20), isActive: true, searched: false }], ...overrides,
 });
 
 describe("stock line", () => {
+  test("a hidden product reads No está en el catálogo: producto oculto and has no customer link", () => {
+    const hidden = summary({ hidden: true, customerLink: null });
+    expect(toAssistantProductSummary(hidden, context)).toMatchObject({ en_catalogo: "No está en el catálogo: producto oculto" });
+    expect(toAssistantProductSummary(hidden, context)).not.toHaveProperty("enlace_cliente");
+    expect(toAssistantProduct(product({ hidden: true }), { currency: "PEN", catalog: { kind: "hidden" } }, context)).toMatchObject({ en_catalogo: "No está en el catálogo: producto oculto" });
+  });
+
+  test("a hidden product without active variants reads producto oculto y sin variantes activas", () => {
+    expect(toAssistantProductSummary(summary({ hidden: true, active: none, customerLink: null }), context))
+      .toMatchObject({ en_catalogo: "No está en el catálogo: producto oculto y sin variantes activas" });
+  });
+
+  test("a visible product without active variants reads sin variantes activas", () => {
+    expect(toAssistantProductSummary(summary({ active: none, customerLink: null }), context)).toMatchObject({ en_catalogo: "No está en el catálogo: sin variantes activas" });
+  });
+
   test("summarizes S = 0, M = 2, L = 10 as «Stock: 12 · 1 agotada, 1 con stock bajo»", () => {
     expect(stockLine(some({ totalStock: 12, soldOut: 1, low: 1 }))).toBe("Stock: 12 · 1 agotada, 1 con stock bajo");
   });

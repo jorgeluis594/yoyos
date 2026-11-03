@@ -29,7 +29,7 @@ type ProblemNotice =
   | Readonly<{ kind: "unnamed_add" | "variant_only" | "image_with_request" | "no_open_order" | "failed" }>
   | Readonly<{ kind: "order_closed"; orderId: OrderId }>
   | Readonly<{ kind: "not_applied"; orderId: OrderId | null }>
-  | Readonly<{ kind: "product_not_available"; productId: ProductId | null }>
+  | Readonly<{ kind: "product_not_available"; productId: ProductId | null; reason: "not_sold" | "hidden" }>
   /** `productIds` and `unnamed` are the pendings left, named like the ones of a «listo» with pendings. */
   | Readonly<{ kind: "payment_request"; order: PaymentOrder; productIds: readonly ProductId[]; unnamed: number }>
   /** `unnamed` counts the pendings the product list cannot name (doubtful product); a deleted product is counted by the texts. */
@@ -66,7 +66,7 @@ function problemOf(outcome: ChatMessageOutcome): ProblemNotice | null {
     case "failed": return { kind: "failed" };
     case "reader_doubt": case "request_not_allowed": case "invalid_action": return { kind: "not_applied", orderId: outcome.orderId };
     case "payment_requested": return { kind: "payment_request", order: outcome.order, productIds: [...new Set(outcome.productIds)], unnamed: outcome.unnamed };
-    case "product_not_available": return { kind: "product_not_available", productId: outcome.productId };
+    case "product_not_available": return { kind: "product_not_available", productId: outcome.productId, reason: outcome.reason };
     case "variant_for_several_pendings": return { kind: "variant_for_several_pendings", productIds: [...new Set(outcome.productIds)], unnamed: outcome.unnamed };
     default: return null;
   }

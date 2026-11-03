@@ -30,6 +30,8 @@ export const createProductRequestSchema = z.strictObject({
   description: z.string().nullable(),
   // Ordered, position 0 is the primary. The limit and repeats are checked by core's domain so the client gets typed issues with the index.
   photoIds: z.array(uuidSchema),
+  // The seller hides the product from buyers: the public catalog and message reading. The seller still sells it.
+  hidden: z.boolean(),
   currency: z.enum(currencies),
   options: z.array(optionRequestSchema),
   variants: z.array(newVariantSchema).min(1),
@@ -41,6 +43,8 @@ export const saveProductRequestSchema = z.strictObject({
   description: z.string().nullable(),
   // Omitted = photos untouched; present = the whole new ordered list.
   photoIds: z.array(uuidSchema).optional(),
+  // Omitted = visibility untouched, so a stale form never shows a product another device hid.
+  hidden: z.boolean().optional(),
   options: z.array(optionRequestSchema),
   variants: z.array(z.strictObject({ id: uuidSchema, sku: z.string().nullable(), salePrice: z.number(), purchasePrice: z.number().nullable() })),
   newVariants: z.array(newVariantSchema),
@@ -76,6 +80,7 @@ export const productListResponseSchema = z.object({
   items: z.array(z.object({
     id: uuidSchema,
     name: z.string(),
+    hidden: z.boolean(),
     variantCount: z.number().int().positive(),
     activeVariantCount: z.number().int().nonnegative(),
     sku: z.string().optional(),
@@ -105,11 +110,12 @@ const variantResponseSchema = z.object({
   hasOrders: z.boolean(),
 });
 
-export const productDetailResponseSchema = z.object({
+const productDetailBaseSchema = z.object({
   product: z.object({
     id: uuidSchema,
     name: z.string(),
     description: z.string().nullable(),
+    hidden: z.boolean(),
     photos: z.array(productImageSchema).max(productPhotoLimits.maxPhotos),
     currency: z.enum(currencies),
     qrCode: uuidSchema,
@@ -119,7 +125,9 @@ export const productDetailResponseSchema = z.object({
     options: z.array(optionResponseSchema),
     variants: z.array(variantResponseSchema).min(1),
   }),
-}).superRefine((response, context) => {
+});
+
+function checkProductDetail(response: z.infer<typeof productDetailBaseSchema>, context: z.RefinementCtx) {
   const { product } = response;
   const photoIds = new Set<string>();
   product.photos.forEach((photo, photoIndex) => {
@@ -147,7 +155,11 @@ export const productDetailResponseSchema = z.object({
       && product.options.every((option, position) => variant.combination[position]?.optionId === option.id && valueOwner.get(variant.combination[position].valueId) === option.id);
     if (!matches) context.addIssue({ code: "custom", path: [...path, "combination"], message: "Combination must hold one value per option, in option order" });
   });
-});
+}
+
+export const productDetailResponseSchema = productDetailBaseSchema.superRefine(checkProductDetail);
+// The PUT response: the saved product and whether this save hid the published catalog's last offered product.
+export const saveProductResponseSchema = productDetailBaseSchema.extend({ catalogEmptied: z.boolean() }).superRefine(checkProductDetail);
 
 export const productIdResponseSchema = z.object({ id: uuidSchema });
 export const productApiErrorCodeSchema = z.enum([
@@ -197,5 +209,6 @@ export type ProductIssueReason = z.infer<typeof productIssueReasonSchema>;
 export type ProductListQuery = z.infer<typeof productListQuerySchema>;
 export type ProductListResponse = z.infer<typeof productListResponseSchema>;
 export type ProductDetailResponse = z.infer<typeof productDetailResponseSchema>;
+export type SaveProductResponse = z.infer<typeof saveProductResponseSchema>;
 export type ProductIdResponse = z.infer<typeof productIdResponseSchema>;
 export type ProductApiError = z.infer<typeof productApiErrorSchema>;

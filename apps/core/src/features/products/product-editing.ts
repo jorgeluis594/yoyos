@@ -11,7 +11,7 @@ import { getProduct, type GetDependencies } from "@core/src/features/products/ap
 import { saveProduct, type SaveProductDependencies, type SaveProductError, type SaveProductInput } from "@core/src/features/products/application/save-product";
 import { listProducts, type ListInput } from "@core/src/features/products/application/list";
 import { findImages, listImages, publishProductPhotosAdded } from "@core/src/features/products/composition";
-import { applyStructureChange, findForeignOptionIds, findSkuOwners, insertProduct, lockProduct, productExists, productRepository } from "@core/src/features/products/infrastructure/repository";
+import { applyStructureChange, findForeignOptionIds, findSkuOwners, insertProduct, hasOtherOfferedProduct, lockProduct, productExists, productRepository } from "@core/src/features/products/infrastructure/repository";
 import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
@@ -58,7 +58,7 @@ export function productCreateDependencies(companyId: string, started = performan
     productExists, findImages, findSkuOwners, findForeignOptionIds, insertProduct, publishProductPhotosAdded,
     newId: randomUUID, clock: () => new Date(),
     observe: {
-      created: ({ productId, optionCount, variantCount, photoCount }) => afterTransactionCommit(() => log.info({ event: "product_created", companyId, productId, optionCount, variantCount, photoCount,
+      created: ({ productId, optionCount, variantCount, photoCount, hidden }) => afterTransactionCommit(() => log.info({ event: "product_created", companyId, productId, optionCount, variantCount, photoCount, hidden,
         durationMs: Math.round(performance.now() - started) }, "product_created")),
       rejected: ({ productId, error }) => {
         if (!rejections.includes(error.code)) return;
@@ -78,7 +78,7 @@ const saveRejections: readonly SaveProductError["code"][] = ["VALIDATION_ERROR",
 export function productSaveDependencies(companyId: string, productId: string, started = performance.now()): SaveProductDependencies {
   return {
     transaction: (id, work) => productTransaction(id, work, { productId }),
-    lockProduct, findOrderedVariantIds, findSkuOwners, findForeignOptionIds, findImages, applyStructureChange,
+    lockProduct, hasOtherOfferedProduct, findOrderedVariantIds, findSkuOwners, findForeignOptionIds, findImages, applyStructureChange,
     reload: (id) => getProduct(id, productGetDependencies),
     newId: randomUUID, clock: () => new Date(), publishProductPhotosAdded,
     observe: {

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
 import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
+import { salePaymentOptions } from "@core/app/routes/sale-payment-options";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { data, useActionData, useLoaderData, useNavigate, useNavigation, useSubmit, type ActionFunctionArgs, type ClientActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { countryCurrencies, type Country } from "@shared/country";
@@ -23,10 +24,10 @@ import { useUnsavedChangesGuard } from "@core/src/features/orders/presentation/u
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const access = context.get(privateUserContext);
-  const settings = await deliverySettings.get({ companyId: access.company.id, userId: access.user.id });
+  const [settings, paymentOptions] = await Promise.all([deliverySettings.get({ companyId: access.company.id, userId: access.user.id }), salePaymentOptions(access.company.id)]);
   const base = companyPath(new URL(request.url).pathname, access.company.country, "/orders");
   return { ...newOrderLoaderSchema.parse({ base, orderId: crypto.randomUUID(), currency: countryCurrencies[access.company.country as Country] }),
-    settings: settings.success ? toDeliverySettingsResponse(settings.data) : null };
+    settings: settings.success ? toDeliverySettingsResponse(settings.data) : null, paymentOptions };
 }
 
 export async function action({ request, context }: ActionFunctionArgs) {
@@ -136,8 +137,8 @@ export default function OrderNew() {
   }
 
   const notice: ViewNotice | null = doubt ? { kind: "doubt", checking: doubt === "checking" } : outcome?.notice ?? null;
-  return <OrderView state={state} onStateChange={setState} settings={loaded.settings}
-    links={{ sales: loaded.base, deliverySettings: loaded.base.replace(/\/orders$/, "/settings/delivery"), createProduct: loaded.base.replace(/\/orders$/, "/products") + "/new" }}
+  return <OrderView state={state} onStateChange={setState} settings={loaded.settings} paymentOptions={loaded.paymentOptions}
+    links={{ sales: loaded.base, deliverySettings: loaded.base.replace(/\/orders$/, "/settings/delivery"), paymentSettings: loaded.base.replace(/\/orders$/, "/settings/payments"), createProduct: loaded.base.replace(/\/orders$/, "/products") + "/new" }}
     catalogEpoch={catalogEpoch} guard={guard} saving={saving} notice={notice} attempts={attempts}
     unavailableVariantId={outcome?.unavailableVariantId ?? null} coverRequired={outcome?.coverRequired ?? false}
     format={{ amount: money, date: (iso) => new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium" }).format(new Date(iso)) }}

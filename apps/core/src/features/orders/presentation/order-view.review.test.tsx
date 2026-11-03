@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import resources from "@core/app/locales";
 import { OrderView, type OrderViewProps } from "@core/src/features/orders/presentation/order-view";
+import { catalogPaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 import type { OrderViewState } from "@core/src/features/orders/presentation/order-view-state";
 import { deadpoolM, order1042, pen, savedState } from "@core/src/features/orders/presentation/order-1042.fixture";
 import {
@@ -35,7 +36,7 @@ async function mount(over: Partial<Over> = {}) {
   const onChanged = over.onChanged ?? vi.fn();
   const start = over.state ?? savedState({ order: over.order ?? whatsappOrder() });
   const propsFor = (current: OrderReviewResponse, changed: () => void): Omit<OrderViewProps, "state" | "onStateChange"> => ({
-    settings: null, links: { sales: "/es-PE/orders", deliverySettings: "/es-PE/settings/delivery", createProduct: "/es-PE/products/new" }, catalogEpoch: 0,
+    settings: null, paymentOptions: catalogPaymentOptions, links: { sales: "/es-PE/orders", deliverySettings: "/es-PE/settings/delivery", paymentSettings: "/es-PE/settings/payments", createProduct: "/es-PE/products/new" }, catalogEpoch: 0,
     guard: { blocked: false, mode: "changes", stay: vi.fn(), leave: vi.fn() }, saving: false, notice: null, attempts: 0, unavailableVariantId: null, coverRequired: false,
     format: { amount: (money) => `S/ ${money.amount.toFixed(2)}`, date: (iso) => iso }, newPaymentId: () => "00000000-0000-4000-8000-0000000000f1", onSave: vi.fn(), onCheckAgain: vi.fn(),
     saved: { link: { kind: "ready", url }, receiptUrls: {}, manualPaymentId: "00000000-0000-4000-8000-0000000000f2", voidResult: undefined, actionBusy: false, underHeader: null, statusCard: null,

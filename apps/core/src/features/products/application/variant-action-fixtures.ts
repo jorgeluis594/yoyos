@@ -24,7 +24,7 @@ function variant(variantId: VariantId, combination: Record<OptionId, OptionValue
 /** Talla M/L by Color Negro/Azul, four variants without stock unless said otherwise. */
 export function shirts(stock: Partial<Record<VariantId, number>> = {}): Product {
   return {
-    id: productId, name: "Polo", photoIds: [] as unknown as Product["photoIds"], currency: "PEN", qrCode: "qr-product", status: "active", createdAt: when, updatedAt: when, structureVersion: 3,
+    id: productId, name: "Polo", photoIds: [] as unknown as Product["photoIds"], currency: "PEN", qrCode: "qr-product", status: "active", hidden: false, createdAt: when, updatedAt: when, structureVersion: 3,
     options: [
       { id: talla, name: text("Talla"), values: [{ id: medium, name: text("M") }, { id: large, name: text("L") }] },
       { id: color, name: text("Color"), values: [{ id: negro, name: text("Negro") }, { id: azul, name: text("Azul") }] },

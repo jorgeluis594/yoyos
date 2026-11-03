@@ -47,10 +47,9 @@ test("returns a persistence failure, never an empty page", async () => {
   expect(pageDown).toMatchObject({ success: false, error: { code: "STATEMENT_TIMEOUT" } });
 });
 
-test("refuses a reversed price range and a variant filter outside the catalog before reading", async () => {
+test("refuses a reversed price range before reading", async () => {
   const deps = dependencies();
   expect(await searchForAssistant({ priceFromCents: 500, priceToCents: 100, sort: "recent", page: 1 }, deps)).toMatchObject({ success: false, error: { code: "PRICE_RANGE_REVERSED" } });
-  expect(await searchForAssistant({ stock: "low", inCatalog: false, sort: "recent", page: 1 }, deps)).toMatchObject({ success: false, error: { code: "VARIANT_FILTER_OUTSIDE_CATALOG" } });
   expect(deps.searchPage).not.toHaveBeenCalled();
 });
 

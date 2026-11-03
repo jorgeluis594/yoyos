@@ -136,7 +136,7 @@ describe("renderSellerNotice with the single reader", () => {
   });
 
   test("writes the product-not-available text without a name for a deleted product", () => {
-    const notice = (productId: ProductId | null): SellerNotice => ({ kind: "product_not_available", productId, newOrderId: null });
+    const notice = (productId: ProductId | null): SellerNotice => ({ kind: "product_not_available", productId, reason: "not_sold", newOrderId: null });
     expect(es(notice(product(1)))).toMatchObject({ title: "Producto no disponible", body: "Un cliente pidió Polo básico, que ya no está a la venta. Revisa el chat.", data: { target: "message" } });
     expect(pt(notice(product(1)))).toMatchObject({ title: "Produto indisponível", body: "Um cliente pediu Polo básico, que não está mais à venda. Veja o chat." });
     expect(es(notice(null)).body).toBe("Un cliente pidió un producto que ya no está a la venta. Revisa el chat.");
@@ -207,6 +207,21 @@ describe("renderSellerNotice with the single reader", () => {
     const notice: SellerNotice = { kind: "unnamed_add", newOrderId: order(2), question: { language: "es", kind: "photo_product_name" } };
     expect(es(notice).body).toBe("Un cliente pidió más de un producto sin decir cuál. Se creó el pedido nuevo #1024. ¿Me dices el nombre del producto de la foto?");
   });
+
+  test("the hidden reason uses the producto oculto body in Spanish and Portuguese", () => {
+    const notice = (productId: ProductId | null): SellerNotice => ({ kind: "product_not_available", productId, reason: "hidden", newOrderId: null });
+    expect(es(notice(product(1)))).toMatchObject({ title: "Producto no disponible",
+      body: "Un cliente pidió Polo básico, que es un producto oculto. Revisa el chat: puedes agregarlo tú al pedido o mostrarlo de nuevo en Productos." });
+    expect(pt(notice(product(1)))).toMatchObject({ title: "Produto indisponível",
+      body: "Um cliente pediu Polo básico, que é um produto oculto. Veja o chat: você pode adicioná-lo ao pedido ou mostrá-lo de novo em Produtos." });
+  });
+
+  test("the not sold reason keeps the ya no está a la venta body", () => {
+    const notice: SellerNotice = { kind: "product_not_available", productId: product(1), reason: "not_sold", newOrderId: null };
+    expect(es(notice).body).toContain("que ya no está a la venta");
+    expect(pt(notice).body).toContain("que não está mais à venda");
+  });
+
 
   test("writes the generic not-applied text with and without an order number", () => {
     const notice = (orderId: OrderId | null): SellerNotice => ({ kind: "not_applied", orderId, newOrderId: null });

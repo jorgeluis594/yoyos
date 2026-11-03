@@ -34,6 +34,8 @@ export type Product = Readonly<{
   /** Saved photos in order; the first is the primary. */
   photos: readonly Readonly<{ id: ImageId; url: string }>[];
   structureVersion: number;
+  /** The seller keeps it out of the public catalog and out of chat orders; she still sells it by hand. */
+  hidden: boolean;
   options: readonly ProductOption[];
   variants: readonly ProductVariant[];
 }>;
@@ -48,6 +50,7 @@ export type ProductListItem = Readonly<{
   price: Money | null;
   priceFrom: boolean;
   stock: number;
+  hidden: boolean;
   photo?: Readonly<{ id: ImageId; url: string }>;
 }>;
 

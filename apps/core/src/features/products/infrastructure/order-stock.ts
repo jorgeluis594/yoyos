@@ -25,11 +25,11 @@ function toCatalogItem(row: SellableRow, attributes: VariantAttributes): Catalog
 
 type SellableVariant = CatalogItem & Readonly<{ productId: string; primaryImageId: string | null; available: number }>;
 
-/** Active variants of active products with their current stock, read without lock: nothing is reserved. */
-export async function findSellableVariants(ids: readonly string[]) {
+/** Active variants of active products with their current stock, read without lock: nothing is reserved. `product` narrows which products qualify. */
+async function readSaleVariants(ids: readonly string[], product: Prisma.ProductWhereInput) {
   try {
     const { rows, attributes } = await withinReadSnapshot(async () => {
-      const rows = await prisma.productVariant.findMany({ where: { id: { in: [...ids] }, status: "active", product: { status: "active" } }, include: { product: { include: { photos: { where: { position: 0 }, select: { imageId: true } } } }, stock: true } });
+      const rows = await prisma.productVariant.findMany({ where: { id: { in: [...ids] }, status: "active", product }, include: { product: { include: { photos: { where: { position: 0 }, select: { imageId: true } } } }, stock: true } });
       return { rows, attributes: await loadAttributesOfVariants(rows.map((row) => row.id)) };
     });
     const items: SellableVariant[] = [];
@@ -49,6 +49,12 @@ export async function findSellableVariants(ids: readonly string[]) {
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
   }
 }
+
+/** Sellable: the seller can sell it. Hidden products are included: Nueva venta, the point of sale and the order editor ignore visibility. */
+export const findSellableVariants = (ids: readonly string[]) => readSaleVariants(ids, { status: "active" });
+
+/** Offered: sellable and not hidden. The buyer's cart and **Continuar** read this. */
+export const findOfferedVariants = (ids: readonly string[]) => readSaleVariants(ids, { status: "active", hidden: false });
 
 export async function findSellableVariantsByQrCodes(codes: readonly string[]) {
   try {

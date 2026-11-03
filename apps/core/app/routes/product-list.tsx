@@ -3,6 +3,8 @@ import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { isRouteErrorResponse, Link, useLoaderData, useNavigation, type LoaderFunctionArgs } from "react-router";
+import { EyeOff } from "lucide-react";
+import { Badge } from "@core/app/components/ui/badge";
 import { Button } from "@core/app/components/ui/button";
 import { DataTable, type TableColumn } from "@core/app/components/ui/data-table";
 import { ErrorState } from "@core/app/components/ui/error-state";
@@ -47,7 +49,10 @@ export default function ProductList() {
       header: t("products.name"),
       mobile: "title",
       cell: (item) => (
-        <TextLink asChild><Link to={`${base}/${item.id}`}>{item.name}</Link></TextLink>
+        <span className="flex flex-wrap items-center gap-2">
+          <TextLink asChild><Link to={`${base}/${item.id}`} aria-describedby={item.hidden ? `hidden-${item.id}` : undefined}>{item.name}</Link></TextLink>
+          {item.hidden && <Badge id={`hidden-${item.id}`} variant="outline"><EyeOff aria-hidden="true" />{t("products.hiddenBadge")}</Badge>}
+        </span>
       ),
     },
     {
