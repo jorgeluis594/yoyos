@@ -2,6 +2,7 @@ import type { CaseRecord } from "@core/evals/lib/case-record";
 import { costOf, type ModelCall } from "@core/evals/lib/model-meter";
 import type { ErrorGroups } from "@core/evals/lib/claude";
 import { gradePick, pickOf } from "@core/evals/lib/picks";
+import { stepFailuresOf } from "@core/evals/lib/conversation";
 import { repeatedNoticeProducts } from "@core/evals/lib/scorers";
 import { percentile } from "@core/evals/lib/stats";
 import { aggregateRuns, metricNames, metricsOfRun, runsOfRecords, type AggregatedMetrics, type MetricName } from "@core/evals/lib/metrics";
@@ -10,6 +11,8 @@ import { verdictLine, type VerdictSummary } from "@core/evals/lib/verdicts";
 /** Aggregation of one run's case records into the report written to eval-results/. Pure: unit-tested in report.test.ts. */
 
 export type Tally = Readonly<{ total: number; passed: number; accuracy: number }>;
+/** A pass rate over the runs: `total`, `passed` and `accuracy` are the mean over the runs, `min` and `max` the range of the accuracy; `perRun` is each run's tally by repeat. */
+export type RunsTally = Tally & Readonly<{ runs: number; min: number; max: number; perRun: readonly Tally[] }>;
 /** Right and wrong model picks in a confidence range; `unverified` picks the case cannot grade (lib/picks.ts). */
 export type Bucket = Readonly<{ range: string; correct: number; wrong: number; unverified: number }>;
 /** Calibration of one certainty source, graded by the model's own pick (lib/picks.ts), not by what its gate then decided. */
@@ -43,8 +46,13 @@ export type EvalReport = Readonly<{
   readerCalls: Readonly<Record<string, ReaderCallLine>>;
   /** Cases tagged `pinned-miss`: the actions ignored per repetition. */
   pinnedMiss: readonly Readonly<{ caseId: string; repeats: readonly Readonly<{ repeat: number; ignoredActions: number }>[]; ignoredInAnyRepeat: boolean }>[];
-  /** The end-to-end pass split by input: photo messages and text messages. */
-  endToEnd: Readonly<{ photo: Tally; text: Tally }>;
+  /** The end-to-end pass over every run (`EVAL_REPEATS`): the mean and range of the pass rate, whole and split by input (photo messages and text messages). */
+  endToEnd: Readonly<{ all: RunsTally; photo: RunsTally; text: RunsTally }>;
+  /**
+   * The failed steps of the conversations over every run, own or carried: a failed step is carried when an earlier step (message or failed event) of the same
+   * conversation and run already failed, own otherwise (lib/conversation.ts `stepFailuresOf`). Known limitations are left out; `ids` are the step ids of each kind.
+   */
+  conversationSteps: ConversationSteps;
   /** Cases tagged `known-limitation`: beyond the documented design, listed here and left out of every score. */
   knownLimitations: readonly Readonly<{ caseId: string; passed: boolean; signature: string }>[];
   retries: Readonly<{ messages: number; attempts: number }>;
@@ -78,6 +86,18 @@ export type EvalReport = Readonly<{
   runs: Readonly<{ count: number; metrics: AggregatedMetrics }>;
   /** Seller verdict label counts from `EVAL_VERDICTS_FROM`, weak labels apart; null when no file was given. */
   verdicts: VerdictSummary | null;
+}>;
+
+export type StepFailures = Readonly<{ count: number; ids: readonly string[] }>;
+export type ConversationSteps = Readonly<{
+  runs: number;
+  /** The message steps of the conversations, all runs together; a failed event is no message step. */
+  steps: number;
+  /** Own and carried failures together: failed message steps and failed events. */
+  failed: number;
+  own: StepFailures;
+  carried: StepFailures;
+  perRun: readonly Readonly<{ repeat: number; steps: number; own: number; carried: number }>[];
 }>;
 
 export type ConsistencyLine = Readonly<{ repeated: number; consistent: number; percent: number }>;
@@ -158,6 +178,16 @@ const tally = (records: readonly CaseRecord[]): Tally => {
 };
 
 const round = (value: number, digits = 3) => Math.round(value * 10 ** digits) / 10 ** digits;
+
+/** The records of each run (repeat) tallied apart, then their mean and range; a set with no records has no runs. */
+function runsTally(records: readonly CaseRecord[]): RunsTally {
+  const perRun = runsOfRecords(records).map(tally);
+  if (!perRun.length) return { ...tally([]), runs: 0, min: 0, max: 0, perRun };
+  const mean = (pick: (run: Tally) => number, digits = 3) => round(perRun.reduce((sum, run) => sum + pick(run), 0) / perRun.length, digits);
+  const accuracies = perRun.map(({ accuracy }) => accuracy);
+  return { total: mean(({ total }) => total, 2), passed: mean(({ passed }) => passed, 2), accuracy: mean(({ accuracy }) => accuracy), runs: perRun.length,
+    min: Math.min(...accuracies), max: Math.max(...accuracies), perRun };
+}
 
 function groupBy(records: readonly CaseRecord[], keys: (record: CaseRecord) => readonly string[]): Record<string, Tally> {
   const groups = new Map<string, CaseRecord[]>();
@@ -244,6 +274,22 @@ function tagMetricsOf(scored: readonly CaseRecord[]): TagMetrics {
   };
 }
 
+function endToEndOf(records: readonly CaseRecord[]): EvalReport["endToEnd"] {
+  const messages = records.filter(({ pass }) => pass === "end_to_end");
+  return { all: runsTally(messages), photo: runsTally(messages.filter(({ input }) => input.startsWith("photo"))), text: runsTally(messages.filter(({ input }) => !input.startsWith("photo"))) };
+}
+
+function conversationStepsOf(records: readonly CaseRecord[]): ConversationSteps {
+  const steps = records.filter(({ conversationId, tags }) => conversationId !== null && !tags.includes("known-limitation"));
+  const failures = stepFailuresOf(steps);
+  const ofKind = (kind: "own" | "carried", repeat?: number) => failures.filter((failure) => failure.kind === kind && (repeat === undefined || failure.record.repeat === repeat));
+  const failuresOf = (kind: "own" | "carried"): StepFailures => ({ count: ofKind(kind).length, ids: [...new Set(ofKind(kind).map(({ record }) => record.caseId))].sort() });
+  const messages = steps.filter(({ event }) => event === undefined);
+  const repeats = [...new Set(steps.map(({ repeat }) => repeat))].sort((a, b) => a - b);
+  return { runs: repeats.length, steps: messages.length, failed: failures.length, own: failuresOf("own"), carried: failuresOf("carried"),
+    perRun: repeats.map((repeat) => ({ repeat, steps: messages.filter((record) => record.repeat === repeat).length, own: ofKind("own", repeat).length, carried: ofKind("carried", repeat).length })) };
+}
+
 function runsReport(records: readonly CaseRecord[]): EvalReport["runs"] {
   const runs = runsOfRecords(records);
   return { count: runs.length, metrics: aggregateRuns(runs.map(metricsOfRun)) };
@@ -322,8 +368,10 @@ function usageBy(calls: readonly ModelCall[], key: (call: ModelCall) => string):
  * Builds the run report. `extraCalls` are model calls made outside any case (Claude's classifier). Accuracy counts the first run of
  * each case; repeats only feed consistency, latency and usage.
  */
-export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extraCalls: readonly ModelCall[] = [], errorGroups: ErrorGroups["groups"] = [],
+export function buildReport(allRecords: readonly CaseRecord[], meta: RunMeta, extraCalls: readonly ModelCall[] = [], errorGroups: ErrorGroups["groups"] = [],
   verdicts: VerdictSummary | null = null): EvalReport {
+  // The record of a failed event is no message: scores, gates, cost and latency read the messages; it shows in the conversation steps and the failures.
+  const records = allRecords.filter(({ event }) => event === undefined);
   const firstRuns = records.filter(({ repeat }) => repeat === 0);
   const known = firstRuns.filter(({ tags }) => tags.includes("known-limitation"));
   const scored = firstRuns.filter((record) => !known.includes(record));
@@ -375,10 +423,8 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
     cost: costOfRecords(scored.filter(isMessageRecord)),
     readerCalls: readerCallsOf(scored),
     pinnedMiss: pinnedMissOf(records),
-    endToEnd: {
-      photo: tally(scored.filter(({ pass, input }) => pass === "end_to_end" && input.startsWith("photo"))),
-      text: tally(scored.filter(({ pass, input }) => pass === "end_to_end" && !input.startsWith("photo"))),
-    },
+    endToEnd: endToEndOf(records.filter((record) => !record.tags.includes("known-limitation"))),
+    conversationSteps: conversationStepsOf(allRecords),
     knownLimitations: known.map(({ caseId, passed, signature }) => ({ caseId, passed, signature })),
     image: imageView(scored),
     retries: { messages: records.filter(({ retries }) => retries > 0).length, attempts: records.reduce((sum, { retries }) => sum + retries, 0) },
@@ -402,7 +448,7 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
       unpricedModels: Object.entries(byModel).filter(([, usage]) => usage.costUsd === null).map(([model]) => model),
       systemCostPerMessageUsd: records.length && systemCost !== null ? round(systemCost / records.length, 6) : 0,
     },
-    failures: scored.filter(({ passed }) => !passed).map(({ caseId, pass, input, expected, actual, fields: scores, error, certainties }) =>
+    failures: allRecords.filter(({ repeat, tags, passed }) => repeat === 0 && !tags.includes("known-limitation") && !passed).map(({ caseId, pass, input, expected, actual, fields: scores, error, certainties }) =>
       ({ caseId, pass, input, expected, actual, fields: scores, error, certainties })),
     errorGroups,
   };
@@ -410,6 +456,23 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
 
 const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
 const line = (name: string, value: Tally) => `  ${name.padEnd(34)} ${String(value.passed).padStart(4)}/${String(value.total).padEnd(4)} ${percent(value.accuracy)}`;
+
+const runsLabel = (runs: number) => `${runs} run${runs === 1 ? "" : "s"}`;
+const rangeText = (value: RunsTally) => `${percent(value.accuracy)} (min ${percent(value.min)}, max ${percent(value.max)})`;
+
+/** The end-to-end pass rate as the mean and range over the runs, whole and split by input; nothing when the run had no end-to-end message. */
+function endToEndLines({ all, photo, text }: EvalReport["endToEnd"]): readonly string[] {
+  if (!all.runs) return [];
+  return [`End to end over ${runsLabel(all.runs)} (mean and range): ${rangeText(all)}`,
+    ...(photo.runs && text.runs ? [`  photo messages: ${rangeText(photo)}`, `  text messages: ${rangeText(text)}`] : [])];
+}
+
+/** Counts only: the ids of the steps are in `formatSummary` and the report file, not in the aggregate lines of a private run. */
+function conversationStepLines({ runs, failed, own, carried, perRun }: ConversationSteps): readonly string[] {
+  if (!runs) return [];
+  return [`Conversation steps failed over ${runsLabel(runs)}: ${own.count} own, ${carried.count} carried from an earlier failed step of the same conversation and run (${failed} in all)`,
+    ...(runs > 1 ? [`  per run: own ${perRun.map((run) => run.own).join(" / ")}, carried ${perRun.map((run) => run.carried).join(" / ")}`] : [])];
+}
 
 const gateText = (name: string, lines: GateLines) => [
   `${name}: right ${lines.right} of ${lines.scored} scored messages (${lines.rightPercent.toFixed(1)}%)`,
@@ -430,6 +493,8 @@ export function formatGateSummary(report: EvalReport): string {
     `Metrics over ${report.runs.count} run${report.runs.count === 1 ? "" : "s"} (mean and range)${typeof report.settings.reader === "string" ? `, ${report.settings.reader} reader` : ""}`,
     ...metricLines(report),
     ...(report.verdicts ? [verdictLine(report.verdicts)] : []),
+    ...endToEndLines(report.endToEnd),
+    ...conversationStepLines(report.conversationSteps),
     "First run in detail",
     ...gateText("whole run", report.gate.whole),
     ...Object.entries(report.gate.byFamily).flatMap(([family, lines]) => gateText(`family ${family}`, lines)),
@@ -452,11 +517,11 @@ export function formatSummary(report: EvalReport, path: string): string {
   return [
     `Eval run ${report.runId}`,
     line("overall", report.overall),
-    ...section("By pass", report.byPass),
-    ...(report.endToEnd.photo.total && report.endToEnd.text.total ? [line("end_to_end photo messages", report.endToEnd.photo), line("end_to_end text messages", report.endToEnd.text)] : []),
+    ...section("By pass (first run)", report.byPass),
     ...section("By criterion", report.byCriterion),
     ...section("Fields", report.fields),
     formatGateSummary(report),
+    ...(report.conversationSteps.failed ? [`  own ids: ${report.conversationSteps.own.ids.join(", ") || "none"}`, `  carried ids: ${report.conversationSteps.carried.ids.join(", ") || "none"}`] : []),
     ...(report.pinnedMiss.length ? ["Pinned misses (ignored actions per repetition)", ...report.pinnedMiss.map(({ caseId, repeats, ignoredInAnyRepeat }) =>
       `  ${caseId.padEnd(34)} ${repeats.map(({ ignoredActions }) => ignoredActions).join(" / ")}${ignoredInAnyRepeat ? "  IGNORED" : ""}`)] : []),
     "Calibration at the production gates: the model's own picks, right / wrong, accepted (≥ gate) and rejected (< gate)",

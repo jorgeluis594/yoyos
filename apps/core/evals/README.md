@@ -149,6 +149,18 @@ Event steps act on the chat's latest order through the production use cases, at 
 Every step happens a minute after the previous one, so messages keep their order. Nothing publishes events, so a cancellation does
 not restore stock. A conversation's split is the hash of its id. Each message leaves one record, `<conversation id>#<number>`, with the conversation id.
 
+A conversation **stops at its first step that throws** (an event that cannot act, such as `report_payment` or `confirm_payment` with no order
+because the earlier message left none, or a failure of the harness). The messages already applied stay; the ones never sent are recorded as
+failed with the error that stopped it, so a broken run cannot look like fewer messages. A failed event is kept as a record of its own,
+`<conversation id>#event<number>` (the number counts the conversation's event steps, `advance_days` included), failed, with the error message and
+`event: { name, after }` (`after` is how many messages came before it); it is no message, so the message scores, gate lines, cost and latency leave it out.
+
+**Own and carried failures.** A failed step of a conversation (a message record, or a failed event record) is **carried** when an earlier step of
+the same conversation in the same run (`repeat`) already failed; otherwise it is **own**. «Earlier» is the message number `step`, with an event
+record placed after the `after` messages that came before it. The rule reads only the stored records (`conversationId`, `step` or `event.after`,
+`repeat`, `passed`), so a saved run can be read the same way (`stepFailuresOf` in `lib/conversation.ts`). For example, a first message that fails
+and an event that then cannot act: the message is own, the event and every later message are carried.
+
 ## Scoring
 
 Notice kind, outcomes (as a multiset), product, variant, quantity and mentioned price are exact matches; every message also checks
@@ -177,8 +189,14 @@ certainties with their gate, the counts above, latency, retries, model calls wit
   tokens, the p95 latency per message, and the model calls per message kind (text, photo, photo with caption) against what the
   design allows (the reader and the vision chooser are not told apart);
 - a `pinned-miss` section: for each case tagged `pinned-miss`, the ignored actions of each repetition;
-- accuracy overall and per pass, criterion, kind, tag and scored field; the end-to-end pass split into photo and text messages;
-  known limitations listed apart;
+- accuracy overall and per pass, criterion, kind, tag and scored field, all over the first run; known limitations listed apart;
+- **Conversation steps** (`conversationSteps`, and the «Conversation steps failed over N runs» line of the gate summary): over all runs, the failed
+  steps split into own and carried (see Conversation cases), with counts, counts per run, and the ids of each kind (`own.ids`, `carried.ids`; the full
+  summary prints them, the aggregate lines of a private run do not). Known limitations are left out. A conversation scores the same either way:
+  carried failures stay failed messages in the gate and the metrics; the split tells which failures are the step's own;
+- **End to end over every run** (`endToEnd`, and the «End to end over N runs» line of the gate summary): the pass rate of the `end_to_end`
+  pass as the mean over all `EVAL_REPEATS` runs with its range (min and max of the runs' rates), whole and split into photo and text
+  messages. `byPass.end_to_end` stays the first run's tally; quote the mean and range, not the first run;
 - calibration of the visual search at its production gate (`visual`, `visual_none`, `shows_product`), graded by the model's own pick
   (`lib/picks.ts`). Reading a message has no certainty gate, so there is nothing else to calibrate;
 - prompt injection outcomes, judge rescues and disagreements;

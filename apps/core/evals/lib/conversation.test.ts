@@ -1,6 +1,7 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { evalCase, type ConversationCase, type EventStep, type MessageStep } from "@core/evals/cases/schema";
-import { SimulatedClock, runConversationSteps } from "@core/evals/lib/conversation";
+import { ConversationEventError, SimulatedClock, runConversationSteps, stepFailuresOf } from "@core/evals/lib/conversation";
+import { messageRecord } from "@core/evals/lib/record-fixture";
 import { splitOfCase } from "@core/evals/cases/split";
 
 const message = (text: string): MessageStep => ({ input: { text }, expected: { notice: null } });
@@ -43,4 +44,38 @@ test("parses a conversation with events and rejects one with five messages", () 
   expect(() => evalCase.parse(conversation([five[0]]))).toThrow();
   expect(() => evalCase.parse(conversation([five[0], five[1], { event: "unknown" }]))).toThrow();
   expect(() => evalCase.parse(conversation([five[0], { input: { text: "x" }, expected: { outcomes: [] } }]))).toThrow();
+});
+
+test("an event that throws stops the conversation with an error that names the event and the messages before it", async () => {
+  const driver = {
+    message: async (_step: MessageStep, number: number) => number,
+    event: async (step: EventStep) => { if (step.event === "report_payment") throw new Error("The conversation has no order for report_payment"); },
+  };
+
+  const failure = await runConversationSteps([message("a"), { event: "advance_days", days: 1 }, { event: "cancel_order" }, { event: "report_payment" }, message("b")], driver).catch((cause: unknown) => cause);
+
+  expect(failure).toBeInstanceOf(ConversationEventError);
+  expect(failure).toMatchObject({ message: "The conversation has no order for report_payment", step: { event: "report_payment" }, eventNumber: 3, after: 1 });
+});
+
+describe("stepFailuresOf", () => {
+  const step = (conversationId: string, number: number, passed: boolean, repeat = 0) =>
+    messageRecord({ caseId: `${conversationId}#${number}`, pass: "conversation", conversationId, step: number, passed, repeat });
+  const kinds = (records: ReturnType<typeof step>[]) => stepFailuresOf(records).map(({ record, kind }) => `${record.caseId}/${record.repeat} ${kind}`);
+
+  test("a failed step is carried when an earlier step of the same conversation and repeat failed, else own", () => {
+    expect(kinds([step("c", 1, true), step("c", 2, false), step("c", 3, false), step("d", 1, false), step("d", 2, true), step("d", 3, false), step("c", 1, true, 1), step("c", 2, true, 1), step("c", 3, false, 1)]))
+      .toEqual(["c#2/0 own", "c#3/0 carried", "d#1/0 own", "d#3/0 carried", "c#3/1 own"]);
+  });
+
+  test("does not depend on the order of the records, and a failed event sits between its messages", () => {
+    const event = messageRecord({ caseId: "c#event1", pass: "conversation", conversationId: "c", step: null, passed: false, event: { name: "report_payment", after: 1 } });
+
+    expect(kinds([step("c", 2, false), event, step("c", 1, true)])).toEqual(["c#event1/0 own", "c#2/0 carried"]);
+    expect(kinds([step("c", 2, false), event, step("c", 1, false)])).toEqual(["c#1/0 own", "c#event1/0 carried", "c#2/0 carried"]);
+  });
+
+  test("ignores records outside conversations", () => {
+    expect(kinds([messageRecord({ passed: false })])).toEqual([]);
+  });
 });
