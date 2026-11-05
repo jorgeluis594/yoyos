@@ -188,11 +188,11 @@ test("a product that fails to load can still be closed without the tab bar", asy
   expect(mockReplace).toHaveBeenCalledWith("/products");
 });
 
-test("editing shows the same inventory stepper as creation, locked", async () => {
+test("editing shows the same inventory stepper as creation, editable", async () => {
   mockLoadProduct.mockResolvedValue(ok(product));
   renderScreen();
   expect(await screen.findByText("Editar producto")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Sumar uno al stock" }).props.accessibilityState.disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Sumar uno al stock" }).props.accessibilityState.disabled).toBe(false);
   expect(screen.queryByText("El stock cambia con las ventas y ajustes.")).toBeNull();
   expect(screen.queryByLabelText("Copias de la etiqueta")).toBeNull();
 });

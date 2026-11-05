@@ -169,7 +169,7 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
         ]} />
       </View>
     </View> : null}
-    {bulk ? <BulkSheet kind={bulk} count={selection.length} newCount={selected.filter((row) => row.id === null).length} chipNames={chipNames} currency={currency} onClose={() => setBulk(null)}
+    {bulk ? <BulkSheet kind={bulk} count={selection.length} chipNames={chipNames} currency={currency} onClose={() => setBulk(null)}
       onApply={(patch) => apply(patch)} /> : null}
   </SafeAreaView></ThemedView>;
 }
@@ -183,15 +183,15 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
   </Pressable>;
 }
 
-function BulkSheet({ kind, count, newCount, chipNames, currency, onClose, onApply }: {
-  kind: Bulk; count: number; newCount: number; chipNames: string; currency: string; onClose: () => void; onApply: (patch: RowPatch) => void;
+function BulkSheet({ kind, count, chipNames, currency, onClose, onApply }: {
+  kind: Bulk; count: number; chipNames: string; currency: string; onClose: () => void; onApply: (patch: RowPatch) => void;
 }) {
   const { t } = useTranslation();
   const theme = useTheme();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const stock = kind === "stock";
-  const applied = stock ? newCount : count;
+  const applied = count;
   const submit = () => {
     if (stock) {
       if (!/^\d+$/.test(text.trim())) { setError(t("initialStockInvalid")); return; }
@@ -209,7 +209,7 @@ function BulkSheet({ kind, count, newCount, chipNames, currency, onClose, onAppl
       <SafeAreaView edges={["bottom"]} style={[styles.sheet, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <ThemedText type="subtitle" accessibilityRole="header">{title}</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">{chipNames ? t("applyToSelectedBy", { count, chips: chipNames }) : t("applyToSelected", { count })}</ThemedText>
-        {stock && newCount < count ? <ThemedText type="small" themeColor="textSecondary">{t("stockOnlyNew", { count: newCount })}</ThemedText> : <ThemedText type="small" themeColor="textSecondary">{t("replacesCurrent")}</ThemedText>}
+        <ThemedText type="small" themeColor="textSecondary">{t("replacesCurrent")}</ThemedText>
         <Field invalid={!!error}>
           <FieldLabel>{title}</FieldLabel>
           {stock ? <QuantityStepper value={text} onChange={(value) => { setText(value); setError(null); }} disabled={false} accessibilityLabel={title} decreaseLabel={t("decreaseStock")} increaseLabel={t("increaseStock")} />

@@ -24,12 +24,12 @@ export function ConfirmDialog({ title, description, confirm, cancel, onConfirm, 
 
 const amount = (text: string): number | null => text.trim() === "" ? null : Number(text);
 
-export function BulkDialog({ kind, selected, hidden, newCount, onApply, onClose }: Readonly<{
-  kind: BulkKind; selected: number; hidden: number; newCount: number; onApply: (patch: RowPatch) => void; onClose: () => void;
+export function BulkDialog({ kind, selected, hidden, onApply, onClose }: Readonly<{
+  kind: BulkKind; selected: number; hidden: number; onApply: (patch: RowPatch) => void; onClose: () => void;
 }>) {
   const { t } = useTranslation();
   const [text, setText] = useState("");
-  const applies = kind === "stock" ? newCount : selected;
+  const applies = selected;
   const title = { salePrice: t("productEditor.bulkSalePrice"), purchasePrice: t("productEditor.bulkPurchasePrice"), stock: t("productEditor.bulkStock") }[kind];
   const number = amount(text);
   const valid = kind === "purchasePrice" ? true : number !== null && Number.isFinite(number) && number >= (kind === "stock" ? 0 : 0.01);
@@ -46,7 +46,7 @@ export function BulkDialog({ kind, selected, hidden, newCount, onApply, onClose 
       <form onSubmit={submit} className="grid gap-4">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{t("productEditor.bulkApplies", { count: selected })}{hidden > 0 && ` ${t("productEditor.bulkHidden", { count: hidden })}`} {kind === "stock" ? t("productEditor.bulkStockNew", { count: newCount }) : t("productEditor.bulkReplaces")}</DialogDescription>
+          <DialogDescription>{t("productEditor.bulkApplies", { count: selected })}{hidden > 0 && ` ${t("productEditor.bulkHidden", { count: hidden })}`} {t("productEditor.bulkReplaces")}</DialogDescription>
         </DialogHeader>
         <Field>
           <FieldLabel htmlFor="bulk-value">{title}</FieldLabel>

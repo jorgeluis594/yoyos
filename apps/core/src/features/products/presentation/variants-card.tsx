@@ -163,7 +163,7 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
       <TableCell className="w-32">{active
         ? <Input key={`${row.ref}:${version}`} type="number" inputMode="decimal" step="0.01" min="0.01" defaultValue={row.salePrice.toFixed(2)} aria-label={t("productEditor.salePriceOf", { label })} aria-invalid={Boolean(error) || undefined} onChange={(event) => input(row.ref, "salePrice", event.target.value)} />
         : <span>{row.salePrice.toFixed(2)}</span>}</TableCell>
-      <TableCell className="w-24">{active && unsaved
+      <TableCell className="w-24">{active
         ? <Input key={`${row.ref}:${version}`} type="number" inputMode="numeric" step="1" min="0" defaultValue={row.stock} aria-label={t("productEditor.stockOf", { label })} onChange={(event) => input(row.ref, "stock", event.target.value)} />
         : <span>{row.stock}</span>}</TableCell>
       <TableCell className="w-10">{unsaved && removal === null &&
@@ -220,7 +220,7 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
           {selectedLive.length > 0 && <div role="toolbar" className="flex flex-wrap items-center gap-2 rounded-lg bg-muted p-2 text-sm">
             <span>{t("productEditor.selected", { count: selectedLive.length })}{hidden > 0 && ` (${t("productEditor.hiddenByFilter", { count: hidden })})`}</span>
             <Button type="button" size="sm" variant="outline" onClick={() => setBulk("salePrice")}>{t("productEditor.editSalePrice")}</Button>
-            <Button type="button" size="sm" variant="outline" disabled={newSelected === 0} onClick={() => setBulk("stock")}>{t("productEditor.editStock")}</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setBulk("stock")}>{t("productEditor.editStock")}</Button>
             <Button type="button" size="sm" variant="outline" onClick={() => setBulk("purchasePrice")}>{t("productEditor.editPurchasePrice")}</Button>
             {newSelected > 0 && <Button type="button" size="sm" variant="outline" onClick={removeSelected}>{t("productEditor.remove")}</Button>}
             <Button type="button" size="sm" variant="ghost" onClick={() => setSelected([])}>{t("productEditor.clearSelection")}</Button>
@@ -253,7 +253,7 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
         </section>}
       </CardContent>
     </Card>
-    {bulk && <BulkDialog kind={bulk} selected={selectedLive.length} hidden={hidden} newCount={newSelected} onApply={applyBulkPatch} onClose={() => setBulk(null)} />}
+    {bulk && <BulkDialog kind={bulk} selected={selectedLive.length} hidden={hidden} onApply={applyBulkPatch} onClose={() => setBulk(null)} />}
     {rowRef && (() => {
       const view = views.find((candidate) => candidate.row.ref === rowRef);
       return view ? <RowDialog row={view.row} label={view.label} currency={currency}

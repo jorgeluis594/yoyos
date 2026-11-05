@@ -132,7 +132,7 @@ export default function ProductManagementScreen() {
     const row = simple && draft.options.length === 0 ? draft.rows[0] : undefined;
     if (!row) return draft;
     return setRow(draft, row.ref, {
-      sku: values.sku.trim() || null, salePrice: baseOf(values).salePrice, purchasePrice: baseOf(values).purchasePrice,
+      sku: values.sku.trim() || null, salePrice: baseOf(values).salePrice, purchasePrice: baseOf(values).purchasePrice, stock: baseOf(values).stock,
     });
   };
   const openEditor = (route: "options" | "variants") => {

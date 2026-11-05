@@ -261,15 +261,15 @@ test("chips and Todas never select inactive or marked rows", () => {
   assert.ok(!all.includes(rowOf(withMarked, "S / Negro").ref) && !all.includes(rowOf(withMarked, "XL / Negro").ref));
 });
 
-test("bulk edits reach the selection, and stock only reaches new rows", () => {
+test("bulk edits reach the selection, saved rows' stock included", () => {
   let draft = must(addValue(draftFromProduct(fullPolo()), uuid(100), { id: uuid(900), name: "XL" }));
   const selected = orderedRows(draft).map((row) => row.ref);
   const priced = applyBulk(draft, selected, { salePrice: 42.9 });
   assert.equal(priced.applied, 6);
   assert.ok(orderedRows(priced.draft).every((row) => row.salePrice === 42.9));
   const stocked = applyBulk(draft, selected, { stock: 7 });
-  assert.equal(stocked.applied, 2);
-  assert.deepEqual(orderedRows(stocked.draft).map((row) => row.stock), [0, 0, 0, 0, 7, 7]);
+  assert.equal(stocked.applied, 6);
+  assert.deepEqual(orderedRows(stocked.draft).map((row) => row.stock), [7, 7, 7, 7, 7, 7]);
 });
 
 test("lists combinations not created in saved order and adding one respects the limit", () => {

@@ -129,16 +129,12 @@ export function ProductForm({
             <FieldLabel>SKU</FieldLabel><Input value={values.sku} onChangeText={(value) => setValue("sku", value)} maxLength={100} placeholder={t('optional')} accessibilityLabel={t('optionalSku')} autoCapitalize="characters" />
             {errors.sku ? <FieldError>{errors.sku}</FieldError> : null}
           </Field>
-          {current ? <Field style={fieldColumn} disabled>
-            <FieldLabel>{t('stock')}</FieldLabel>
-            <QuantityStepper value={String(current.variants[0]?.stock ?? 0)} onChange={() => {}} disabled
-              accessibilityLabel={t('readonlyStock', { count: current.variants[0]?.stock ?? 0 })} decreaseLabel={t('decreaseStock')} increaseLabel={t('increaseStock')} />
-          </Field> : <Field style={fieldColumn} invalid={!!errors.stock} disabled={disabled}>
-            <FieldLabel>{t('initialStock')}</FieldLabel>
+          <Field style={fieldColumn} invalid={!!errors.stock} disabled={disabled}>
+            <FieldLabel>{current ? t('stock') : t('initialStock')}</FieldLabel>
             <QuantityStepper value={values.stock} onChange={(value) => setValue("stock", value)} disabled={disabled}
-              accessibilityLabel={t('optionalInitialStock')} decreaseLabel={t('decreaseStock')} increaseLabel={t('increaseStock')} />
+              accessibilityLabel={current ? t('stock') : t('optionalInitialStock')} decreaseLabel={t('decreaseStock')} increaseLabel={t('increaseStock')} />
             {errors.stock ? <FieldError>{errors.stock}</FieldError> : null}
-          </Field>}
+          </Field>
         </FieldGroup>}
       </View>
       {conflict ? <Button variant="secondary" onPress={onReviewCatalog}>{t('backToCatalog')}</Button> : null}

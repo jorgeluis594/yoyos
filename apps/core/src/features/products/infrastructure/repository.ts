@@ -288,15 +288,21 @@ export async function applyStructureChange(change: ProductStructureChange): Prom
     // Clearing the changed SKUs first lets two variants swap them: the SKU index is not deferrable.
     const skuChanges = change.variantFieldChanges.filter((item) => item.sku !== undefined);
     if (skuChanges.length) await prisma.$executeRaw(Prisma.sql`UPDATE "ProductVariant" SET sku = NULL WHERE "companyId" = ${companyId}::uuid AND id IN (${uuidList(skuChanges.map((item) => item.id))})`);
-    if (change.variantFieldChanges.length) await prisma.$executeRaw(Prisma.sql`UPDATE "ProductVariant" p SET
+    const fieldChanges = change.variantFieldChanges.filter((item) => item.sku !== undefined || item.salePrice !== undefined || item.purchasePrice !== undefined);
+    if (fieldChanges.length) await prisma.$executeRaw(Prisma.sql`UPDATE "ProductVariant" p SET
         sku = CASE WHEN v.set_sku THEN v.sku ELSE p.sku END,
         "salePrice" = CASE WHEN v.set_sale THEN v."salePrice" ELSE p."salePrice" END,
         "purchasePrice" = CASE WHEN v.set_purchase THEN v."purchasePrice" ELSE p."purchasePrice" END
-      FROM (VALUES ${rowsOf(change.variantFieldChanges.map((item) => Prisma.sql`${item.id}::uuid, ${item.sku !== undefined}::boolean, ${item.sku ?? null}::text,
+      FROM (VALUES ${rowsOf(fieldChanges.map((item) => Prisma.sql`${item.id}::uuid, ${item.sku !== undefined}::boolean, ${item.sku ?? null}::text,
         ${item.salePrice !== undefined}::boolean, ${item.salePrice === undefined ? null : decimal(item.salePrice)}::numeric,
         ${item.purchasePrice !== undefined}::boolean, ${item.purchasePrice === undefined || item.purchasePrice === null ? null : decimal(item.purchasePrice)}::numeric`))})
         AS v(id, set_sku, sku, set_sale, "salePrice", set_purchase, "purchasePrice")
       WHERE p.id = v.id AND p."companyId" = ${companyId}::uuid`);
+    // In variant order, like every other path that writes stock rows.
+    const stockChanges = change.variantFieldChanges.flatMap((item) => item.stock === undefined ? [] : [{ id: item.id, stock: item.stock }]).sort((a, b) => a.id < b.id ? -1 : 1);
+    if (stockChanges.length) await prisma.$executeRaw(Prisma.sql`UPDATE "ProductStock" s SET quantity = v.quantity
+      FROM (VALUES ${rowsOf(stockChanges.map((item) => Prisma.sql`${item.id}::uuid, ${BigInt(item.stock)}::bigint`))}) AS v(id, quantity)
+      WHERE s."variantId" = v.id AND s."companyId" = ${companyId}::uuid`);
     if (change.insertVariants.length) {
       await prisma.productVariant.createMany({ data: change.insertVariants.map((variant) => ({
         id: variant.id, productId, combinationKey: variant.combinationKey, sku: variant.sku, salePrice: decimal(variant.salePrice),

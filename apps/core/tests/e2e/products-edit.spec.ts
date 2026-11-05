@@ -31,7 +31,7 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await browserExpect(page).toHaveURL(firstProductUrl);
 
     await browserExpect(page.getByLabel("SKU")).toHaveValue("CUAD-1");
-    expect(await page.getByLabel("Stock").isEditable()).toBe(false);
+    expect(await page.getByLabel("Stock").isEditable()).toBe(true);
     await browserExpect(page.getByLabel("Stock")).toHaveValue("4");
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole("button", { name: "Alternar tema" }).click();

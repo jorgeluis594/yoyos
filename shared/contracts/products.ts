@@ -46,7 +46,8 @@ export const saveProductRequestSchema = z.strictObject({
   // Omitted = visibility untouched, so a stale form never shows a product another device hid.
   hidden: z.boolean().optional(),
   options: z.array(optionRequestSchema),
-  variants: z.array(z.strictObject({ id: uuidSchema, sku: z.string().nullable(), salePrice: z.number(), purchasePrice: z.number().nullable() })),
+  // `stock` only when the seller changed it: it replaces the count, so an omitted one never overwrites a sale made meanwhile.
+  variants: z.array(z.strictObject({ id: uuidSchema, sku: z.string().nullable(), salePrice: z.number(), purchasePrice: z.number().nullable(), stock: z.number().optional() })),
   newVariants: z.array(newVariantSchema),
   deletedVariantIds: z.array(uuidSchema),
 }).readonly();

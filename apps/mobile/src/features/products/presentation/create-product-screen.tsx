@@ -79,7 +79,7 @@ export default function CreateProductScreen() {
     router.push(productPath(undefined, route));
   };
   const save = async () => {
-    const invalid = validateProductForm(values, !hasOptions, true);
+    const invalid = validateProductForm(values, !hasOptions);
     if (Object.keys(invalid).length) { setErrors(invalid); return; }
     if (saving) return;
     const blocker = photoSaveBlocker(photos);

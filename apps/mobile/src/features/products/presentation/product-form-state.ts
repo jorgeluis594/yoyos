@@ -14,12 +14,12 @@ export function valuesForProduct(product: Product): ProductFormValues {
     sku: variant?.sku ?? "",
     salePrice: variant?.salePrice.amount.toFixed(2) ?? "",
     purchasePrice: variant?.purchasePrice?.amount.toFixed(2) ?? "",
-    stock: "",
+    stock: variant ? String(variant.stock) : "",
     hidden: product.hidden,
   };
 }
 
-export function validateProductForm(values: ProductFormValues, hasVariant = true, creating = false): Partial<Record<ProductFormField, string>> {
+export function validateProductForm(values: ProductFormValues, hasVariant = true): Partial<Record<ProductFormField, string>> {
   const errors: Partial<Record<ProductFormField, string>> = {};
   if (!values.name.trim()) errors.name = i18n.t('productNameRequired');
   else if ([...values.name].length > 200) errors.name = i18n.t('maxCharacters', { count: 200 });
@@ -32,7 +32,7 @@ export function validateProductForm(values: ProductFormValues, hasVariant = true
       const purchase = Number(values.purchasePrice);
       if (!/^\d+(?:\.\d{0,2})?$/.test(values.purchasePrice) || !Number.isFinite(purchase) || purchase < 0 || purchase > 999999999.99) errors.purchasePrice = i18n.t('purchasePriceInvalid');
     }
-    if (creating && values.stock.trim() && (!/^\d+$/.test(values.stock) || !Number.isSafeInteger(Number(values.stock)))) errors.stock = i18n.t('initialStockInvalid');
+    if (values.stock.trim() && (!/^\d+$/.test(values.stock) || !Number.isSafeInteger(Number(values.stock)))) errors.stock = i18n.t('initialStockInvalid');
   }
   return errors;
 }
