@@ -7,9 +7,9 @@ import type { ProductId, VariantId } from "@core/src/features/products/domain/pr
 import type { ProductAccess, ProductReadError } from "@core/src/features/products/application/repository";
 import { runVariantAction, type VariantActionDependencies } from "@core/src/features/products/application/variant-action";
 
-export type UpdateVariantInput = Readonly<{ productId: ProductId; variantId: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>;
-export type VariantFieldChanges = Readonly<{ sku?: string | null; salePrice?: Money; purchasePrice?: Money | null }>;
-export type UpdateVariantDone = Readonly<{ variantId: VariantId; fields: readonly ("sku" | "salePrice" | "purchasePrice")[] }>;
+export type UpdateVariantInput = Readonly<{ productId: ProductId; variantId: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null; stock?: number }>;
+export type VariantFieldChanges = Readonly<{ sku?: string | null; salePrice?: Money; purchasePrice?: Money | null; stock?: number }>;
+export type UpdateVariantDone = Readonly<{ variantId: VariantId; fields: readonly ("sku" | "salePrice" | "purchasePrice" | "stock")[] }>;
 export type UpdateVariantError = Extract<ProductBusinessError, { code: "VALIDATION_ERROR" | "PRODUCT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "DUPLICATE_SKU" }> | ProductReadError;
 export type UpdateVariantDependencies = VariantActionDependencies<UpdateVariantDone> & Readonly<{
   /** Normalized (trimmed, lowercase) SKUs mapped to the variant that owns them. */
@@ -25,8 +25,13 @@ export function updateVariant(input: UpdateVariantInput, access: ProductAccess, 
     const patch = { id: input.variantId, ...(input.sku === undefined ? {} : { sku: input.sku }), ...(input.salePrice === undefined ? {} : { salePrice: input.salePrice }),
       ...(input.purchasePrice === undefined ? {} : { purchasePrice: input.purchasePrice }) };
     const validated = validateVariantPatch(product, { variants: [patch] });
-    if (!validated.value) return err({ code: "VALIDATION_ERROR", message: "Invalid variant", issues: validated.issues as ValidationError["issues"] });
-    const change = planVariantPatch(product, validated.value)?.variants[0];
+    const badStock = input.stock !== undefined && (!Number.isSafeInteger(input.stock) || input.stock < 0);
+    if (!validated.value || badStock) {
+      const stockIssue: ValidationIssue[] = badStock ? [{ scope: "variant", variantId: input.variantId, field: "initialStock", reason: "INVALID_STOCK", message: "Invalid stock" }] : [];
+      return err({ code: "VALIDATION_ERROR", message: "Invalid variant", issues: [...validated.issues, ...stockIssue] as ValidationError["issues"] });
+    }
+    const stock = input.stock !== undefined && input.stock !== variant.stock.quantity ? input.stock : undefined;
+    const change = planVariantPatch(product, validated.value)?.variants[0] ?? (stock === undefined ? undefined : { id: input.variantId });
     if (!change) return ok(null);
     if (typeof change.sku === "string") {
       const normalized = change.sku.trim().toLowerCase();
@@ -43,9 +48,10 @@ export function updateVariant(input: UpdateVariantInput, access: ProductAccess, 
       ...(change.sku === undefined ? {} : { sku: change.sku }),
       ...(change.salePrice === undefined ? {} : { salePrice: money(change.salePrice) }),
       ...(change.purchasePrice === undefined ? {} : { purchasePrice: change.purchasePrice === null ? null : money(change.purchasePrice) }),
+      ...(stock === undefined ? {} : { stock }),
     };
     const written = await deps.updateVariantFields(input.variantId, changes);
     if (!written.success) return written;
-    return ok({ variantId: input.variantId, fields: (["sku", "salePrice", "purchasePrice"] as const).filter((field) => changes[field] !== undefined) });
+    return ok({ variantId: input.variantId, fields: (["sku", "salePrice", "purchasePrice", "stock"] as const).filter((field) => changes[field] !== undefined) });
   });
 }

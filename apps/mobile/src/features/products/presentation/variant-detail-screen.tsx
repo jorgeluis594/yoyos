@@ -12,6 +12,7 @@ import { ScreenState } from "@/components/ui/screen-state";
 import { Button } from "@mobile/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@mobile/components/ui/field";
 import { Input } from "@mobile/components/ui/input";
+import { QuantityStepper } from "@mobile/components/ui/quantity-stepper";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
@@ -99,10 +100,10 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
   const theme = useTheme();
   const startPrint = useStartProductPrint();
   const money = (amount: number | undefined) => amount === undefined ? "" : amount.toFixed(2);
-  const initial = { salePrice: money(variant.salePrice.amount), purchasePrice: money(variant.purchasePrice?.amount), sku: variant.sku ?? "" };
+  const initial = { salePrice: money(variant.salePrice.amount), purchasePrice: money(variant.purchasePrice?.amount), sku: variant.sku ?? "", stock: String(variant.stock) };
   // A save or reload restarts the fields from what core answered; the other actions leave what is being typed.
   const [form, setForm] = useState(initial);
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<"salePrice" | "purchasePrice" | "sku", string>>>({});
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<"salePrice" | "purchasePrice" | "sku" | "stock", string>>>({});
   const [busy, setBusy] = useState<Busy>(null);
   const [notice, setNotice] = useState<Readonly<{ text: string; error: boolean }> | null>(null);
   const [uncertain, setUncertain] = useState(false);
@@ -114,13 +115,13 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
   // `busy` only changes after the connection check, so it cannot stop a second tap that arrives during it.
   const acting = useRef(false);
 
-  const dirty = form.salePrice !== initial.salePrice || form.purchasePrice !== initial.purchasePrice || form.sku !== initial.sku;
+  const dirty = form.salePrice !== initial.salePrice || form.purchasePrice !== initial.purchasePrice || form.sku !== initial.sku || form.stock !== initial.stock;
   const setNavigationDirty = useProductNavigationGuard(dirty);
   const title = combinationLabel(product.options, variant.combination);
   const inactive = variant.status === "inactive";
   const working = busy !== null;
   const productId = product.id;
-  const edit = (field: "salePrice" | "purchasePrice" | "sku", value: string) => {
+  const edit = (field: "salePrice" | "purchasePrice" | "sku" | "stock", value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
     setFieldErrors((current) => ({ ...current, [field]: undefined }));
   };
@@ -160,9 +161,11 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
       ...(sale === null || sale <= 0 ? { salePrice: t("variantPriceRequired") } : decimals(form.salePrice) > 2 ? { salePrice: t("maxTwoDecimals") } : {}),
       ...(form.purchasePrice.trim() && purchase === null ? { purchasePrice: t("purchasePriceInvalid") } : decimals(form.purchasePrice) > 2 ? { purchasePrice: t("maxTwoDecimals") } : {}),
       ...(form.sku.trim().length > 100 ? { sku: t("maxCharacters", { count: 100 }) } : {}),
+      ...(!/^\d+$/.test(form.stock.trim()) || !Number.isSafeInteger(Number(form.stock)) ? { stock: t("initialStockInvalid") } : {}),
     };
     if (Object.keys(invalid).length) { setFieldErrors(invalid); return; }
-    void run("save", () => variants.updateVariant(productId, variant.id, { sku: form.sku.trim() || null, salePrice: sale ?? 0, purchasePrice: purchase }),
+    void run("save", () => variants.updateVariant(productId, variant.id, { sku: form.sku.trim() || null, salePrice: sale ?? 0, purchasePrice: purchase,
+      ...form.stock === initial.stock ? {} : { stock: Number(form.stock) } }),
       { offline: t("variantSaveOffline"), uncertain: t("variantSaveUncertain") },
       (error) => {
         if (error.code === "DUPLICATE_SKU") { setFieldErrors({ sku: t("variantSkuInUse") }); return true; }
@@ -171,6 +174,7 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
           for (const issue of error.issues ?? []) {
             if (issue.field === "sku") mapped.sku = issue.reason === "DUPLICATE_SKU" ? t("variantSkuInUse") : t("maxCharacters", { count: 100 });
             else if (issue.field === "salePrice") mapped.salePrice = issue.reason === "TOO_MANY_DECIMALS" ? t("maxTwoDecimals") : t("variantPriceRequired");
+            else if (issue.field === "initialStock") mapped.stock = t("initialStockInvalid");
             else if (issue.field === "purchasePrice") mapped.purchasePrice = issue.reason === "TOO_MANY_DECIMALS" ? t("maxTwoDecimals") : t("purchasePriceInvalid");
           }
           if (Object.keys(mapped).length) { setFieldErrors(mapped); return true; }
@@ -181,7 +185,7 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
       },
       (next) => {
         const saved = next.variants.find((candidate) => candidate.id === variant.id);
-        setForm({ salePrice: money(saved?.salePrice.amount), purchasePrice: money(saved?.purchasePrice?.amount), sku: saved?.sku ?? "" });
+        setForm({ salePrice: money(saved?.salePrice.amount), purchasePrice: money(saved?.purchasePrice?.amount), sku: saved?.sku ?? "", stock: String(saved?.stock ?? 0) });
         setFieldErrors({});
         setNotice({ text: t("variantSaved"), error: false });
       });
@@ -246,7 +250,7 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
       const next = result.data.variants.find((candidate) => candidate.id === variant.id);
       onProduct(result.data);
       if (!next) { setNavigationDirty(false); onGone("product"); return; }
-      setForm({ salePrice: money(next.salePrice.amount), purchasePrice: money(next.purchasePrice?.amount), sku: next.sku ?? "" });
+      setForm({ salePrice: money(next.salePrice.amount), purchasePrice: money(next.purchasePrice?.amount), sku: next.sku ?? "", stock: String(next.stock) });
       setFieldErrors({}); setNotice(null); setUncertain(false); setBlockedDelete(null);
     };
     if (!dirty) { void load(); return; }
@@ -304,10 +308,12 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
           <Input value={form.sku} onChangeText={(value) => edit("sku", value)} maxLength={100} placeholder={t("optional")} accessibilityLabel={t("optionalSku")} autoCapitalize="characters" />
           {fieldErrors.sku ? <FieldError>{fieldErrors.sku}</FieldError> : null}
         </Field>
-        <View style={styles.between} accessible accessibilityLabel={`${t("stock")}: ${variant.stock}`}>
-          <ThemedText themeColor="textSecondary">{t("stock")}</ThemedText>
-          <ThemedText type="smallBold">{variant.stock}</ThemedText>
-        </View>
+        <Field invalid={!!fieldErrors.stock} disabled={working}>
+          <FieldLabel>{t("stock")}</FieldLabel>
+          <QuantityStepper value={form.stock} onChange={(value) => edit("stock", value)} disabled={working}
+            accessibilityLabel={t("stock")} decreaseLabel={t("decreaseStock")} increaseLabel={t("increaseStock")} />
+          {fieldErrors.stock ? <FieldError>{fieldErrors.stock}</FieldError> : null}
+        </Field>
       </View>
       <View style={card}>
         <ThemedText type="smallBold" accessibilityRole="header">{t("variantQrHeading")}</ThemedText>

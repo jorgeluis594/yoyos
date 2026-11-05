@@ -56,6 +56,7 @@ export async function updateVariantFields(variantId: VariantId, changes: Variant
       ...(changes.salePrice === undefined ? {} : { salePrice: decimal(changes.salePrice.amount) }),
       ...(changes.purchasePrice === undefined ? {} : { purchasePrice: changes.purchasePrice === null ? null : decimal(changes.purchasePrice.amount) }),
     } });
+    if (changes.stock !== undefined) await prisma.productStock.update({ where: { variantId }, data: { quantity: BigInt(changes.stock) } });
     return ok(undefined);
   } catch (error) {
     return failure<UpdateVariantError>(error, context, (cause) => isDuplicateSku(cause) ? { code: "DUPLICATE_SKU", message: "SKU is already used" }
