@@ -146,7 +146,7 @@ export function parseProductStructure(input: RawStructure): Readonly<{ issues: r
   return { issues, value: { options: final, combinations: valid } };
 }
 
-export type SaveVariantInput = Readonly<{ id: VariantId; sku: string | null; salePrice: number; purchasePrice: number | null }>;
+export type SaveVariantInput = Readonly<{ id: VariantId; sku: string | null; salePrice: number; purchasePrice: number | null; stock?: number }>;
 export type SaveNewVariantInput = Readonly<{ values: readonly string[]; sku?: string | null; salePrice: number; purchasePrice?: number | null; initialStock?: number }>;
 /** The editor's «Guardar cambios»: the complete ordered options and the variants it edits, adds or removes. */
 export type SaveRequest = Readonly<{
@@ -175,7 +175,8 @@ export type ProductStructureChange = Readonly<{
   deleteValueIds: readonly OptionValueId[];
   deleteOptionIds: readonly OptionId[];
   rekeyVariants: readonly Readonly<{ id: VariantId; combinationKey: string }>[];
-  variantFieldChanges: readonly Readonly<{ id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>[];
+  /** `stock` replaces the variant's count; it does not raise `structureVersion`. */
+  variantFieldChanges: readonly Readonly<{ id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null; stock?: number }>[];
   insertVariants: readonly Readonly<{
     id: VariantId; combination: Combination; combinationKey: string; sku?: string; salePrice: number; purchasePrice?: number; qrCode: string; initialStock: number;
   }>[];
@@ -258,7 +259,7 @@ function fieldRules(current: Product, input: SaveRequest, listed: readonly SaveV
   const result = createProductSchema.safeParse({
     name: input.name, description: input.description, currency: current.currency,
     variants: [
-      ...listed.map((variant) => ({ sku: variant.sku, salePrice: variant.salePrice, purchasePrice: variant.purchasePrice })),
+      ...listed.map((variant) => ({ sku: variant.sku, salePrice: variant.salePrice, purchasePrice: variant.purchasePrice, initialStock: variant.stock })),
       ...input.newVariants.map((variant) => ({ sku: variant.sku, salePrice: variant.salePrice, purchasePrice: variant.purchasePrice, initialStock: variant.initialStock })),
     ],
   });
@@ -334,14 +335,15 @@ function buildChange(current: Product, input: SaveRequest, built: Built, ids: Re
     const key = combinationKey(built.combinations[index]);
     return key === combinationKey(variant.combination) ? [] : [{ id: variant.id, combinationKey: key }];
   });
-  const supplied = new Map(listed.map((variant, index) => [variant.id as string, data.variants[index]] as const));
+  const supplied = new Map(listed.map((variant, index) => [variant.id as string, { ...data.variants[index], stockSent: variant.stock !== undefined }] as const));
   const variantFieldChanges = remaining.flatMap((variant) => {
     const next = supplied.get(variant.id);
     if (!next) return [];
-    const changes: { id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null } = { id: variant.id };
+    const changes: { id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null; stock?: number } = { id: variant.id };
     if (next.sku !== variant.sku) changes.sku = next.sku ?? null;
     if (next.salePrice !== variant.salePrice.amount) changes.salePrice = next.salePrice;
     if (next.purchasePrice !== variant.purchasePrice?.amount) changes.purchasePrice = next.purchasePrice ?? null;
+    if (next.stockSent && next.initialStock !== variant.stock.quantity) changes.stock = next.initialStock;
     return Object.keys(changes).length > 1 ? [changes] : [];
   });
   const newData = data.variants.slice(listed.length);

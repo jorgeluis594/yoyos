@@ -104,7 +104,7 @@ test("the third option replaces the add button with the maximum notice", () => {
 });
 
 test("a saved product asks which value its current variants receive for a new option", () => {
-  const saved: EditorDraft = { ...tallaColor(), saved: true, rows: tallaColor().rows.map((row, index) => ({ ...row, id: id(100 + index), original: { sku: null, salePrice: 10, purchasePrice: null } })) };
+  const saved: EditorDraft = { ...tallaColor(), saved: true, rows: tallaColor().rows.map((row, index) => ({ ...row, id: id(100 + index), original: { sku: null, salePrice: 10, purchasePrice: null, stock: row.stock } })) };
   renderOptions({ ...saved, options: saved.options.map((option) => ({ ...option, saved: true, values: option.values.map((value) => ({ ...value, saved: true })) })) });
   fireEvent.press(screen.getByRole("button", { name: "Agregar otra opción" }));
   fireEvent.changeText(screen.getByLabelText("Nombre de la opción"), "Manga");

@@ -96,7 +96,7 @@ export default function ProductDetail() {
   const single = product.options.length === 0 ? product.variants[0] : undefined;
   const values: ProductFormValues = {
     name: product.name, description: product.description ?? "", sku: single?.sku ?? "",
-    salePrice: single ? single.salePrice.amount.toFixed(2) : "", purchasePrice: single?.purchasePrice ? single.purchasePrice.amount.toFixed(2) : "", initialStock: "",
+    salePrice: single ? single.salePrice.amount.toFixed(2) : "", purchasePrice: single?.purchasePrice ? single.purchasePrice.amount.toFixed(2) : "", initialStock: single ? String(single.stock) : "",
   };
   const originalNames = Object.fromEntries(product.options.flatMap((option) => [[option.id, option.name], ...option.values.map((value) => [value.id, value.name])]));
 

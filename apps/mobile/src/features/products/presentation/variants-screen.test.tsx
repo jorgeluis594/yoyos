@@ -107,7 +107,7 @@ test("a successful save shows the returned detail without another request", asyn
   } finally { alert.mockRestore(); }
 });
 
-const savedProduct = (): EditorDraft => ({ ...polo(), saved: true, rows: polo().rows.map((row, index) => ({ ...row, id: id(100 + index), original: { sku: null, salePrice: 39.9, purchasePrice: null } })) });
+const savedProduct = (): EditorDraft => ({ ...polo(), saved: true, rows: polo().rows.map((row, index) => ({ ...row, id: id(100 + index), original: { sku: null, salePrice: 39.9, purchasePrice: null, stock: row.stock } })) });
 
 test("a saved row opens the saved variant detail", () => {
   renderVariants(savedProduct());
@@ -144,7 +144,7 @@ test("editing the price of the selected variants replaces it only on them", () =
 
 test("a stock edit with saved variants selected applies only to the new ones and says so", () => {
   const draft = polo();
-  const saved: EditorDraft = { ...draft, saved: true, rows: draft.rows.map((row, index) => index < 4 ? { ...row, id: id(100 + index), original: { sku: null, salePrice: 39.9, purchasePrice: null } } : row) };
+  const saved: EditorDraft = { ...draft, saved: true, rows: draft.rows.map((row, index) => index < 4 ? { ...row, id: id(100 + index), original: { sku: null, salePrice: 39.9, purchasePrice: null, stock: row.stock } } : row) };
   renderVariants(saved);
   fireEvent.press(screen.getByRole("button", { name: "Todas" }));
   fireEvent.press(screen.getByRole("button", { name: "Editar stock" }));

@@ -40,7 +40,7 @@ export type EditorRow = Readonly<{
   marked: boolean;
   /** A new combination whose prices come from an inactive variant. It is created active. */
   copiedFromInactive: boolean;
-  original: Readonly<{ sku: string | null; salePrice: number; purchasePrice: number | null }> | null;
+  original: Readonly<{ sku: string | null; salePrice: number; purchasePrice: number | null; stock: number }> | null;
 }>;
 export type EditorDraft = Readonly<{
   saved: boolean; base: EditorBase; options: readonly EditorOption[]; rows: readonly EditorRow[]; nextRef: number; stockNotice: boolean;
@@ -80,7 +80,7 @@ export function draftFromProduct(product: ProductDetailResponse["product"]): Edi
       ref: variant.id, id: variant.id, combination: Object.fromEntries(variant.combination.map((entry) => [entry.optionId, entry.valueId])),
       sku: variant.sku, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null, stock: variant.stock,
       status: variant.status === "active" ? "active" : "inactive", hasOrders: variant.hasOrders, marked: false, copiedFromInactive: false,
-      original: { sku: variant.sku, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null },
+      original: { sku: variant.sku, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null, stock: variant.stock },
     })),
     nextRef: 1,
     stockNotice: false,
@@ -310,21 +310,15 @@ export const moveValue = (draft: EditorDraft, optionId: string, valueId: string,
 const mapRows = (draft: EditorDraft, change: (row: EditorRow) => EditorRow, only?: ReadonlySet<string>): EditorDraft =>
   ({ ...draft, rows: draft.rows.map((row) => !only || only.has(row.ref) ? change(row) : row) });
 
-/** Stock belongs to new rows only: saved variants keep theirs. */
-const patched = (row: EditorRow, patch: RowPatch): EditorRow => {
-  const { stock, ...rest } = patch;
-  return { ...row, ...rest, ...(stock !== undefined && row.id === null ? { stock } : {}) };
-};
-
 export function setRow(draft: EditorDraft, ref: string, patch: RowPatch): EditorDraft {
-  const next = mapRows(draft, (row) => patched(row, patch), new Set([ref]));
-  return patch.stock !== undefined && draft.rows.some((row) => row.ref === ref && row.id === null) ? { ...next, stockNotice: false } : next;
+  const next = mapRows(draft, (row) => ({ ...row, ...patch }), new Set([ref]));
+  return patch.stock !== undefined ? { ...next, stockNotice: false } : next;
 }
 
-/** Applies to the live selected rows. Stock reaches new rows only, and `applied` counts the rows that changed. */
+/** Applies to the live selected rows; `applied` counts the rows that changed. */
 export function applyBulk(draft: EditorDraft, selected: readonly string[], patch: RowPatch): Readonly<{ draft: EditorDraft; applied: number }> {
-  const live = new Set(liveRows(draft).filter((row) => selected.includes(row.ref) && (patch.stock === undefined || row.id === null)).map((row) => row.ref));
-  const next = mapRows(draft, (row) => patched(row, patch), live);
+  const live = new Set(liveRows(draft).filter((row) => selected.includes(row.ref)).map((row) => row.ref));
+  const next = mapRows(draft, (row) => ({ ...row, ...patch }), live);
   return { draft: patch.stock !== undefined && live.size > 0 ? { ...next, stockNotice: false } : next, applied: live.size };
 }
 
@@ -426,13 +420,16 @@ export function buildCreateProductBody(draft: EditorDraft, meta: ProductMeta & R
 
 export function buildSaveProductBody(draft: EditorDraft, meta: ProductMeta & Readonly<{ structureVersion: number; visibility: VisibilityToSave }>): SaveProductRequest {
   const live = liveRows(draft).filter((row) => row.id !== null);
-  const changed = live.filter((row) => row.original && (skuOf(row.sku) !== row.original.sku || row.salePrice !== row.original.salePrice || row.purchasePrice !== row.original.purchasePrice));
+  const changed = live.filter((row) => row.original && (skuOf(row.sku) !== row.original.sku || row.salePrice !== row.original.salePrice || row.purchasePrice !== row.original.purchasePrice
+    || row.stock !== row.original.stock));
   return {
     structureVersion: meta.structureVersion, name: meta.name, description: meta.description,
     ...meta.photos.kind === "set" ? { photoIds: [...meta.photos.photoIds] } : {},
     ...meta.visibility.kind === "set" ? { hidden: meta.visibility.hidden } : {},
     options: optionsBody(draft),
-    variants: changed.map((row) => ({ id: row.id as string, sku: skuOf(row.sku), salePrice: row.salePrice, purchasePrice: row.purchasePrice })),
+    // Stock only when the seller changed it, so a save never overwrites a sale made since the product was loaded.
+    variants: changed.map((row) => ({ id: row.id as string, sku: skuOf(row.sku), salePrice: row.salePrice, purchasePrice: row.purchasePrice,
+      ...row.stock === row.original?.stock ? {} : { stock: row.stock } })),
     newVariants: newVariantsBody(draft),
     deletedVariantIds: draft.rows.filter((row) => row.id !== null && removalOf(draft, row) !== null).map((row) => row.id as string),
   };

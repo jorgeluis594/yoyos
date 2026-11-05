@@ -38,7 +38,8 @@ export function syncValues(draft: EditorDraft, values: ProductFormValues): Edito
   const salePrice = Number(values.salePrice) || 0;
   const purchasePrice = amount(values.purchasePrice);
   if (!draft.saved) return { ...draft, base: { sku, salePrice, purchasePrice, stock: Number(values.initialStock) || 0 } };
-  return draft.options.length === 0 && draft.rows[0] ? setRow(draft, draft.rows[0].ref, { sku, salePrice, purchasePrice }) : draft;
+  const stock = values.initialStock.trim() === "" ? undefined : Number(values.initialStock);
+  return draft.options.length === 0 && draft.rows[0] ? setRow(draft, draft.rows[0].ref, { sku, salePrice, purchasePrice, ...stock === undefined ? {} : { stock } }) : draft;
 }
 
 export type ProductFormProps = {
@@ -107,7 +108,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
   const reload = () => dirty ? setConfirmReload(true) : onReload?.();
   const reviewed = Object.keys(targets.rows).length;
   const notice = errors.changed ?? errors.inDoubt;
-  const readOnlyStock = saved || withOptions;
+  const readOnlyStock = withOptions;
 
   return <form onSubmit={save} noValidate className="mt-8 flex flex-col gap-6">
     {notice && <Alert variant="warning"><AlertDescription className="flex flex-wrap items-center gap-3">{notice}
@@ -144,7 +145,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
         <Input id="initialStock" name="initialStock" value={stockTotal(draft)} readOnly aria-readonly="true" aria-describedby={withOptions ? "stock-help" : undefined} className="bg-muted text-muted-foreground" />
         {withOptions && <p id="stock-help" className="text-sm text-muted-foreground">{saved ? t("productEditor.stockSumActive") : t("productEditor.stockSum")}</p>}
       </Field> : <Field data-invalid={Boolean(errors.initialStock)}>
-        <FieldLabel htmlFor="initialStock">{t("products.initialStock")}</FieldLabel>
+        <FieldLabel htmlFor="initialStock">{saved ? t("products.stock") : t("products.initialStock")}</FieldLabel>
         <Input id="initialStock" name="initialStock" aria-invalid={Boolean(errors.initialStock) || undefined} aria-describedby={errors.initialStock ? "initialStock-error" : undefined} value={values.initialStock} onChange={(event) => setValues({ ...values, initialStock: event.target.value })} type="number" inputMode="numeric" step="1" min="0" />
         {errors.initialStock && <FieldError id="initialStock-error">{errors.initialStock}</FieldError>}
       </Field>}
