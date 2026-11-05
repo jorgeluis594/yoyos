@@ -135,20 +135,20 @@ test("editing the price of the selected variants replaces it only on them", () =
   fireEvent.press(screen.getByRole("button", { name: "L" }));
   fireEvent.press(screen.getByRole("button", { name: "Editar precio" }));
   expect(screen.getByText("Aplicar a las 2 seleccionadas (talla L).")).toBeTruthy();
-  expect(screen.getByText("Reemplaza el precio actual de cada variante.")).toBeTruthy();
+  expect(screen.getByText("Reemplaza el valor actual de cada variante.")).toBeTruthy();
   fireEvent.changeText(screen.getByLabelText(/Editar precio de venta/), "42.90");
   fireEvent.press(screen.getByRole("button", { name: "Aplicar a 2" }));
   expect(screen.getAllByText(/^S\/\s?42\.90$/)).toHaveLength(2);
   expect(screen.getAllByText(/^S\/\s?39\.90$/)).toHaveLength(4);
 });
 
-test("a stock edit with saved variants selected applies only to the new ones and says so", () => {
+test("a stock edit with saved variants selected applies to all of them", () => {
   const draft = polo();
   const saved: EditorDraft = { ...draft, saved: true, rows: draft.rows.map((row, index) => index < 4 ? { ...row, id: id(100 + index), original: { sku: null, salePrice: 39.9, purchasePrice: null, stock: row.stock } } : row) };
   renderVariants(saved);
   fireEvent.press(screen.getByRole("button", { name: "Todas" }));
   fireEvent.press(screen.getByRole("button", { name: "Editar stock" }));
-  expect(screen.getByText("Se aplica a las 2 variantes nuevas. El stock de las variantes guardadas no se edita aquí.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Aplicar a 6" })).toBeTruthy();
 });
 
 test("a row removed from a new product is marked with Deshacer and leaves the counter", () => {
