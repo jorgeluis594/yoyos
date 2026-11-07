@@ -10,21 +10,21 @@ The shared contract lets the per-variant `PATCH` carry `stock`. Core writes ever
 
 | Topic | Decision |
 | --- | --- |
-| Founder decisions (Jorge, 2026-11-06) | F1 one inline editor replaces the saved-variant detail and both draft-variant screens; saved rows persist from the row, «Nueva» rows write into the draft. F2 stock is a direct value with today's `QuantityStepper` and whole-number rule. F3 build on PR #395; the stock write lives in one use case, never loose SQL. F4 last save wins, no version, no lock. F5 explicit save per row. F6 reported failure reproduced (3.1). F7 correct `docs/products.md`. F8 no restock: a manual increase publishes no event and serves no waiting order (Todoist 6hwgCJh37mMQ3fRV). |
+| Founder decisions (Jorge, 2026-11-06) | F1 one inline editor replaces the saved-variant detail and both draft-variant screens; saved rows persist from the row, «Nueva» rows write into the draft. F2 stock is a direct value with today's `QuantityStepper` and whole-number rule. F3 build on PR #395; the stock write lives in one use case, never loose SQL. F4 last save wins, no version, no lock. F5 explicit save per row. F6 reported failure reproduced (3.1). F7 correct `docs/products.md`. F8 no restock: a manual increase publishes no event and deducts no waiting order in the same step; the existing `recover-due-stock-deductions` job (every minute) still deducts a covered waiting order, which shows «Descontando stock» meanwhile, and a newer paid sale can take the units first, as with PR #395's product save (Todoist 6hwgCJh37mMQ3fRV). Review round (2026-11-06): rare edge cases stay undefined (product deleted elsewhere, session expiry, pending edits on reload, the acted row's own pending bulk values on a status change); in doubt keeps «save again, repeating is harmless», no **Recargar variante**; the purchase price is «Precio de compra» / «Preço de compra». |
 | Transport | `PATCH /api/products/:productId/variants/:variantId` gains an optional `stock`. The product `PUT` keeps PR #395's shape. Both answers are unchanged. Reason: the inline save must not resend other pending edits nor depend on `structureVersion`. |
 | One stock write | `setVariantStock` in `products/application/set-variant-stock.ts` writes the count of existing variants. Used by `saveProduct` and `updateVariant`. Initial stock of a new variant stays in the variant insert. Order deductions and cancellation restores keep their paths. |
 | Validation | Same rule as the product save: whole number ≥ 0 within the safe range (`INVALID_STOCK`), product total within it (`INVALID_TOTAL_STOCK`). The `PATCH` reports the field as `stock`. |
 | Web | The web variant action does not accept `stock`: it parses `updateVariantRequestSchema.omit({ stock: true })`. Web variant detail keeps read-only stock. No other web change. |
-| Mobile session | An inline answer updates only the acted row (values and `original`) in draft and baseline; other pending edits stay. The product screen no longer resets the session when a variant answer is published. |
+| Mobile session | An inline answer updates only the acted row (values and `original`) in draft and baseline; other pending edits stay. The product screen replaces only `product` when a variant answer is published, keeping `values` and the editor draft. |
 | Mobile issues | One pure mapper, every field and reason to a text; no generic fallback for known fields. Maps `INVALID_PRECISION` (core never sends `TOO_MANY_DECIMALS`). |
-| Docs on merge | `docs/products.md`: Stock row, Product page, Variants table, Marks, Variant detail (mobile half), Unsaved variant detail (mobile screen), Discard confirmation, API table (`PATCH` with stock). `docs/orders.md` known limitation: sellers can increase stock by hand; such an increase does not serve waiting orders yet (6hwgCJh37mMQ3fRV). |
+| Docs on merge | The product draft's list (Closed decisions). `docs/orders.md`: «When it is attempted» (:84), «Restock» (:88), «Stock source» (:92), Known limitations (:120). `docs/products.md`: Stock row (:33), Statuses (:63-64), Product page, Variants table, Bulk editing (:77), Marks (:78), Variant detail and Unsaved variant detail (mobile halves), Discard confirmation, API (`PATCH` with stock; the **Recargar variante** line :275 is web only). |
 
 ## 3. Verified current state
 
 | Piece | Location | State |
 | --- | --- | --- |
 | Product save with stock | `apps/core/src/features/products/application/save-product.ts`, `domain/product-structure.ts` | PR #395: `variants[].stock` optional, planned as `variantFieldChanges[].stock` only when sent and different; does not raise `structureVersion`. |
-| Stock write of the product save | `infrastructure/repository.ts:300-305` (`applyStructureChange`) | Loose `UPDATE "ProductStock"` in variant order with the tenant predicate. Publishes nothing. |
+| Stock write of the product save | `infrastructure/repository.ts:301-305` (`applyStructureChange`) | Loose `UPDATE "ProductStock"` in variant order with the tenant predicate. Publishes nothing. |
 | Per-variant update | `application/update-variant.ts`, `application/variant-action.ts`, `presentation/variant-api-routes.ts:46` | `sku`, `salePrice`, `purchasePrice` only. Product row `FOR UPDATE`, aggregate load, `planVariantPatch`, one `UPDATE`. Answers the detail. |
 | Contract | `shared/contracts/products.ts:55-59` | `updateVariantRequestSchema` is strict without `stock`; an unknown key answers `400 INVALID_INPUT` `{ field: "stock", reason: "UNKNOWN_FIELD" }` (`presentation/api-errors.ts:12-16`). |
 | Stock rules | `domain/validation.ts:62-70, 96-105` | `INVALID_STOCK` and `INVALID_TOTAL_STOCK` inside Zod schemas of create and save. |
@@ -68,18 +68,18 @@ Runs inside the caller's transaction, after the caller locked the product row an
 // products/application/set-variant-stock.ts
 export type StockCount = Readonly<{ variantId: VariantId; stock: number }>; // whole number ≥ 0, validated by the caller
 export type SetVariantStockDependencies = Readonly<{
-  writeStock: (companyId: CompanyId, counts: readonly StockCount[]) => Promise<Result<number, ProductReadError>>;
+  writeStock: (companyId: CompanyId, counts: readonly StockCount[]) => Promise<Result<void, ProductReadError>>;
 }>;
 export async function setVariantStock(input: Readonly<{ counts: readonly StockCount[] }>, access: ProductAccess, deps: SetVariantStockDependencies): Promise<Result<void, ProductReadError>>;
 ```
 
-Flow: no counts → `ok()` without a statement; otherwise `writeStock` the counts sorted by `variantId`; written rows ≠ number of counts → `PERSISTENCE_UNAVAILABLE` (logged as `UNEXPECTED_ROW_COUNT`). A future stock history attaches here as one more dependency, without changing input, routes or contracts.
+Flow: no counts → `ok()` without a statement; otherwise `writeStock` the counts sorted by `variantId` and answer its result. `writeStock` answers `PERSISTENCE_UNAVAILABLE` when the written rows differ from the counts (logged there, section 13). A future stock history attaches here as one more dependency, without changing input, routes or contracts.
 
 ### 5.2 `updateVariant` (modified), products
 
 - `UpdateVariantInput` adds `stock?: number`; `UpdateVariantDone.fields` adds `"stock"`.
 - `UpdateVariantDependencies` adds `setVariantStock` (bound by the composition with access and adapter).
-- Flow inside `runVariantAction` (product row locked, aggregate loaded): find the variant (`VARIANT_NOT_FOUND`); validate prices and SKU as today and stock with the shared stock rule plus the product-total check, all issues together as `VALIDATION_ERROR` `{ scope: "variant", variantId, field: "stock", reason }`; write price/SKU changes as today; when `stock` was sent and differs from the loaded count, `setVariantStock({ counts: [{ variantId, stock }] })`. Nothing changed → `ok(null)` as today. Stock does not raise `structureVersion`.
+- Flow inside `runVariantAction` (product row locked, aggregate loaded): find the variant (`VARIANT_NOT_FOUND`); validate prices and SKU as today and stock with the shared stock rule plus the product-total check, all issues together as `VALIDATION_ERROR` `{ scope: "variant", variantId, field: "stock", reason }`; write price/SKU changes as today; when `stock` was sent and differs from the loaded count, `setVariantStock({ counts: [{ variantId, stock }] })`. The "nothing changed" check covers price/SKU and stock together: a stock-only `PATCH` does not call `updateVariantFields` and does not return before `setVariantStock`; nothing changed at all → `ok(null)` as today. Stock does not raise `structureVersion`.
 
 ### 5.3 `saveProduct` (modified), products
 
@@ -87,7 +87,7 @@ Flow: no counts → `ok()` without a statement; otherwise `writeStock` the count
 
 ## 6. Domain and typing
 
-- `parseStockCount(value: unknown): Result<number, { reason: "INVALID_STOCK" }>` and `checkProductStockTotal(product, variantId, stock)` in `products/domain/stock-level.ts`: the rule exists only inside Zod schemas and the `PATCH` needs it as a function; the create/save `initialStock` refinement calls the same parser, so both paths report the same reason.
+- `parseStockCount(value: unknown): Result<number, { reason: "INVALID_STOCK" }>` and `checkProductStockTotal(product, variantId, stock)` added to the existing `products/domain/stock-level.ts` (beside `stockLevelOf`): the rule exists only inside Zod schemas and the `PATCH` needs it as a function; the create/save `initialStock` refinement calls the same parser, so both paths report the same reason.
 - `ProductStructureChange.stockCounts` in `products/domain/product-structure.ts`: separates the stock write (owned by `setVariantStock`) from field writes.
 - Mobile `VariantIssueText` in `presentation/variant-row-issues.ts`: `{ kind: "field"; field: "salePrice" | "purchasePrice" | "stock" | "sku"; text } | { kind: "form"; text }`.
 
@@ -115,7 +115,11 @@ export const updateVariantRequestSchema = z.strictObject({
 | Product total above the safe range | 422 `VALIDATION_ERROR` | `{ …, field: "stock", reason: "INVALID_TOTAL_STOCK" }` |
 | Price, SKU, unknown field, foreign variant | as today | `INVALID_PRICE`, `INVALID_PRECISION`, `TOO_LONG`, `DUPLICATE_SKU`, `UNKNOWN_FIELD`; 404 |
 
-Success answers 200 with the product detail; responses do not change. The web variant action parses `updateVariantRequestSchema.omit({ stock: true })` (strict), so a crafted web form with `stock` answers `UNKNOWN_FIELD`.
+Success answers 200 with the product detail; responses do not change.
+
+## 9. Web
+
+The web variant action parses `updateVariantRequestSchema.omit({ stock: true })` (strict), so a crafted web form with `stock` answers `UNKNOWN_FIELD`. No web screen changes.
 
 ## 10. Mobile
 
@@ -123,14 +127,14 @@ Success answers 200 with the product detail; responses do not change. The web va
 | --- | --- |
 | `application/variant-operations.ts`, `infrastructure/product-api.ts` | `VariantPatch` adds `stock`; `changeCombination` removed. |
 | `presentation/variant-row-editor.tsx` (new) | Expanded row. Saved form: prices, stock (`QuantityStepper`, whole-number rule from `draft-variant-screen.tsx:47`), SKU, **Guardar variante**, **Cancelar**, QR/**Imprimir etiqueta**, **Desactivar/Activar**, **Eliminar** or its reason. «Nueva» form: **Aplicar**, **Cancelar**, **Quitar**. Sends only fields that differ from the row's `original`. |
-| `presentation/variant-row-issues.ts` (new) | Pure `variantIssueText(issue, t)` per the product draft's refusal table; `initialStock` treated as `stock`. No branch returns `variantSaveError`. |
+| `presentation/variant-row-issues.ts` (new) | Pure `variantIssueText(error, t)` per the product draft's refusal table: reads the issues and also the top-level code, so `409 DUPLICATE_SKU` without issues maps to the SKU field; `initialStock` treated as `stock`. No branch returns `variantSaveError`. |
 | `presentation/variants-screen.tsx` | Rows expand instead of navigating; one expanded `ref`; typed values and dirty flag kept at screen level by `ref` (survive virtualization, read by the back guard); selection bar hidden while expanded; pinned «Variante eliminada.» line; memoized rows so typing does not re-render others. |
 | `presentation/product-editor-state.tsx`, `shared/product-variants.ts` | `adoptVariant(draft, answered, variantId)`: the acted row's values and `original` become the answered ones in draft and baseline; other rows untouched. `removeSavedVariant(draft, variantId)` plus the answered `structureVersion` for delete. |
-| `presentation/product-management-screen.tsx` | The publish effect (:81-88) takes the published product without `editor.reset`. |
-| `presentation/variant-editor-translations.ts`, `presentation/product-routes.ts` | es and pt-BR texts of the product draft, plus those moved from `variant-detail-translations.ts`; `variantPath` and `"draft-variant"` removed. |
+| `presentation/product-management-screen.tsx` | The publish effect (:81-88) replaces only `product` (for `structureVersion` and `original`); no `setValues`, no `editor.reset`, so name, description and the other `values` and the editor draft stay. |
+| `presentation/variant-editor-translations.ts`, `presentation/translations.ts`, `presentation/product-routes.ts` | es and pt-BR texts of the product draft (reusing the keys it names), plus the kept texts moved from `variant-detail-translations.ts` (`itemNoLongerAvailable` and others imported by `translations.ts`); `variantPath` and `"draft-variant"` removed. |
 | Deleted | `variant-detail-screen.tsx` (+ test), `variant-detail-translations.ts`, `change-combination-sheet.tsx`, `draft-variant-screen.tsx`, routes `[productId]/variants/[variantId].tsx`, `[productId]/draft-variant.tsx`, `new/draft-variant.tsx`. |
 
-Offline: `isOnline()` false → offline text, nothing sent. In doubt (codes in `uncertainCodes`): in-doubt text, **Guardar variante** stays available because the request sets values and a repeat is harmless. One action at a time per editor (ref guard). A late answer after collapse is adopted into the row and never reopens it. Delete is offered only when the session has no pending product edits.
+Offline: `isOnline()` false → offline text, nothing sent. In doubt (codes in `uncertainCodes`): in-doubt text, **Guardar variante** stays available because the request sets values and a repeat is harmless. Activate, deactivate and delete in doubt behave the same: «No se pudo confirmar el cambio. Inténtalo otra vez.», the button stays available; no text points to a reload button. One action at a time per editor (ref guard). A late answer after collapse is adopted into the row and never reopens it. Delete is offered only when the session has no pending product edits.
 
 ## 11. Transactions and concurrency
 
@@ -147,21 +151,23 @@ Core: products `domain/` (`stock-level.ts`, `validation.ts`, `product-structure.
 | `product_variant_updated`, `product_saved` (existing) | info | existing fields; `fields` may include `"stock"`; `product_saved` adds `["stockChanges"]` |
 | `product_stock_write_failed` (new) | error | `["companyId","stage","errorCode","durationMs"]`, `errorCode` = `UNEXPECTED_ROW_COUNT` |
 
+Owner: `writeStock` in `stock-repository.ts` logs `product_stock_write_failed` once when the row count differs; thrown failures are logged by the caller's existing `product_save_failed` / `product_variant_action_failed`.
+
 Never logged: stock counts, prices, SKUs, names.
 
 ## 14. Tests
 
 Core unit (Vitest):
 - `stock-level.test.ts`: `test("parses a whole number from 0 up to the safe bound")`, `test("rejects a negative, fractional or too large stock with INVALID_STOCK")`, `test("rejects a count that takes the product total out of range with INVALID_TOTAL_STOCK")`.
-- `set-variant-stock.test.ts`: `test("writes the counts in variant order")`, `test("writes nothing when no count is given")`, `test("answers PERSISTENCE_UNAVAILABLE when the written rows differ")`.
-- `update-variant.test.ts`: `test("saves a changed stock through setVariantStock")`, `test("does not send stock to setVariantStock when it was not sent")`, `test("reports stock, price and SKU issues together and writes nothing")`.
+- `set-variant-stock.test.ts`: `test("writes the counts in variant order")`, `test("writes nothing when no count is given")`, `test("answers the writeStock error unchanged")`.
+- `update-variant.test.ts`: `test("saves a changed stock through setVariantStock")`, `test("a stock-only patch calls setVariantStock and not updateVariantFields")`, `test("does not send stock to setVariantStock when it was not sent")`, `test("reports stock, price and SKU issues together and writes nothing")`.
 - `save-product.test.ts`: `test("writes saved-variant stock through setVariantStock after the structure change")`.
 
-Core integration (real database), `variant-api-routes.integration.test.ts`: `test("PATCH with stock replaces the count and keeps the structure version")`, `test("PATCH with a fractional or negative stock answers 422 with a stock issue and writes nothing")`, `test("PATCH with stock as text answers 400 INVALID_TYPE")`, `test("PATCH with the founder's body from 3.1 answers 200 and stores the stock")`, `test("PATCH raising stock does not serve a waiting order")`, `test("PATCH with a variant of another company answers not found")`, `test("the web variant action refuses a form with stock as an unknown field")`.
+Core integration (real database), `variant-api-routes.integration.test.ts`: `test("PATCH with stock replaces the count and keeps the structure version")`, `test("PATCH with a fractional or negative stock answers 422 with a stock issue and writes nothing")`, `test("PATCH with stock as text answers 400 INVALID_TYPE")`, `test("PATCH with the founder's body from 3.1 answers 200 and stores the stock")`, `test("PATCH raising stock deducts no waiting order within the request")`, `test("PATCH with a variant of another company answers not found")`, `test("the web variant action refuses a form with stock as an unknown field")`, `stock-repository.integration.test.ts`: `test("answers PERSISTENCE_UNAVAILABLE and logs when the written rows differ")`. Statement-count test (≤ 20, 2 vs 100 variants): `test("PATCH with salePrice, sku and stock stays within the statement budget")`, `test("a product save changing stock on 100 variants issues one ProductStock UPDATE")`.
 
 Mobile (Jest, RNTL):
 - `variant-row-issues.test.ts`: `test("maps every stock reason to its text")`, `test("maps INVALID_PRECISION to the two-decimals text")`, `test("maps a known field with an unknown reason to the not-accepted text")`, `test("never answers the generic save text for a known field")`.
-- `product-variants.test.mjs`: `test("adopting a variant answer updates only that row's values and original")`, `test("removing a saved variant keeps the other rows' pending values")`; `product-management-screen.test.tsx`: `test("a published variant answer keeps the product page's pending edits")`.
+- `product-variants.test.mjs`: `test("adopting a variant answer updates only that row's values and original")`, `test("removing a saved variant keeps the other rows' pending values")`; `product-management-screen.test.tsx`: `test("a published variant answer keeps a pending product rename and the editor draft")`.
 - `variants-screen.test.tsx`: `test("tapping a row expands its editor and collapses the open one")`, `test("saving a changed stock sends only the stock and shows Variante guardada")`, `test("a stock refusal shows its text under Stock")`, `test("an empty stock on a saved row is refused before sending")`, `test("an inline save keeps other rows' pending edits")`, `test("a Nueva row applies its values to the draft without sending")`, `test("tapping another row with typed changes asks to discard")`, `test("delete is replaced by the pending-edits text while the product has pending edits")`, `test("only the expanded row renders an editor with 100 variants")`.
 
 Manual: the founder's flow from 3.1 on a device build of the integration branch; keyboard keeps the focused field visible; Android back and iOS swipe ask to discard.
@@ -187,18 +193,18 @@ T1 core + contract ──► T2 mobile saved rows ──► T3 mobile «Nueva» 
 | Task | Depends on | Files it owns |
 | --- | --- | --- |
 | T1 | — | `shared/contracts/products.ts`; core `products/domain/{stock-level,validation,product-structure}.ts`, `application/{set-variant-stock,update-variant,save-product}.ts`, `infrastructure/{stock-repository,repository}.ts`, `presentation/{variant-api-routes,variant-detail-model}.ts`, `product-editing.ts`, `product-variant-actions.ts` (+ tests) |
-| T2 | T1 | mobile `application/variant-operations.ts`, `infrastructure/product-api.ts`, `presentation/{variants-screen,variant-row-editor,variant-row-issues,variant-editor-translations,product-editor-state,product-management-screen,product-routes}.ts(x)`, `shared/product-variants.ts`, deleted detail files and route (+ tests) |
-| T3 | T2 | `variants-screen.tsx`, `variant-row-editor.tsx`, `variant-editor-translations.ts`, deleted draft-variant screen and routes (+ tests) |
+| T2 | T1 | mobile `application/variant-operations.ts`, `infrastructure/product-api.ts`, `presentation/{variants-screen,variant-row-editor,variant-row-issues,variant-editor-translations,translations,product-editor-state,product-management-screen,product-routes}.ts(x)`, `shared/product-variants.ts`, deleted detail files and route (+ tests) |
+| T3 | T2 | `variants-screen.tsx`, `variant-row-editor.tsx`, `variant-editor-translations.ts`, `product-routes.ts`, deleted draft-variant screen and routes (+ tests) |
 
 ### T1. Core and contract: stock in the per-variant save through one use case
 
-**Scope:** 5, 6, 7, 8, 13; core tests of 14.
+**Scope:** 5, 6, 7, 8, 9, 13; core tests of 14.
 **Out of scope:** mobile, any web screen change, restock.
 **Acceptance criteria:**
 1. `PATCH { stock: 7 }` on «L / Azul» at 10 answers 200, stores 7, `structureVersion` unchanged; the founder's body from 3.1 does the same.
 2. `PATCH { stock: 2.5 }` answers 422 `{ field: "stock", reason: "INVALID_STOCK" }`; nothing written.
 3. A product save changing stock behaves as today; `grep` finds no `UPDATE "ProductStock"` for seller writes outside `stock-repository.ts`.
-4. Raising stock with a paid order «Esperando stock» leaves it waiting.
+4. Raising stock with a paid order «Esperando stock» deducts nothing within the request and publishes no event (recovery may deduct it afterwards, F8).
 5. The web variant action with a crafted `stock` answers `UNKNOWN_FIELD`.
 **Depends on:** nothing.
 
