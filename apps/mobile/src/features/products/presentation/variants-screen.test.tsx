@@ -6,6 +6,7 @@ import { addOption, applyBulk, createDraft, draftFromProduct, removeRow, removeV
 import CreateProductScreen from "@mobile/features/products/presentation/create-product-screen";
 import ProductManagementScreen from "@mobile/features/products/presentation/product-management-screen";
 import OptionsScreen from "@mobile/features/products/presentation/options-screen";
+import { announceFocus } from "@mobile/features/products/presentation/variant-row-editor";
 import VariantsScreen from "@mobile/features/products/presentation/variants-screen";
 import { ProductEditorProvider, useProductEditor } from "@mobile/features/products/presentation/product-editor-state";
 
@@ -203,6 +204,34 @@ test("an inline save keeps other rows' pending edits", async () => {
   expect(mockEditor.draft!.rows[0].original?.stock).toBe(7);
   expect(mockEditor.baseline!.rows[1].salePrice).toBe(39.9);
   expect(mockEditor.dirty).toBe(true);
+});
+
+test("a pending Nueva row survives an inline save of a saved row", async () => {
+  const full = savedProduct();
+  const nueva = full.rows[5];
+  const { id: _id, original: _original, ...fresh } = nueva;
+  const draft: EditorDraft = { ...full, rows: [...full.rows.slice(0, 5), { ...fresh, stock: 2 } as EditorDraft["rows"][number]] };
+  const saved = { ...draft, rows: draft.rows.slice(0, 5) };
+  mockUpdate.mockResolvedValue(ok(detailOf(saved, (index) => index === 0 ? { stock: 7 } : {})));
+  renderSaved(draft, detailOf(saved));
+  act(() => mockEditor.setDraft(setRow(mockEditor.draft!, nueva.ref, { stock: 9, salePrice: 55 })));
+  open("S / Negro");
+  typeStock("7");
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Guardar variante" })));
+  await screen.findByText("Variante guardada.");
+  const survivor = mockEditor.draft!.rows.find((row) => row.ref === nueva.ref)!;
+  expect(survivor.original).toBeUndefined();
+  expect(survivor.stock).toBe(9);
+  expect(survivor.salePrice).toBe(55);
+  expect(mockEditor.draft!.rows).toHaveLength(6);
+  expect(mockEditor.draft!.rows[0].original?.stock).toBe(7);
+});
+
+test("announcing focus does nothing on web, where findNodeHandle is unsupported", () => {
+  const rn = jest.requireActual("react-native");
+  const spy = jest.spyOn(rn, "findNodeHandle").mockImplementation(() => { throw new Error("unsupported"); });
+  const platform = jest.replaceProperty(rn.Platform, "OS", "web");
+  try { expect(() => announceFocus({})).not.toThrow(); expect(spy).not.toHaveBeenCalled(); } finally { platform.restore(); spy.mockRestore(); }
 });
 
 test("deactivate keeps other rows' pending edits", async () => {
