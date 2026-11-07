@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createProductRequestSchema, saveProductRequestSchema } from "./contracts/products.ts";
 import { visibilityToSave } from "./product-visibility.ts";
 import {
-  addCombination, addOption, addValue, applyBulk, buildCreateProductBody, buildSaveProductBody, combinationLabel, copiedStockNotice, createDraft,
+  adoptVariant, removeSavedVariant, addCombination, addOption, addValue, applyBulk, buildCreateProductBody, buildSaveProductBody, combinationLabel, copiedStockNotice, createDraft,
   draftFromProduct, hiddenSelectedCount, setValueForExistingVariants, inactiveSourceCount, isChipActive, moveOption, moveValue, orderedRows, removalOf, removeOption, removeRow,
   removeValue, renameOption, renameValue, rowLabel, setRow, toggleAll, toggleChip, uncreatedCombinations, uncreatedCount, undoRemoveRow,
   undoRemoveValue, variantCounter,
@@ -483,4 +483,35 @@ test("the create body always sends hidden", () => {
   const meta = { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, photos: { kind: "untouched" }, currency: "PEN" };
   assert.equal(createProductRequestSchema.parse(buildCreateProductBody(newPolo(), { ...meta, hidden: false })).hidden, false);
   assert.equal(createProductRequestSchema.parse(buildCreateProductBody(newPolo(), { ...meta, hidden: true })).hidden, true);
+});
+
+test("adopting a variant answer updates only that row's values and original", () => {
+  const product = fullPolo();
+  let draft = draftFromProduct(product);
+  const [first, second] = draft.rows;
+  draft = setRow(setRow(draft, first.ref, { salePrice: 50, stock: 3 }), second.ref, { salePrice: 60 });
+  const answered = { ...product, variants: product.variants.map((variant, index) => index === 1 ? { ...variant, salePrice: money(45), stock: 7, sku: "X" } : variant) };
+  const next = adoptVariant(draft, answered, second.id);
+  const [a, b] = next.rows;
+  assert.deepEqual([a.salePrice, a.stock, a.original.salePrice], [50, 3, 30]);
+  assert.deepEqual([b.salePrice, b.stock, b.sku, b.original.salePrice, b.original.stock, b.original.sku], [45, 7, "X", 45, 7, "X"]);
+  assert.equal(next.rows[2], draft.rows[2]);
+});
+
+test("removing a saved variant keeps the other rows' pending values", () => {
+  const product = fullPolo();
+  let draft = draftFromProduct(product);
+  draft = setRow(draft, draft.rows[2].ref, { salePrice: 50 });
+  const next = removeSavedVariant(draft, draft.rows[0].id);
+  assert.equal(next.rows.length, 3);
+  assert.equal(next.rows[1].salePrice, 50);
+  assert.equal(next.options[0].values.length, 2);
+});
+
+test("removing the last variant of a value drops that saved value", () => {
+  const { talla, color } = polo();
+  const product = savedProduct([talla, color], [{ values: ["S", "Negro"] }, { values: ["M", "Negro"] }, { values: ["M", "Azul"] }]);
+  const draft = draftFromProduct(product);
+  const next = removeSavedVariant(draft, draft.rows[0].id);
+  assert.deepEqual(next.options[0].values.map((value) => value.name), ["M"]);
 });

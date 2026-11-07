@@ -7,7 +7,7 @@ import { createProductOperations } from "@mobile/features/products/application/p
 import { createProductPrintingOperations, type ProductPrintingDependencies } from "@mobile/features/products/application/product-printing";
 import type { ProductLabel } from "@mobile/features/products/domain/product-label";
 import ProductManagementScreen from "@mobile/features/products/presentation/product-management-screen";
-import { ProductEditorProvider } from "@mobile/features/products/presentation/product-editor-state";
+import { ProductEditorProvider, useProductEditor } from "@mobile/features/products/presentation/product-editor-state";
 import i18n from '@mobile/i18n';
 import type { AdapterId, PrinterId } from "@mobile/features/printing/domain/printing";
 import type { PrintWork } from "@mobile/features/printing/presentation/print-provider";
@@ -417,4 +417,17 @@ describe("hide product", () => {
     await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
     expect(alert).toHaveBeenCalledWith("Cambios guardados", "El producto se actualizó correctamente.");
   });
+});
+
+test("a published variant answer keeps a pending product rename and the editor draft", async () => {
+  mockLoadProduct.mockResolvedValue(ok(product));
+  let editor!: ReturnType<typeof useProductEditor>;
+  function Capture() { editor = useProductEditor(); return null; }
+  render(<ProductEditorProvider><ProductManagementScreen /><Capture /></ProductEditorProvider>);
+  const name = await screen.findByLabelText("Nombre *");
+  fireEvent.changeText(name, "Camisa editada");
+  const draft = editor.draft;
+  act(() => editor.publish({ ...product, structureVersion: 2 } as never));
+  expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa editada");
+  expect(editor.draft).toBe(draft);
 });
