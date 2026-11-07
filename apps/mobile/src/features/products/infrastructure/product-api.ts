@@ -8,9 +8,7 @@ import {
   saveProductRequestSchema,
   saveProductResponseSchema,
   updateVariantRequestSchema,
-  changeCombinationRequestSchema,
   changeVariantStatusRequestSchema,
-  type ChangeCombinationRequest,
   type CreateProductRequest,
   type SaveProductRequest,
   type UpdateVariantRequest,
@@ -56,7 +54,6 @@ export type SavedProduct = Readonly<{ product: Product; catalogEmptied: boolean 
 export type SaveProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "PRODUCT_CHANGED" | "ID_CONFLICT" | "VARIANT_HAS_ORDERS" | "PRODUCT_NOT_FOUND" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 type VariantNotFound = "PRODUCT_NOT_FOUND" | "VARIANT_NOT_FOUND";
 export type UpdateVariantError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | VariantNotFound }>;
-export type ChangeCombinationError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_COMBINATION" | "PRODUCT_WITHOUT_OPTIONS" | "ID_CONFLICT" | VariantNotFound }>;
 export type ChangeVariantStatusError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "PRODUCT_WITHOUT_OPTIONS" | VariantNotFound }>;
 export type DeleteVariantError = ProductTransportFailure | Extract<ApiFailure, { code: "VARIANT_HAS_ORDERS" | "VARIANT_HAS_STOCK" | "LAST_VARIANT" | VariantNotFound }>;
 export type UploadProductImageError = UploadImageError;
@@ -250,12 +247,6 @@ export function createProductApi(request: Request, sessionGeneration: () => numb
       const body = updateVariantRequestSchema.safeParse(input);
       if (!body.success) return err({ code: "INVALID_INPUT", message: "Invalid variant input" });
       return variantAction(productId, variantId, "", json("PATCH", body.data), ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "PRODUCT_NOT_FOUND", "VARIANT_NOT_FOUND"] as const);
-    },
-    async changeCombination(productId: ProductId, variantId: VariantId, input: ChangeCombinationRequest): Promise<Result<Product, ChangeCombinationError>> {
-      const body = changeCombinationRequestSchema.safeParse(input);
-      if (!body.success) return err({ code: "INVALID_INPUT", message: "Invalid combination input" });
-      return variantAction(productId, variantId, "/combination", json("PUT", body.data),
-        ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_COMBINATION", "PRODUCT_WITHOUT_OPTIONS", "ID_CONFLICT", "PRODUCT_NOT_FOUND", "VARIANT_NOT_FOUND"] as const);
     },
     changeStatus(productId: ProductId, variantId: VariantId, status: "active" | "inactive"): Promise<Result<Product, ChangeVariantStatusError>> {
       return variantAction(productId, variantId, "/status", json("PUT", changeVariantStatusRequestSchema.parse({ status })),

@@ -315,6 +315,22 @@ export function setRow(draft: EditorDraft, ref: string, patch: RowPatch): Editor
   return patch.stock !== undefined ? { ...next, stockNotice: false } : next;
 }
 
+/** A saved variant's own save or status change answered: only that row's values and `original` become the answered ones; every other pending edit stays. */
+export function adoptVariant(draft: EditorDraft, answered: ProductDetailResponse["product"], variantId: string): EditorDraft {
+  const variant = answered.variants.find((candidate) => candidate.id === variantId);
+  if (!variant) return draft;
+  const saved = { sku: variant.sku, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null, stock: variant.stock };
+  return mapRows(draft, (row) => ({ ...row, ...saved, status: variant.status === "active" ? "active" : "inactive", hasOrders: variant.hasOrders, original: saved }),
+    new Set(draft.rows.filter((row) => row.id === variantId).map((row) => row.ref)));
+}
+
+/** A saved variant was deleted: its row goes, and the saved values no row uses any more go with it, as in core. */
+export function removeSavedVariant(draft: EditorDraft, variantId: string): EditorDraft {
+  const rows = draft.rows.filter((row) => row.id !== variantId);
+  const used = new Set(rows.flatMap((row) => Object.values(row.combination)));
+  return { ...draft, rows, options: draft.options.map((option) => ({ ...option, values: option.values.filter((value) => !value.saved || used.has(value.id)) })) };
+}
+
 /** Applies to the live selected rows; `applied` counts the rows that changed. */
 export function applyBulk(draft: EditorDraft, selected: readonly string[], patch: RowPatch): Readonly<{ draft: EditorDraft; applied: number }> {
   const live = new Set(liveRows(draft).filter((row) => selected.includes(row.ref)).map((row) => row.ref));

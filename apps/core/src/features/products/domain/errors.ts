@@ -1,7 +1,7 @@
 export type ProductField = "name" | "description" | "photoIds" | "currency" | "options" | "variants";
 export type OptionField = "id" | "name" | "values" | "valueForExistingVariants";
 export type ValueField = "id" | "name";
-export type VariantField = "id" | "values" | "sku" | "salePrice" | "purchasePrice" | "initialStock";
+export type VariantField = "id" | "values" | "sku" | "salePrice" | "purchasePrice" | "initialStock" | "stock";
 export type ProductValidationReason =
   | { readonly reason: "REQUIRED" }
   | { readonly reason: "INVALID_TYPE" }

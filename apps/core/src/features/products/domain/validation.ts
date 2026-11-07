@@ -2,6 +2,7 @@ import { z } from "zod";
 import { currencies } from "@shared/money";
 import type { ProductField, ProductValidationReason, ValidationIssue, VariantField } from "@core/src/features/products/domain/errors";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { parseStockCount } from "@core/src/features/products/domain/stock-level";
 
 const MAX_PRICE = 999999999.99;
 const MAX_NAME = 200;
@@ -64,7 +65,7 @@ const initialStock = z.preprocess(
   z
     .unknown()
     .superRefine((value, ctx) => {
-      if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) addIssue(ctx, { reason: "INVALID_STOCK", message: "Invalid stock" });
+      if (!parseStockCount(value).success) addIssue(ctx, { reason: "INVALID_STOCK", message: "Invalid stock" });
     })
     .pipe(z.number()),
 );

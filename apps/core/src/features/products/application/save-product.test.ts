@@ -31,6 +31,8 @@ const unchanged = (): SaveProductInput => ({
 
 function setup(options: Readonly<{ product?: Product | null; skuOwners?: ReadonlyMap<string, VariantId>; foreign?: ReadonlySet<string>; images?: Result<ReadonlySet<ImageId>, ImageLookupError>; known?: readonly ImageId[]; ordered?: ReadonlySet<VariantId>; applyFails?: SaveProductError; otherOffered?: boolean }> = {}) {
   const applied: ProductStructureChange[] = [];
+  const order: string[] = [];
+  const stockWrites: unknown[] = [];
   const published: ProductId[] = [];
   const saved: unknown[] = [];
   const rejected: SaveProductError[] = [];
@@ -46,14 +48,15 @@ function setup(options: Readonly<{ product?: Product | null; skuOwners?: Readonl
     findForeignOptionIds: async () => ok(options.foreign ?? new Set()),
     findImages: async (ids) => { imageLookups.push(ids); return options.images ?? ok(new Set(options.known ?? ids)); },
     hasOtherOfferedProduct: async (id, currency) => { offeredLookups.push([id, currency]); return ok(options.otherOffered ?? true); },
-    applyStructureChange: async (change) => { if (options.applyFails) return err(options.applyFails); applied.push(change); return ok(null); },
+    applyStructureChange: async (change) => { if (options.applyFails) return err(options.applyFails); order.push("structure"); applied.push(change); return ok(null); },
+    setVariantStock: async (input) => { order.push("stock"); stockWrites.push(input); return ok(undefined); },
     reload: async (id) => ok({ product: { ...(options.product ?? stored), id }, orderedVariantIds: new Set<VariantId>(), photos: [] }),
     newId: () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`,
     clock: () => new Date("2026-10-26T00:00:00.000Z"),
     publishProductPhotosAdded: async (id) => { published.push(id); return ok(undefined); },
     observe: { saved: (summary) => saved.push(summary), rejected: ({ error }) => rejected.push(error) },
   };
-  return { deps, applied, published, saved, rejected, skuLookups, imageLookups, offeredLookups };
+  return { deps, order, stockWrites, applied, published, saved, rejected, skuLookups, imageLookups, offeredLookups };
 }
 
 describe("save product", () => {
@@ -88,7 +91,17 @@ describe("save product", () => {
     expect(context.applied).toHaveLength(1);
     expect(context.applied[0].product).toEqual({ name: "Polo básico", updatedAt: new Date("2026-10-26T00:00:00.000Z"), structureVersion: 4 });
     expect(context.applied[0].deleteVariantIds).toEqual(["b"]);
-    expect(context.saved).toEqual([{ productId, structureVersion: 4, optionCount: 1, variantCount: 1, createdVariants: 0, updatedVariants: 0, deletedVariants: 1, rekeyedVariants: 0, removedValues: 1, photoCount: 0, photosChanged: false, hiddenChanged: false, hidden: false, hidLastOffered: false }]);
+    expect(context.saved).toEqual([{ productId, structureVersion: 4, optionCount: 1, variantCount: 1, createdVariants: 0, updatedVariants: 0, stockChanges: 0, deletedVariants: 1, rekeyedVariants: 0, removedValues: 1, photoCount: 0, photosChanged: false, hiddenChanged: false, hidden: false, hidLastOffered: false }]);
+  });
+
+  test("writes saved-variant stock through setVariantStock after the structure change", async () => {
+    const context = setup();
+    const input = { ...unchanged(), variants: [{ id: "a" as VariantId, sku: "SKU-A", salePrice: 10, purchasePrice: null, stock: 4 }, { id: "b" as VariantId, sku: null, salePrice: 10, purchasePrice: null, stock: 0 }] };
+    expect(await saveProduct(input, access, context.deps)).toMatchObject({ success: true });
+    expect(context.order).toEqual(["structure", "stock"]);
+    expect(context.stockWrites).toEqual([{ counts: [{ variantId: "a", stock: 4 }] }]);
+    expect(context.applied[0].variantFieldChanges).toEqual([]);
+    expect(context.saved).toMatchObject([{ stockChanges: 1, updatedVariants: 0 }]);
   });
 
   test("reports duplicate SKUs of two new variants on both rows", async () => {

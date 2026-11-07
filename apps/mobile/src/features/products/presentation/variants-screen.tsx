@@ -1,13 +1,14 @@
 /** @jsxImportSource react */
 // Preserve native Pressable style callbacks outside NativeWind interop.
-import { useMemo, useState } from "react";
-import { FlatList, Modal, Pressable, StyleSheet, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from "react-native";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { usePreventRemove } from "expo-router/react-navigation";
 import { SymbolView } from "expo-symbols";
 import { useTranslation } from "react-i18next";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  addCombination, applyBulk, isChipActive, orderedRows, removalOf, removeRow, rowLabel, toggleAll, toggleChip, undoRemoveRow,
+  addCombination, applyBulk, setRow, isChipActive, orderedRows, removalOf, removeRow, rowLabel, toggleAll, toggleChip, undoRemoveRow,
   uncreatedCombinations, uncreatedCount, copiedStockNotice, inactiveSourceCount, variantCounter, type EditorDraft, type EditorRow, type RowPatch,
 } from "@shared/product-variants";
 import { Button } from "@mobile/components/ui/button";
@@ -21,7 +22,7 @@ import { editorSummary } from "./product-editor-summary";
 import { formEdges } from "./form-edges";
 import { ProductTopBar } from "./product-top-bar";
 import { useProductEditor } from "./product-editor-state";
-import { variantPath } from "./product-routes";
+import { announceFocus, formOf, NewVariantEditor, sameForm, VariantRowEditor, type VariantForm } from "./variant-row-editor";
 import { useProductDraft } from "./draft-guard";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { QuantityStepper } from "@mobile/components/ui/quantity-stepper";
@@ -58,16 +59,49 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
   const selected = rows.filter((row) => selection.includes(row.ref));
   const uncreated = useMemo(() => draft.saved && missing > 0 ? uncreatedCombinations(draft, { limit: missing === 1 ? 1 : limit }) : { items: [], hasMore: false }, [draft, missing, limit]);
   const set = (next: EditorDraft) => editor.setDraft(next);
-  const { dirty: productDirty, discard } = useProductDraft();
-  const openSaved = (variantId: string) => {
-    const go = () => router.push({ pathname: variantPath, params: { productId: productId ?? "", variantId } });
-    // The detail acts on what core has saved, so a form with changes is discarded first.
-    if (!productDirty && !editor.dirty) { go(); return; }
-    showConfirmation({ title: t("discardChanges"), description: t("discardDescription"), confirmLabel: t("discard"), cancelLabel: t("keepEditing"), destructive: true, onConfirm: () => { discard(); go(); } });
+  const { dirty: productDirty } = useProductDraft();
+  const navigation = useNavigation();
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [typed, setTyped] = useState<Readonly<Record<string, VariantForm>>>({});
+  const [busy, setBusy] = useState(false);
+  const [deleted, setDeleted] = useState(false);
+  const buttons = useRef<Record<string, View | null>>({});
+  const register = useCallback((ref: string, node: View | null) => { buttons.current[ref] = node; }, []);
+  const product = editor.detail?.id === productId ? editor.detail : null;
+  const expandedRow = rows.find((row) => row.ref === expanded);
+  const typedFor = (row: EditorRow) => typed[row.ref] !== undefined && !sameForm(typed[row.ref], formOf(row));
+  const inlineDirty = expandedRow !== undefined && typedFor(expandedRow);
+  const dropTyped = (ref: string) => setTyped(({ [ref]: _dropped, ...rest }) => rest);
+  const discardAsk = (then: () => void) => showConfirmation({ title: t("discardChanges"), description: t("discardDescription"), confirmLabel: t("discard"), cancelLabel: t("keepEditing"), destructive: true, onConfirm: then });
+  const collapse = () => {
+    const ref = expanded;
+    setExpanded(null);
+    if (ref !== null) { dropTyped(ref); setTimeout(() => announceFocus(buttons.current[ref]), 0); }
   };
-  const detailOf = (row: EditorRow) => row.id !== null ? openSaved(row.id)
-    : productId ? router.push({ pathname: "/products/[productId]/draft-variant", params: { productId, ref: row.ref } })
-      : router.push({ pathname: "/products/new/draft-variant", params: { ref: row.ref } });
+  usePreventRemove(inlineDirty, ({ data }) => discardAsk(() => { if (expanded !== null) dropTyped(expanded); navigation.dispatch(data.action); }));
+
+  const toggle = (row: EditorRow) => {
+    if (busy) return;
+    const next = expanded === row.ref ? null : row.ref;
+    const go = () => { if (expanded !== null) dropTyped(expanded); setDeleted(false); setExpanded(next); if (next === null && expanded !== null) setTimeout(() => announceFocus(buttons.current[expanded]), 0); };
+    if (inlineDirty) discardAsk(go); else go();
+  };
+  const removeNew = (row: EditorRow) => {
+    const result = removeRow(draft, row.ref);
+    if (result.success) { set(result.data); editor.setSelection(selection.filter((ref) => ref !== row.ref)); }
+    collapse();
+  };
+  const check = (row: EditorRow) => {
+    const checked = selection.includes(row.ref);
+    editor.setSelection(checked ? selection.filter((ref) => ref !== row.ref) : [...selection, row.ref]);
+  };
+  // Memoized rows read the latest handlers through these stable ones.
+  const undo = (ref: string) => set(undoRemoveRow(draft, ref));
+  const latest = useRef({ toggle, check, undo });
+  useEffect(() => { latest.current = { toggle, check, undo }; });
+  const onToggle = useCallback((row: EditorRow) => latest.current.toggle(row), []);
+  const onCheck = useCallback((row: EditorRow) => latest.current.check(row), []);
+  const onUndo = useCallback((ref: string) => latest.current.undo(ref), []);
 
   const removeSelected = () => {
     const next = selected.filter((row) => row.id === null).reduce((current, row) => { const result = removeRow(current, row.ref); return result.success ? result.data : current; }, draft);
@@ -84,38 +118,21 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
     return active.map((entry) => `${entry.option.toLowerCase()} ${entry.value}`).join(", ");
   })();
 
+  const price = (row: EditorRow) => money.format(row.salePrice);
   const renderRow = ({ item: row }: { item: EditorRow }) => {
-    const removal = removalOf(draft, row);
-    const error = editor.errors.rows[row.ref];
-    const checked = selection.includes(row.ref);
-    const disabled = removal !== null || row.status === "inactive";
-    const label = rowLabel(draft, row) || t("numberedVariant", { count: 1 });
-    const tags = [
-      ...(draft.saved && row.id === null && removal === null ? [t("rowNew")] : []),
-      ...(row.status === "inactive" ? [t("rowInactive")] : []),
-      ...(removal ? [row.id !== null ? t("rowWillBeDeleted") : t("rowWillBeRemoved")] : []),
-    ];
-    const body = <View style={styles.rowText}>
-      <ThemedText type="smallBold" style={removal ? styles.struck : undefined}>{label}</ThemedText>
-      {tags.length ? <ThemedText type="small" themeColor="textSecondary">{tags.join(" · ")}</ThemedText> : null}
-      {removal === null ? <ThemedText type="small" themeColor="textSecondary">{row.stock > 0 ? t("stockCount", { count: row.stock }) : t("catalogSoldOut")}</ThemedText> : null}
-      {error ? <ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText> : null}
-      {removal === "self" ? <Button variant="ghost" onPress={() => set(undoRemoveRow(draft, row.ref))}>{t("undo")}</Button> : null}
-    </View>;
-    return <View style={[styles.row, { borderColor: error ? theme.error : theme.border, backgroundColor: checked ? theme.accent : theme.backgroundElement }]}>
-      <Pressable accessibilityRole="checkbox" accessibilityLabel={t("selectVariant", { name: label })} accessibilityState={{ checked, disabled }} disabled={disabled}
-        onPress={() => editor.setSelection(checked ? selection.filter((ref) => ref !== row.ref) : [...selection, row.ref])} style={styles.check}>
-        <SymbolView name={checked ? { ios: "checkmark.square.fill", android: "check_box" } : { ios: "square", android: "check_box_outline_blank" }} size={tokens.sizing.iconAction} tintColor={disabled ? theme.textSecondary : theme.primary} />
-      </Pressable>
-      {removal === null ? <Pressable accessibilityRole="button" accessibilityLabel={t("openVariant", { name: label })} onPress={() => detailOf(row)} style={styles.rowPress}>
-        {body}
-        <ThemedText type="smallBold">{money.format(row.salePrice)}</ThemedText>
-        <SymbolView name={{ ios: "chevron.right", android: "chevron_right" }} size={tokens.sizing.iconAction} tintColor={theme.textSecondary} />
-      </Pressable> : <View style={styles.rowPress}>
-        {body}
-        {removal === null ? <ThemedText type="smallBold">{money.format(row.salePrice)}</ThemedText> : null}
-      </View>}
-    </View>;
+    const open = expanded === row.ref && (row.id === null || product !== null);
+    return <VariantRow row={row} label={rowLabel(draft, row) || t("numberedVariant", { count: 1 })} removal={removalOf(draft, row)} saved={draft.saved}
+      error={editor.errors.rows[row.ref]} checked={selection.includes(row.ref)} expanded={open} locked={busy} price={price(row)}
+      register={register} onToggle={onToggle} onCheck={onCheck} onUndo={onUndo}>
+      {open && row.id === null ? <NewVariantEditor row={row} form={typed[row.ref] ?? formOf(row)} onChange={(form) => setTyped((current) => ({ ...current, [row.ref]: form }))}
+        onApply={(values) => { set(setRow(draft, row.ref, values)); collapse(); }}
+        onCancel={() => { if (typedFor(row)) discardAsk(collapse); else collapse(); }}
+        onRemove={() => removeNew(row)} /> : null}
+      {open && row.id !== null && row.original !== null && product !== null ? <VariantRowEditor product={product} row={{ ...row, id: row.id, original: row.original }} form={typed[row.ref] ?? formOf(row)}
+        onChange={(form) => setTyped((current) => ({ ...current, [row.ref]: form }))} typed={typedFor(row)} pendingEdits={editor.dirty || productDirty}
+        onBusy={setBusy} onCancel={() => { if (typedFor(row)) discardAsk(collapse); else collapse(); }} onSaved={() => dropTyped(row.ref)}
+        onDeleted={() => { dropTyped(row.ref); setExpanded(null); setDeleted(true); editor.setSelection(selection.filter((ref) => ref !== row.ref)); }} onReload={() => { editor.requestReload(); router.back(); }} /> : null}
+    </VariantRow>;
   };
 
   const header = <View style={styles.header}>
@@ -153,9 +170,12 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
 
   return <ThemedView style={styles.page}><SafeAreaView edges={formEdges} style={styles.safe}>
     <ProductTopBar title={t("variants")} onClose={() => router.back()} back />
-    <FlatList data={rows} keyExtractor={(row) => row.ref} renderItem={renderRow} ListHeaderComponent={header} ListFooterComponent={footer}
-      contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" />
-    {selection.length > 0 ? <View style={[styles.bar, { backgroundColor: theme.backgroundElement, borderTopColor: theme.border }]}>
+    {deleted ? <ThemedText type="small" accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.pinned}>{t("variantDeleted")}</ThemedText> : null}
+    <KeyboardAvoidingView style={styles.safe} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <FlatList data={rows} keyExtractor={(row) => row.ref} renderItem={renderRow} extraData={[expanded, typed, busy, selection, editor.errors, editor.dirty, productDirty]}
+      ListHeaderComponent={header} ListFooterComponent={footer} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" />
+    </KeyboardAvoidingView>
+    {selection.length > 0 && expanded === null ? <View style={[styles.bar, { backgroundColor: theme.backgroundElement, borderTopColor: theme.border }]}>
       <View style={styles.barTitle}>
         <ThemedText type="smallBold">{t("selectedCount", { count: selection.length })}</ThemedText>
         {selected.some((row) => row.id === null) ? <Button variant="ghost" onPress={removeSelected}>{t("removeSelected")}</Button> : null}
@@ -173,6 +193,48 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
       onApply={(patch) => apply(patch)} /> : null}
   </SafeAreaView></ThemedView>;
 }
+
+type RowProps = Readonly<{
+  row: EditorRow; label: string; removal: ReturnType<typeof removalOf>; saved: boolean; error: string | undefined; checked: boolean;
+  expanded: boolean; locked: boolean; price: string; register: (ref: string, node: View | null) => void; children: ReactNode;
+  onToggle: (row: EditorRow) => void; onCheck: (row: EditorRow) => void; onUndo: (ref: string) => void;
+}>;
+
+/** One row: memoized, so typing in the open editor does not render the others. */
+const VariantRow = memo(function VariantRow({ row, label, removal, saved, error, checked, expanded, locked, price, register, children, onToggle, onCheck, onUndo }: RowProps) {
+  const { t } = useTranslation();
+  const theme = useTheme();
+  const disabled = removal !== null || row.status === "inactive";
+  const tags = [
+    ...(saved && row.id === null && removal === null ? [t("rowNew")] : []),
+    ...(row.status === "inactive" ? [t("rowInactive")] : []),
+    ...(removal ? [row.id !== null ? t("rowWillBeDeleted") : t("rowWillBeRemoved")] : []),
+  ];
+  const body = <View style={styles.rowText}>
+    <ThemedText type="smallBold" style={removal ? styles.struck : undefined}>{label}</ThemedText>
+    {tags.length ? <ThemedText type="small" themeColor="textSecondary">{tags.join(" · ")}</ThemedText> : null}
+    {removal === null ? <ThemedText type="small" themeColor="textSecondary">{row.stock > 0 ? t("catalogStock", { count: row.stock }) : t("catalogSoldOut")}</ThemedText> : null}
+    {error ? <ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText> : null}
+    {removal === "self" ? <Button variant="ghost" onPress={() => onUndo(row.ref)}>{t("undo")}</Button> : null}
+  </View>;
+  return <View style={[styles.card, { borderColor: error ? theme.error : theme.border, backgroundColor: checked ? theme.accent : theme.backgroundElement }]}>
+    <View style={styles.row}>
+      <Pressable accessibilityRole="checkbox" accessibilityLabel={t("selectVariant", { name: label })} accessibilityState={{ checked, disabled }} disabled={disabled}
+        onPress={() => onCheck(row)} style={styles.check}>
+        <SymbolView name={checked ? { ios: "checkmark.square.fill", android: "check_box" } : { ios: "square", android: "check_box_outline_blank" }} size={tokens.sizing.iconAction} tintColor={disabled ? theme.textSecondary : theme.primary} />
+      </Pressable>
+      {removal === null ? <Pressable ref={(node) => register(row.ref, node)} accessibilityRole="button" accessibilityLabel={t("editVariant", { name: label })} accessibilityState={{ expanded, disabled: locked }}
+        disabled={locked} onPress={() => onToggle(row)} style={styles.rowPress}>
+        {body}
+        <ThemedText type="smallBold">{price}</ThemedText>
+        <SymbolView name={expanded ? { ios: "chevron.up", android: "expand_less" } : { ios: "chevron.right", android: "chevron_right" }} size={tokens.sizing.iconAction} tintColor={theme.textSecondary} />
+      </Pressable> : <View style={styles.rowPress}>
+        {body}
+      </View>}
+    </View>
+    {children}
+  </View>;
+});
 
 function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   const theme = useTheme();
@@ -230,11 +292,13 @@ const styles = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: tokens.spacing["2"] },
   chip: { minHeight: tokens.sizing.touchTargetMinSize, flexDirection: "row", alignItems: "center", gap: tokens.spacing["1"], borderWidth: tokens.sizing.borderWidth, borderRadius: tokens.sizing.touchTargetMinSize / 2, paddingHorizontal: tokens.spacing["4"] },
   notice: { borderRadius: tokens.radius.control, padding: tokens.spacing["3"], gap: tokens.spacing["2"] },
-  row: { minHeight: tokens.sizing.listRowMobileMinHeight, flexDirection: "row", alignItems: "center", borderWidth: tokens.sizing.borderWidth, borderRadius: tokens.radius.card },
+  card: { borderWidth: tokens.sizing.borderWidth, borderRadius: tokens.radius.card },
+  row: { minHeight: tokens.sizing.listRowMobileMinHeight, flexDirection: "row", alignItems: "center" },
   check: { width: tokens.sizing.touchTargetMinSize, height: tokens.sizing.touchTargetMinSize, alignItems: "center", justifyContent: "center" },
   rowPress: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: tokens.spacing["2"], paddingVertical: tokens.spacing["2"], paddingRight: tokens.spacing["3"] },
   rowText: { flex: 1, minWidth: 0 },
   struck: { textDecorationLine: "line-through" },
+  pinned: { paddingHorizontal: tokens.spacing["4"], paddingTop: tokens.spacing["2"] },
   footer: { gap: tokens.spacing["2"], paddingTop: tokens.spacing["2"] },
   total: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: tokens.spacing["3"] },
   uncreated: { flexDirection: "row", alignItems: "center", gap: tokens.spacing["2"] },
