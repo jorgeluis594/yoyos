@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 // Preserve native Pressable style callbacks outside NativeWind interop.
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { AccessibilityInfo, findNodeHandle, StyleSheet, View } from "react-native";
+import { AccessibilityInfo, findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { combinationLabel, type EditorRow } from "@shared/product-variants";
 import type { Result } from "@shared/result";
@@ -49,8 +49,9 @@ function patchOf(form: VariantForm, original: NonNullable<EditorRow["original"]>
   return { patch, errors };
 }
 
-/** Moves the screen reader, not the keyboard, to a node. */
+/** Moves the screen reader, not the keyboard, to a node. findNodeHandle throws on react-native-web. */
 export function announceFocus(node: unknown) {
+  if (Platform.OS === "web") return;
   const handle = node ? findNodeHandle(node as never) : null;
   if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
 }
