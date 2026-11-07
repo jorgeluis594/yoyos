@@ -87,6 +87,14 @@ export default function ProductManagementScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [published]);
 
+  // «Recargar producto» of the variants screen: the pending edits are dropped by the reload, as in the product screen's own.
+  const reloadRequests = useRef(editor.reloadRequests);
+  useEffect(() => {
+    if (reloadRequests.current === editor.reloadRequests) return;
+    reloadRequests.current = editor.reloadRequests;
+    setReloadKey((value) => value + 1);
+  }, [editor.reloadRequests]);
+
   useEffect(() => {
     let active = true;
     void products.loadProduct(productId as ProductId).then((result) => {

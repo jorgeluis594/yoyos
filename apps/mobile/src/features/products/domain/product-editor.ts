@@ -1,9 +1,8 @@
 import { draftFromProduct, type EditorDraft } from "@shared/product-variants";
-import type { ProductDetailResponse } from "@shared/contracts/products";
 import type { Product } from "./product";
 
 /** The product as the shared editor reads it. Fields the editor never reads (visibility, product QR, timestamps) are left empty. */
-export function editorProductOf(product: Product): ProductDetailResponse["product"] {
+export function editorProductOf(product: Product): Parameters<typeof draftFromProduct>[0] {
   return {
     id: product.id, name: product.name, description: product.description ?? null, hidden: false, photos: product.photos.map((photo) => ({ id: photo.id, url: photo.url })),
     currency: product.currency, qrCode: "", createdAt: "", updatedAt: "", structureVersion: product.structureVersion,

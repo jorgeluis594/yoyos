@@ -23,6 +23,9 @@ type EditorContext = Readonly<{
   /** The saved product as last read or answered by core: the saved variant detail reuses it and publishes what its actions answer. */
   detail: Product | null;
   publish: (product: Product) => void;
+  /** Counts the requests of the variants screen for the product screen, underneath it, to reload the product. */
+  reloadRequests: number;
+  requestReload: () => void;
   /** A saved variant answered its own save or status change: only that row (draft and baseline) takes the answer, and its product-save error is cleared. */
   adoptVariant: (answered: Product, variantId: string) => void;
   /** A saved variant was deleted: only its row goes, from draft and baseline. */
@@ -45,6 +48,8 @@ export function ProductEditorProvider({ children }: { children: ReactNode }) {
   const [selection, setSelection] = useState<readonly string[]>([]);
   const [errors, setErrors] = useState<EditorErrors>(noEditorErrors);
   const [detail, publish] = useState<Product | null>(null);
+  const [reloadRequests, setReloadRequests] = useState(0);
+  const requestReload = useCallback(() => setReloadRequests((value) => value + 1), []);
   const reset = useCallback((draft: EditorDraft, currency: Currency) => {
     setState({ draft, baseline: draft, currency });
     setSelection([]);
@@ -64,8 +69,8 @@ export function ProductEditorProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({
     draft: state.draft, baseline: state.baseline, currency: state.currency,
     dirty: state.draft !== null && state.baseline !== null && state.draft !== state.baseline && JSON.stringify(state.draft) !== JSON.stringify(state.baseline),
-    selection, errors, detail, publish, adoptVariant: adopt, removeVariant, reset, setDraft, setSelection, setErrors,
-  }), [state, selection, errors, detail, adopt, removeVariant, reset, setDraft]);
+    selection, errors, detail, publish, reloadRequests, requestReload, adoptVariant: adopt, removeVariant, reset, setDraft, setSelection, setErrors,
+  }), [state, selection, errors, detail, reloadRequests, requestReload, adopt, removeVariant, reset, setDraft]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
