@@ -5,6 +5,7 @@ import { productApiErrorSchema, productDetailResponseSchema, productListResponse
 import { combinationLabel } from "@shared/product-variants";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { parseVariantAction } from "@core/src/features/products/presentation/variant-detail-model";
 import { productVariantActions } from "@core/src/features/products/product-variant-actions";
 import { deleteSeededProducts, seedProduct, type SeededProduct } from "@core/src/features/products/infrastructure/product-seed";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -59,6 +60,7 @@ async function seller() {
   if (!cookie) throw new Error("Variants test session missing");
   const result = { companyId, cookie, async cleanup() {
     await withTenantIsolation(companyId, async () => {
+      await prisma.payment.deleteMany();
       await prisma.orderItem.deleteMany();
       await prisma.order.deleteMany();
       await deleteSeededProducts();
@@ -352,4 +354,112 @@ test("a value id or a combination taken after the checks answers ID_CONFLICT or 
     return applyCombinationChange(seeded.productId as ProductId, { variantId: sNegro as VariantId, combinationKey: other.combinationKey, changedLinks: [], deleteValueIds: [], deleteOptionIds: [] }, new Date(), context(sNegro));
   });
   expect(sameKey).toEqual({ success: false, error: expect.objectContaining({ code: "DUPLICATE_COMBINATION" }) });
+});
+
+const stockOf = (owner: Seller, variantId: string) => withTenantIsolation(owner.companyId, async () => Number((await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity));
+
+test("PATCH with stock replaces the count and keeps the structure version", async () => {
+  const owner = await seller();
+  const seeded = await shirts(owner);
+  const mNegro = seeded.variantIds[2];
+  const response = await call(path(seeded.productId, mNegro), owner.cookie, "PATCH", { stock: 7 });
+  expect(response.status).toBe(200);
+  const detail = productDetailResponseSchema.parse(await response.json());
+  expect(variantOf(detail, mNegro).stock).toBe(7);
+  expect(detail.product.structureVersion).toBe(1);
+  expect(await stockOf(owner, mNegro)).toBe(7);
+  expect((await call(path(seeded.productId, mNegro), owner.cookie, "PATCH", { stock: 0, salePrice: 26 })).status).toBe(200);
+  expect(await stockOf(owner, mNegro)).toBe(0);
+});
+
+test("PATCH with a fractional or negative stock answers 422 with a stock issue and writes nothing", async () => {
+  const owner = await seller();
+  const seeded = await shirts(owner);
+  const mNegro = seeded.variantIds[2];
+  for (const stock of [2.5, -1]) {
+    const response = await call(path(seeded.productId, mNegro), owner.cookie, "PATCH", { stock, salePrice: 99 });
+    expect(response.status).toBe(422);
+    expect((await errorOf(response)).issues).toEqual([expect.objectContaining({ scope: "variant", variantId: mNegro, field: "stock", reason: "INVALID_STOCK" })]);
+  }
+  expect(await stockOf(owner, mNegro)).toBe(4);
+  expect(variantOf(await read(owner, seeded.productId), mNegro).salePrice.amount).toBe(25);
+});
+
+test("PATCH with stock as text answers 400 INVALID_TYPE", async () => {
+  const owner = await seller();
+  const seeded = await shirts(owner);
+  const response = await call(path(seeded.productId, seeded.variantIds[2]), owner.cookie, "PATCH", { stock: "7" });
+  expect(response.status).toBe(400);
+  expect(await errorOf(response)).toMatchObject({ code: "INVALID_INPUT", issues: [{ field: "stock", reason: "INVALID_TYPE" }] });
+});
+
+test("PATCH with the founder's body from 3.1 answers 200 and stores the stock", async () => {
+  const owner = await seller();
+  const seeded = await shirts(owner);
+  const mNegro = seeded.variantIds[2];
+  const response = await call(path(seeded.productId, mNegro), owner.cookie, "PATCH", { sku: null, salePrice: 40, purchasePrice: null, stock: 7 });
+  expect(response.status).toBe(200);
+  expect(variantOf(productDetailResponseSchema.parse(await response.json()), mNegro)).toMatchObject({ sku: null, salePrice: { amount: 40 }, stock: 7 });
+  expect(await stockOf(owner, mNegro)).toBe(7);
+});
+
+/** A paid order of five units on a variant that holds four, so it waits for stock. */
+async function waitingOrder(owner: Seller, variantId: string) {
+  const id = randomUUID();
+  expect((await call("/api/orders", owner.cookie, "POST", { id, items: [{ variantId, quantity: 5 }] })).status).toBe(201);
+  const paid = await call(`/api/orders/${id}/payments`, owner.cookie, "POST", { paymentId: randomUUID(), amount: { amount: 125, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false });
+  expect(paid.status).toBe(200);
+  expect(await paid.json()).toMatchObject({ order: { stockDeducted: false, stockDue: { kind: "waiting" } } });
+  return id;
+}
+
+test("PATCH raising stock deducts no waiting order within the request", async () => {
+  const owner = await seller();
+  const seeded = await shirts(owner);
+  const mNegro = seeded.variantIds[2];
+  const orderId = await waitingOrder(owner, mNegro);
+  expect((await call(path(seeded.productId, mNegro), owner.cookie, "PATCH", { stock: 9 })).status).toBe(200);
+  expect(await stockOf(owner, mNegro)).toBe(9);
+  expect(await (await call(`/api/orders/${orderId}/aggregate`, owner.cookie, "GET")).json()).toMatchObject({ stockDeducted: false });
+});
+
+test("after a PATCH covering a waiting order, the order reads stockDue.kind = deducting", async () => {
+  const owner = await seller();
+  const seeded = await shirts(owner);
+  const mNegro = seeded.variantIds[2];
+  const orderId = await waitingOrder(owner, mNegro);
+  expect((await call(path(seeded.productId, mNegro), owner.cookie, "PATCH", { stock: 5 })).status).toBe(200);
+  expect(await (await call(`/api/orders/${orderId}/aggregate`, owner.cookie, "GET")).json()).toMatchObject({ stockDeducted: false, stockDue: { kind: "deducting" } });
+});
+
+test("PATCH with a variant of another company answers not found", async () => {
+  const owner = await seller();
+  const stranger = await seller();
+  const seeded = await shirts(owner);
+  const mNegro = seeded.variantIds[2];
+  const response = await call(path(seeded.productId, mNegro), stranger.cookie, "PATCH", { stock: 99 });
+  expect(response.status).toBe(404);
+  expect(await stockOf(owner, mNegro)).toBe(4);
+});
+
+test("the web variant action refuses a form with stock as an unknown field", () => {
+  expect(parseVariantAction(JSON.stringify({ intent: "update", salePrice: 12, stock: 3 }))).toMatchObject({
+    success: false, error: { code: "INVALID_INPUT", issues: [{ reason: "UNKNOWN_FIELD" }] } });
+});
+
+test("PATCH with salePrice, sku and stock stays within the statement budget", async () => {
+  const owner = await seller();
+  const small = await withTenantIsolation(owner.companyId, () => seedProduct({ name: "Chico", options: [{ name: "Talla", values: ["S", "M"] }], variants: [{ attributes: { Talla: "S" } }, { attributes: { Talla: "M" } }] }));
+  const grid = Array.from({ length: 100 }, (_, index) => ({ attributes: { Talla: `T${index % 10}`, Color: `C${Math.floor(index / 10)}` } }));
+  const large = await withTenantIsolation(owner.companyId, () => seedProduct({ name: "Grande",
+    options: [{ name: "Talla", values: Array.from({ length: 10 }, (_, index) => `T${index}`) }, { name: "Color", values: Array.from({ length: 10 }, (_, index) => `C${index}`) }], variants: grid }));
+  const counts: number[] = [];
+  for (const seeded of [small, large]) {
+    const { result, statements } = await withTenantIsolation(owner.companyId, () => countedStatements(() =>
+      productVariantActions.update({ productId: seeded.productId as ProductId, variantId: seeded.variantIds[0] as VariantId, salePrice: 31, sku: `SKU-${randomUUID().slice(0, 8)}`, stock: 8 })));
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    counts.push(statements.length);
+    expect(statements.length, statements.join("\n---\n")).toBeLessThanOrEqual(20);
+  }
+  expect(counts[0]).toBe(counts[1]);
 });

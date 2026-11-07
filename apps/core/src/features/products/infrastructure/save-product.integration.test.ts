@@ -339,3 +339,15 @@ test("a lock timeout during the photo lookup is reported once by the save transa
   }
   expect((await asCompany(companyA, () => load(seeded.productId))).photoIds).toEqual([]);
 });
+
+test("a product save changing stock on 100 variants issues one ProductStock UPDATE", async () => {
+  await asCompany(companyA, async () => {
+    const seeded = await seedGrid([10, 10]);
+    const product = await load(seeded.productId);
+    const form = formOf(product);
+    const { result, statements } = await countedStatements(() => productEditing.save({ ...form, variants: form.variants.map((variant) => ({ ...variant, stock: 7 })) }));
+    if (!result.success) throw new Error(JSON.stringify(result.error));
+    expect(statements.filter((text) => /UPDATE "ProductStock"/.test(text)), statements.join("\n")).toHaveLength(1);
+    expect((await load(seeded.productId)).variants.every((variant) => variant.stock.quantity === 7)).toBe(true);
+  });
+});
