@@ -7,6 +7,8 @@ import { findOrderedVariantIds } from "@core/src/features/products/infrastructur
 import { changeVariantCombination, type ChangeVariantCombinationInput } from "@core/src/features/products/application/change-variant-combination";
 import { changeVariantStatus, type ChangeVariantStatusInput } from "@core/src/features/products/application/change-variant-status";
 import { deleteVariant, type DeleteVariantInput } from "@core/src/features/products/application/delete-variant";
+import { setVariantStock } from "@core/src/features/products/application/set-variant-stock";
+import { writeStock } from "@core/src/features/products/infrastructure/stock-repository";
 import { updateVariant, type UpdateVariantInput } from "@core/src/features/products/application/update-variant";
 import type { VariantActionDependencies, VariantActionName } from "@core/src/features/products/application/variant-action";
 import { findForeignOptionIds, findSkuOwners, productRepository } from "@core/src/features/products/infrastructure/repository";
@@ -77,6 +79,7 @@ export const productVariantActions = {
     return updateVariant(input, access(), {
       ...base(ids, "update", started, (done, companyId, durationMs) => log.info({ event: "product_variant_updated", companyId, ...ids, fields: done.fields, durationMs }, "product_variant_updated")),
       findSkuOwners,
+      setVariantStock: (stock) => setVariantStock(stock, access(), { writeStock }),
       updateVariantFields: (variantId, changes) => updateVariantFields(variantId, changes, context(ids, "update", started)),
     }).then(withDetail);
   },

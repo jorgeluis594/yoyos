@@ -211,7 +211,7 @@ test("another company cannot save a product it does not own", async () => {
 
 function emptyChange(productId: string): ProductStructureChange {
   return { productId: productId as ProductId, insertOptions: [], insertValues: [], renameOrMoveOptions: [], renameOrMoveValues: [], insertLinks: [], deleteLinksOfOptionIds: [],
-    deleteValueIds: [], deleteOptionIds: [], rekeyVariants: [], variantFieldChanges: [], insertVariants: [], deleteVariantIds: [], product: {} };
+    deleteValueIds: [], deleteOptionIds: [], rekeyVariants: [], variantFieldChanges: [], stockCounts: [], insertVariants: [], deleteVariantIds: [], product: {} };
 }
 
 async function applied(change: ProductStructureChange): Promise<SaveProductError | null> {
@@ -338,4 +338,16 @@ test("a lock timeout during the photo lookup is reported once by the save transa
     errorLog.mockRestore();
   }
   expect((await asCompany(companyA, () => load(seeded.productId))).photoIds).toEqual([]);
+});
+
+test("a product save changing stock on 100 variants issues one ProductStock UPDATE", async () => {
+  await asCompany(companyA, async () => {
+    const seeded = await seedGrid([10, 10]);
+    const product = await load(seeded.productId);
+    const form = formOf(product);
+    const { result, statements } = await countedStatements(() => productEditing.save({ ...form, variants: form.variants.map((variant) => ({ ...variant, stock: 7 })) }));
+    if (!result.success) throw new Error(JSON.stringify(result.error));
+    expect(statements.filter((text) => /UPDATE "ProductStock"/.test(text)), statements.join("\n")).toHaveLength(1);
+    expect((await load(seeded.productId)).variants.every((variant) => variant.stock.quantity === 7)).toBe(true);
+  });
 });

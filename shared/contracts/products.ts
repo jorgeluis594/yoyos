@@ -56,6 +56,7 @@ export const updateVariantRequestSchema = z.strictObject({
   sku: z.string().nullable().optional(),
   salePrice: z.number().optional(),
   purchasePrice: z.number().nullable().optional(),
+  stock: z.number().optional(), // replaces the count; whole number ≥ 0, validated by core
 }).readonly();
 
 export const changeCombinationRequestSchema = z.strictObject({

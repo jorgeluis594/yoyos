@@ -181,12 +181,12 @@ test("Deshacer on a combination marked «Se quitará» brings the row back, sele
   expect(container.querySelectorAll<HTMLInputElement>("tbody input[type=checkbox]:not(:disabled)")).toHaveLength(2);
 });
 
-test("a selection of saved variants has no Quitar and cannot edit stock", () => {
+test("a selection of saved variants has no Quitar and can edit stock", () => {
   mount({ draft: draftFromProduct(product(false)) });
   click(button("Negro", container.querySelector("[role=group]")!));
   const toolbar = container.querySelector("[role=toolbar]")!;
   expect(button("Quitar", toolbar)).toBeUndefined();
-  expect(button("Editar stock", toolbar).disabled).toBe(true);
+  expect(button("Editar stock", toolbar).disabled).toBe(false);
 });
 
 test("the consolidated variants table has its own heading section, apart from the options and holding the selection chips and the counter", () => {

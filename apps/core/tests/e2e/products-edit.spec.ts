@@ -100,7 +100,7 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await page.goto(`/es-PE/products/${prepared.productId}`);
     await browserExpect(page.getByLabel("Precio de venta de M")).toHaveValue("20.00");
     await browserExpect(page.getByLabel("SKU")).toHaveCount(0);
-    await browserExpect(page.getByLabel("Stock")).toHaveValue("5");
+    await browserExpect(page.getByLabel("Stock", { exact: true })).toHaveValue("5");
     await page.getByLabel("Nombre *").fill("Camisa con tallas editada");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/es-PE/products/${prepared.productId}\\?saved=1$`));

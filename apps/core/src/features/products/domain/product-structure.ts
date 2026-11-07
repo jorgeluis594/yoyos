@@ -3,6 +3,7 @@ import type { Result } from "@shared/result";
 import type { ProductValidationReason, ValidationError, ValidationIssue } from "@core/src/features/products/domain/errors";
 import type { ImageId, ProductPhotos, OptionId, OptionText, OptionValueId, Product, ProductId, ProductOption, ProductOptionValue, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
 import { parseProductPhotos, samePhotos } from "@core/src/features/products/domain/photos";
+import type { StockCount } from "@core/src/features/products/domain/stock-level";
 import { createProductSchema, toValidationIssues } from "@core/src/features/products/domain/validation";
 
 /** The domain owns the limits; shared/contracts/products.ts repeats them for the editors and a test keeps both equal. */
@@ -175,8 +176,9 @@ export type ProductStructureChange = Readonly<{
   deleteValueIds: readonly OptionValueId[];
   deleteOptionIds: readonly OptionId[];
   rekeyVariants: readonly Readonly<{ id: VariantId; combinationKey: string }>[];
-  /** `stock` replaces the variant's count; it does not raise `structureVersion`. */
-  variantFieldChanges: readonly Readonly<{ id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null; stock?: number }>[];
+  variantFieldChanges: readonly Readonly<{ id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>[];
+  /** Counts that replace the saved variants' stock, written by `setVariantStock`; they do not raise `structureVersion`. */
+  stockCounts: readonly StockCount[];
   insertVariants: readonly Readonly<{
     id: VariantId; combination: Combination; combinationKey: string; sku?: string; salePrice: number; purchasePrice?: number; qrCode: string; initialStock: number;
   }>[];
@@ -339,12 +341,15 @@ function buildChange(current: Product, input: SaveRequest, built: Built, ids: Re
   const variantFieldChanges = remaining.flatMap((variant) => {
     const next = supplied.get(variant.id);
     if (!next) return [];
-    const changes: { id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null; stock?: number } = { id: variant.id };
+    const changes: { id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null } = { id: variant.id };
     if (next.sku !== variant.sku) changes.sku = next.sku ?? null;
     if (next.salePrice !== variant.salePrice.amount) changes.salePrice = next.salePrice;
     if (next.purchasePrice !== variant.purchasePrice?.amount) changes.purchasePrice = next.purchasePrice ?? null;
-    if (next.stockSent && next.initialStock !== variant.stock.quantity) changes.stock = next.initialStock;
     return Object.keys(changes).length > 1 ? [changes] : [];
+  });
+  const stockCounts = remaining.flatMap((variant): StockCount[] => {
+    const next = supplied.get(variant.id);
+    return next?.stockSent && next.initialStock !== variant.stock.quantity ? [{ variantId: variant.id, stock: next.initialStock }] : [];
   });
   const newData = data.variants.slice(listed.length);
   const insertVariants = newData.map((variant, index) => {
@@ -365,11 +370,11 @@ function buildChange(current: Product, input: SaveRequest, built: Built, ids: Re
 
   const structureChanged = [insertOptions, insertValues, renameOrMoveOptions, renameOrMoveValues, insertLinks, deleteOptions, deleteValueIds, rekeyVariants, insertVariants, deleteVariantIds]
     .some((list) => list.length > 0);
-  const changed = structureChanged || variantFieldChanges.length > 0 || Object.keys(productFields).length > 0 || photosChanged;
+  const changed = structureChanged || variantFieldChanges.length > 0 || stockCounts.length > 0 || Object.keys(productFields).length > 0 || photosChanged;
   return {
     productId: current.id, insertOptions, insertValues, renameOrMoveOptions, renameOrMoveValues, insertLinks,
     deleteLinksOfOptionIds: remaining.length ? deleteOptions.map((option) => option.id) : [],
-    deleteValueIds, deleteOptionIds: deleteOptions.map((option) => option.id), rekeyVariants, variantFieldChanges, insertVariants, deleteVariantIds,
+    deleteValueIds, deleteOptionIds: deleteOptions.map((option) => option.id), rekeyVariants, variantFieldChanges, stockCounts, insertVariants, deleteVariantIds,
     product: changed ? { ...productFields, updatedAt: ids.now, ...(structureChanged ? { structureVersion: current.structureVersion + 1 } : {}) } : {},
     ...photosChanged ? { photos } : {},
   };
