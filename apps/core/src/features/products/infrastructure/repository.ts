@@ -298,11 +298,6 @@ export async function applyStructureChange(change: ProductStructureChange): Prom
         ${item.purchasePrice !== undefined}::boolean, ${item.purchasePrice === undefined || item.purchasePrice === null ? null : decimal(item.purchasePrice)}::numeric`))})
         AS v(id, set_sku, sku, set_sale, "salePrice", set_purchase, "purchasePrice")
       WHERE p.id = v.id AND p."companyId" = ${companyId}::uuid`);
-    // In variant order, like every other path that writes stock rows.
-    const stockChanges = change.variantFieldChanges.flatMap((item) => item.stock === undefined ? [] : [{ id: item.id, stock: item.stock }]).sort((a, b) => a.id < b.id ? -1 : 1);
-    if (stockChanges.length) await prisma.$executeRaw(Prisma.sql`UPDATE "ProductStock" s SET quantity = v.quantity
-      FROM (VALUES ${rowsOf(stockChanges.map((item) => Prisma.sql`${item.id}::uuid, ${BigInt(item.stock)}::bigint`))}) AS v(id, quantity)
-      WHERE s."variantId" = v.id AND s."companyId" = ${companyId}::uuid`);
     if (change.insertVariants.length) {
       await prisma.productVariant.createMany({ data: change.insertVariants.map((variant) => ({
         id: variant.id, productId, combinationKey: variant.combinationKey, sku: variant.sku, salePrice: decimal(variant.salePrice),

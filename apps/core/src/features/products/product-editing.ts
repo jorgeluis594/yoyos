@@ -8,6 +8,8 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { findOrderedVariantIds } from "@core/src/features/products/infrastructure/ordered-variants";
 import { createProduct, type CreateDependencies, type CreateError, type CreateInput } from "@core/src/features/products/application/create";
 import { getProduct, type GetDependencies } from "@core/src/features/products/application/get";
+import { setVariantStock } from "@core/src/features/products/application/set-variant-stock";
+import { writeStock } from "@core/src/features/products/infrastructure/stock-repository";
 import { saveProduct, type SaveProductDependencies, type SaveProductError, type SaveProductInput } from "@core/src/features/products/application/save-product";
 import { listProducts, type ListInput } from "@core/src/features/products/application/list";
 import { findImages, listImages, publishProductPhotosAdded } from "@core/src/features/products/composition";
@@ -79,6 +81,7 @@ export function productSaveDependencies(companyId: string, productId: string, st
   return {
     transaction: (id, work) => productTransaction(id, work, { productId }),
     lockProduct, hasOtherOfferedProduct, findOrderedVariantIds, findSkuOwners, findForeignOptionIds, findImages, applyStructureChange,
+    setVariantStock: (input) => setVariantStock(input, { companyId: companyId as CompanyId }, { writeStock }),
     reload: (id) => getProduct(id, productGetDependencies),
     newId: randomUUID, clock: () => new Date(), publishProductPhotosAdded,
     observe: {

@@ -211,7 +211,7 @@ test("another company cannot save a product it does not own", async () => {
 
 function emptyChange(productId: string): ProductStructureChange {
   return { productId: productId as ProductId, insertOptions: [], insertValues: [], renameOrMoveOptions: [], renameOrMoveValues: [], insertLinks: [], deleteLinksOfOptionIds: [],
-    deleteValueIds: [], deleteOptionIds: [], rekeyVariants: [], variantFieldChanges: [], insertVariants: [], deleteVariantIds: [], product: {} };
+    deleteValueIds: [], deleteOptionIds: [], rekeyVariants: [], variantFieldChanges: [], stockCounts: [], insertVariants: [], deleteVariantIds: [], product: {} };
 }
 
 async function applied(change: ProductStructureChange): Promise<SaveProductError | null> {
