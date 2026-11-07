@@ -10,16 +10,18 @@ const access = { companyId: "00000000-0000-4000-8000-0000000000aa" as never };
 function setup(owners: Record<string, VariantId> = {}) {
   const writes: unknown[] = [];
   const completed: unknown[] = [];
+  const stockWrites: unknown[] = [];
   const deps: UpdateVariantDependencies = {
     transaction: async <T, E extends { code: string; message: string }>(_companyId: unknown, work: () => Promise<Result<T, E>>) => work(),
     lockProduct: async () => ok(true),
     loadProduct: async () => ok(shirts()),
     findSkuOwners: async (skus) => ok(new Map(skus.flatMap((sku) => owners[sku] ? [[sku, owners[sku]] as const] : []))),
     updateVariantFields: async (variantId, changes) => { writes.push({ variantId, changes }); return ok(undefined); },
+    setVariantStock: async (input) => { stockWrites.push(input); return ok(undefined); },
     clock: () => new Date(),
     observe: { completed: (summary) => completed.push(summary) },
   };
-  return { deps, writes, completed };
+  return { deps, writes, completed, stockWrites };
 }
 
 describe("update variant", () => {
@@ -58,5 +60,46 @@ describe("update variant", () => {
   test("answers VARIANT_NOT_FOUND for a variant that is not in the product", async () => {
     const result = await updateVariant({ productId, variantId: "00000000-0000-4000-8000-0000000000ee" as VariantId, salePrice: 3 }, access, setup().deps);
     expect(result).toEqual({ success: false, error: expect.objectContaining({ code: "VARIANT_NOT_FOUND" }) });
+  });
+
+  test("saves a changed stock through setVariantStock", async () => {
+    const context = setup();
+    const result = await updateVariant({ productId, variantId: lAzul, salePrice: 30, stock: 7 }, access, context.deps);
+    expect(result.success).toBe(true);
+    expect(context.stockWrites).toEqual([{ counts: [{ variantId: lAzul, stock: 7 }] }]);
+    expect(context.completed).toEqual([{ variantId: lAzul, fields: ["salePrice", "stock"] }]);
+  });
+
+  test("a stock-only patch calls setVariantStock and not updateVariantFields", async () => {
+    const context = setup();
+    expect((await updateVariant({ productId, variantId: lAzul, stock: 7 }, access, context.deps)).success).toBe(true);
+    expect(context.writes).toEqual([]);
+    expect(context.stockWrites).toHaveLength(1);
+    expect(context.completed).toEqual([{ variantId: lAzul, fields: ["stock"] }]);
+  });
+
+  test("does not send stock to setVariantStock when it was not sent", async () => {
+    const context = setup();
+    await updateVariant({ productId, variantId: lAzul, salePrice: 30 }, access, context.deps);
+    expect(context.stockWrites).toEqual([]);
+    expect(context.completed).toEqual([{ variantId: lAzul, fields: ["salePrice"] }]);
+  });
+
+  test("does not send stock to setVariantStock when it equals the current count", async () => {
+    const context = setup();
+    await updateVariant({ productId, variantId: lAzul, stock: 6 }, access, context.deps);
+    expect(context.stockWrites).toEqual([]);
+    expect(context.writes).toEqual([]);
+    expect(context.completed).toEqual([]);
+  });
+
+  test("reports stock, price and SKU issues together and writes nothing", async () => {
+    const context = setup();
+    const result = await updateVariant({ productId, variantId: mNegro, salePrice: 0, sku: "x".repeat(101), stock: 2.5 }, access, context.deps);
+    expect(result).toEqual({ success: false, error: expect.objectContaining({ code: "VALIDATION_ERROR" }) });
+    if (result.success || result.error.code !== "VALIDATION_ERROR") return;
+    expect(result.error.issues.map((issue) => "field" in issue ? `${issue.field}:${issue.reason}` : "")).toEqual(["sku:TOO_LONG", "salePrice:INVALID_PRICE", "stock:INVALID_STOCK"]);
+    expect(context.writes).toEqual([]);
+    expect(context.stockWrites).toEqual([]);
   });
 });

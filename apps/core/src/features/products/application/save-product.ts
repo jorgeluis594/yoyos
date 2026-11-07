@@ -7,6 +7,7 @@ import type { ImageId, Product, ProductId, ProductPhotos, VariantId } from "@cor
 import { isOffered } from "@core/src/features/products/domain/product-visibility";
 import type { Currency } from "@shared/money";
 import type { Detail, DetailError } from "@core/src/features/products/application/get";
+import type { setVariantStock } from "@core/src/features/products/application/set-variant-stock";
 import type { ProductAccess, ProductReadError } from "@core/src/features/products/application/repository";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
 import type { EventBusError } from "@core/src/shared/events/application/contracts";
@@ -18,7 +19,7 @@ export type SaveProductError = Extract<ProductBusinessError, { code: "VALIDATION
   | ImageLookupError;
 /** What the composition logs after the commit or on a rejection. Never names, SKUs or prices. */
 export type SaveObserver = Readonly<{
-  saved?: (summary: Readonly<{ productId: ProductId; structureVersion: number; optionCount: number; variantCount: number; createdVariants: number; updatedVariants: number;
+  saved?: (summary: Readonly<{ productId: ProductId; structureVersion: number; optionCount: number; variantCount: number; createdVariants: number; updatedVariants: number; stockChanges: number;
     deletedVariants: number; rekeyedVariants: number; removedValues: number; photoCount: number; photosChanged: boolean;
     hiddenChanged: boolean; hidden: boolean; hidLastOffered: boolean }>) => void;
   rejected?: (summary: Readonly<{ productId: ProductId; error: SaveProductError }>) => void;
@@ -38,6 +39,8 @@ export type SaveProductDependencies = Readonly<{
   hasOtherOfferedProduct: (productId: ProductId, currency: Currency) => Promise<Result<boolean, ProductReadError>>;
   /** Bulk writes in the fixed order of the design; translates constraint violations into typed errors. */
   applyStructureChange: (change: ProductStructureChange) => Promise<Result<null, SaveProductError>>;
+  /** The one stock write, bound to the company; runs after `applyStructureChange` in the same transaction. */
+  setVariantStock: (input: Parameters<typeof setVariantStock>[0]) => Promise<Result<void, ProductReadError>>;
   /** The editing read, inside the same transaction. */
   reload: (id: ProductId) => Promise<Result<Detail | null, DetailError>>;
   newId: () => string;
@@ -124,6 +127,8 @@ async function saveInTransaction(input: SaveProductInput, deps: SaveProductDepen
   if (changed) {
     const applied = await deps.applyStructureChange(change);
     if (!applied.success) return applied;
+    const stock = await deps.setVariantStock({ counts: change.stockCounts });
+    if (!stock.success) return stock;
   }
   // Only a save that hides a product that was offered can withdraw the last one; any other save asks nothing.
   let hidLastOffered = false;
@@ -139,7 +144,7 @@ async function saveInTransaction(input: SaveProductInput, deps: SaveProductDepen
     productId: input.productId, structureVersion: change.product.structureVersion ?? current.structureVersion,
     optionCount: current.options.length + change.insertOptions.length - change.deleteOptionIds.length,
     variantCount: current.variants.length + change.insertVariants.length - change.deleteVariantIds.length,
-    createdVariants: change.insertVariants.length, updatedVariants: change.variantFieldChanges.length, deletedVariants: change.deleteVariantIds.length,
+    createdVariants: change.insertVariants.length, updatedVariants: change.variantFieldChanges.length, stockChanges: change.stockCounts.length, deletedVariants: change.deleteVariantIds.length,
     rekeyedVariants: change.rekeyVariants.length, removedValues: change.deleteValueIds.length,
     photoCount: (change.photos ?? current.photoIds).length, photosChanged: change.photos !== undefined,
     hiddenChanged: change.product.hidden !== undefined, hidden: change.product.hidden ?? current.hidden, hidLastOffered,

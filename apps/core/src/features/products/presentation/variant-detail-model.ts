@@ -49,7 +49,7 @@ export function parseVariantAction(text: string): Result<VariantRequest, InputEr
   catch { return err({ code: "MALFORMED_JSON", message: "Invalid JSON", issues: [] }); }
   const { intent, ...rest } = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : { intent: undefined };
   const message = "Invalid variant input";
-  const parsed = intent === "update" ? parseRequestValue(updateVariantRequestSchema, rest, message)
+  const parsed = intent === "update" ? parseRequestValue(updateVariantRequestSchema.unwrap().omit({ stock: true }), rest, message)
     : intent === "combination" ? parseRequestValue(changeCombinationRequestSchema, rest, message)
     : intent === "status" ? parseRequestValue(changeVariantStatusRequestSchema, rest, message)
     : intent === "delete" ? parseRequestValue(noBody, rest, message)
