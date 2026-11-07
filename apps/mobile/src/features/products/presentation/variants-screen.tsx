@@ -8,7 +8,7 @@ import { SymbolView } from "expo-symbols";
 import { useTranslation } from "react-i18next";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  addCombination, applyBulk, isChipActive, orderedRows, removalOf, removeRow, rowLabel, toggleAll, toggleChip, undoRemoveRow,
+  addCombination, applyBulk, setRow, isChipActive, orderedRows, removalOf, removeRow, rowLabel, toggleAll, toggleChip, undoRemoveRow,
   uncreatedCombinations, uncreatedCount, copiedStockNotice, inactiveSourceCount, variantCounter, type EditorDraft, type EditorRow, type RowPatch,
 } from "@shared/product-variants";
 import { Button } from "@mobile/components/ui/button";
@@ -22,7 +22,7 @@ import { editorSummary } from "./product-editor-summary";
 import { formEdges } from "./form-edges";
 import { ProductTopBar } from "./product-top-bar";
 import { useProductEditor } from "./product-editor-state";
-import { announceFocus, formOf, sameForm, VariantRowEditor, type VariantForm } from "./variant-row-editor";
+import { announceFocus, formOf, NewVariantEditor, sameForm, VariantRowEditor, type VariantForm } from "./variant-row-editor";
 import { useProductDraft } from "./draft-guard";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { QuantityStepper } from "@mobile/components/ui/quantity-stepper";
@@ -82,14 +82,14 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
 
   const toggle = (row: EditorRow) => {
     if (busy) return;
-    if (row.id === null) {
-      const open = () => productId ? router.push({ pathname: "/products/[productId]/draft-variant", params: { productId, ref: row.ref } }) : router.push({ pathname: "/products/new/draft-variant", params: { ref: row.ref } });
-      if (inlineDirty) discardAsk(() => { collapse(); open(); }); else open();
-      return;
-    }
     const next = expanded === row.ref ? null : row.ref;
     const go = () => { if (expanded !== null) dropTyped(expanded); setDeleted(false); setExpanded(next); if (next === null && expanded !== null) setTimeout(() => announceFocus(buttons.current[expanded]), 0); };
     if (inlineDirty) discardAsk(go); else go();
+  };
+  const removeNew = (row: EditorRow) => {
+    const result = removeRow(draft, row.ref);
+    if (result.success) { set(result.data); editor.setSelection(selection.filter((ref) => ref !== row.ref)); }
+    collapse();
   };
   const check = (row: EditorRow) => {
     const checked = selection.includes(row.ref);
@@ -120,14 +120,18 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
 
   const price = (row: EditorRow) => money.format(row.salePrice);
   const renderRow = ({ item: row }: { item: EditorRow }) => {
-    const open = expanded === row.ref && row.id !== null && product !== null;
+    const open = expanded === row.ref && (row.id === null || product !== null);
     return <VariantRow row={row} label={rowLabel(draft, row) || t("numberedVariant", { count: 1 })} removal={removalOf(draft, row)} saved={draft.saved}
       error={editor.errors.rows[row.ref]} checked={selection.includes(row.ref)} expanded={open} locked={busy} price={price(row)}
       register={register} onToggle={onToggle} onCheck={onCheck} onUndo={onUndo}>
-      {open && row.id !== null && row.original !== null ? <VariantRowEditor product={product} row={{ ...row, id: row.id, original: row.original }} form={typed[row.ref] ?? formOf(row)}
+      {open && row.id === null ? <NewVariantEditor row={row} form={typed[row.ref] ?? formOf(row)} onChange={(form) => setTyped((current) => ({ ...current, [row.ref]: form }))}
+        onApply={(values) => { set(setRow(draft, row.ref, values)); collapse(); }}
+        onCancel={() => { if (typedFor(row)) discardAsk(collapse); else collapse(); }}
+        onRemove={() => removeNew(row)} /> : null}
+      {open && row.id !== null && row.original !== null && product !== null ? <VariantRowEditor product={product} row={{ ...row, id: row.id, original: row.original }} form={typed[row.ref] ?? formOf(row)}
         onChange={(form) => setTyped((current) => ({ ...current, [row.ref]: form }))} typed={typedFor(row)} pendingEdits={editor.dirty || productDirty}
         onBusy={setBusy} onCancel={() => { if (typedFor(row)) discardAsk(collapse); else collapse(); }} onSaved={() => dropTyped(row.ref)}
-        onDeleted={() => { dropTyped(row.ref); setExpanded(null); setDeleted(true); }} onReload={() => { editor.requestReload(); router.back(); }} /> : null}
+        onDeleted={() => { dropTyped(row.ref); setExpanded(null); setDeleted(true); editor.setSelection(selection.filter((ref) => ref !== row.ref)); }} onReload={() => { editor.requestReload(); router.back(); }} /> : null}
     </VariantRow>;
   };
 

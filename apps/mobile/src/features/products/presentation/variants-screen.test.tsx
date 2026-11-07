@@ -293,6 +293,77 @@ test("deleting without pending edits removes the row and pins Variante eliminada
   } finally { alert.mockRestore(); }
 });
 
+test("a Nueva row applies its values to the draft without sending", () => {
+  renderVariants(polo());
+  open("S / Negro");
+  expect(screen.getByText("El QR se crea al guardar el producto.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Aplicar" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Quitar" })).toBeTruthy();
+  typeStock("3");
+  fireEvent.press(screen.getByRole("button", { name: "Aplicar" }));
+  expect(mockPush).not.toHaveBeenCalled();
+  expect(mockUpdate).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Aplicar" })).toBeNull();
+  expect(screen.getByText("3 en stock")).toBeTruthy();
+});
+
+test("an empty stock on a Nueva row counts as 0 and a fractional one is refused", () => {
+  renderVariants(polo());
+  open("S / Negro");
+  typeStock("2.5");
+  fireEvent.press(screen.getByRole("button", { name: "Aplicar" }));
+  expect(screen.getByText("Ingresa un número entero no negativo.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Aplicar" })).toBeTruthy();
+  typeStock("");
+  fireEvent.press(screen.getByRole("button", { name: "Aplicar" }));
+  expect(screen.queryByRole("button", { name: "Aplicar" })).toBeNull();
+  expect(screen.getByText("Agotado", { exact: false })).toBeTruthy();
+});
+
+test("Cancelar on a Nueva row drops what was typed and Quitar removes the row", () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  try {
+    renderVariants(polo());
+    open("S / Negro");
+    typeStock("9");
+    fireEvent.press(screen.getByRole("button", { name: "Cancelar" }));
+    act(() => { (alert.mock.calls[0][2] as { text: string; onPress?: () => void }[]).find((button) => button.text === "Descartar")!.onPress!(); });
+    expect(screen.queryByRole("button", { name: "Aplicar" })).toBeNull();
+    open("S / Negro");
+    expect((screen.getByLabelText("Stock") as unknown as { props: { value: string } }).props.value).not.toBe("9");
+    fireEvent.press(screen.getByRole("button", { name: "Quitar" }));
+    expect(screen.queryByRole("button", { name: "Aplicar" })).toBeNull();
+    expect(screen.getByText("Deshacer")).toBeTruthy();
+  } finally { alert.mockRestore(); }
+});
+
+test("deleting a selected saved row drops it from the selection", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  try {
+    const draft = savedProduct();
+    const zero = { ...draft, rows: draft.rows.map((row) => ({ ...row, stock: 0, original: { ...row.original!, stock: 0 } })) };
+    const product = detailOf(zero);
+    mockDelete.mockResolvedValue(ok({ ...product, variants: product.variants.slice(1) }));
+    renderSaved(zero, product);
+    fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar S / Negro" }));
+    expect(mockEditor.selection).toHaveLength(1);
+    open("S / Negro");
+    fireEvent.press(screen.getByRole("button", { name: "Eliminar variante" }));
+    await act(async () => { (alert.mock.calls[0][2] as { text: string; onPress?: () => void }[]).find((button) => button.text === "Eliminar variante")!.onPress!(); });
+    await screen.findByText("Variante eliminada.");
+    expect(mockEditor.selection).toHaveLength(0);
+  } finally { alert.mockRestore(); }
+});
+
+test("a saved answer that cannot be read is shown as in doubt", async () => {
+  mockUpdate.mockResolvedValue(err({ code: "INVALID_RESPONSE", message: "x" }));
+  renderSaved();
+  open("S / Negro");
+  typeStock("7");
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Guardar variante" })));
+  expect(await screen.findByText("No se pudo confirmar si se guardó la variante. Inténtalo otra vez.")).toBeTruthy();
+});
+
 test("only the expanded row renders an editor with 100 variants", () => {
   const colorId = id(20);
   const draft: EditorDraft = { ...createDraft(base), saved: true,
