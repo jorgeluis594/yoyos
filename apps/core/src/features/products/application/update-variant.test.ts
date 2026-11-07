@@ -81,9 +81,16 @@ describe("update variant", () => {
   test("does not send stock to setVariantStock when it was not sent", async () => {
     const context = setup();
     await updateVariant({ productId, variantId: lAzul, salePrice: 30 }, access, context.deps);
-    await updateVariant({ productId, variantId: lAzul, stock: 6 }, access, context.deps);
     expect(context.stockWrites).toEqual([]);
     expect(context.completed).toEqual([{ variantId: lAzul, fields: ["salePrice"] }]);
+  });
+
+  test("does not send stock to setVariantStock when it equals the current count", async () => {
+    const context = setup();
+    await updateVariant({ productId, variantId: lAzul, stock: 6 }, access, context.deps);
+    expect(context.stockWrites).toEqual([]);
+    expect(context.writes).toEqual([]);
+    expect(context.completed).toEqual([]);
   });
 
   test("reports stock, price and SKU issues together and writes nothing", async () => {

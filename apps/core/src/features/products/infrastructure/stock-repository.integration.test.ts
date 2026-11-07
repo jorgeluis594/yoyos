@@ -38,3 +38,23 @@ test("answers PERSISTENCE_UNAVAILABLE and logs when the written rows differ", as
     });
   } finally { errorLog.mockRestore(); }
 });
+
+test("answers PERSISTENCE_UNAVAILABLE and logs for a failed statement, and rethrows a lock timeout", async () => {
+  const errorLog = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const statement = vi.spyOn(prisma, "$executeRaw");
+  try {
+    const counts = [{ variantId: randomUUID() as VariantId, stock: 5 }];
+    statement.mockRejectedValueOnce(new Error("connection reset"));
+    expect(await writeStock(companyId, counts)).toEqual({ success: false, error: expect.objectContaining({ code: "PERSISTENCE_UNAVAILABLE" }) });
+    expect(errorLog).toHaveBeenCalledWith(expect.objectContaining({ event: "product_stock_write_failed", companyId, errorCode: "PERSISTENCE_UNAVAILABLE" }), "product_stock_write_failed");
+    expect(Object.keys(errorLog.mock.calls[0][0] as object)).toEqual(["event", "companyId", "stage", "errorCode", "durationMs", "err"]);
+    errorLog.mockClear();
+    const timeout = new Error("canceling statement due to lock timeout 55P03");
+    statement.mockRejectedValueOnce(timeout);
+    await expect(writeStock(companyId, counts)).rejects.toBe(timeout);
+    expect(errorLog).not.toHaveBeenCalled();
+  } finally {
+    statement.mockRestore();
+    errorLog.mockRestore();
+  }
+});

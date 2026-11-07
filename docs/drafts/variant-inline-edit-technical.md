@@ -149,7 +149,7 @@ Core: products `domain/` (`stock-level.ts`, `validation.ts`, `product-structure.
 | Event | Level | Fields |
 | --- | --- | --- |
 | `product_variant_updated`, `product_saved` (existing) | info | existing fields; `fields` may include `"stock"`; `product_saved` adds `["stockChanges"]` |
-| `product_stock_write_failed` (new) | error | `["companyId","stage","errorCode","durationMs"]`, `errorCode` = `UNEXPECTED_ROW_COUNT` |
+| `product_stock_write_failed` (new) | error | `["companyId","stage","errorCode","durationMs"]`, `errorCode` = `UNEXPECTED_ROW_COUNT` or `PERSISTENCE_UNAVAILABLE` |
 
 Owner: `writeStock` in `stock-repository.ts` logs `product_stock_write_failed` once when the row count differs; thrown failures are logged by the caller's existing `product_save_failed` / `product_variant_action_failed`.
 

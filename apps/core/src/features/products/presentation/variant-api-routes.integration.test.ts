@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, expect, test, vi } from "vitest";
 import { productApiErrorSchema, productDetailResponseSchema, productListResponseSchema } from "@shared/contracts/products";
 import { combinationLabel } from "@shared/product-variants";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { parseVariantAction } from "@core/src/features/products/presentation/variant-detail-model";
+import { applicationEventBus } from "@core/src/composition/event-bus";
 import { productVariantActions } from "@core/src/features/products/product-variant-actions";
 import { deleteSeededProducts, seedProduct, type SeededProduct } from "@core/src/features/products/infrastructure/product-seed";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -418,7 +419,11 @@ test("PATCH raising stock deducts no waiting order within the request", async ()
   const seeded = await shirts(owner);
   const mNegro = seeded.variantIds[2];
   const orderId = await waitingOrder(owner, mNegro);
-  expect((await call(path(seeded.productId, mNegro), owner.cookie, "PATCH", { stock: 9 })).status).toBe(200);
+  const publish = vi.spyOn(applicationEventBus().provider, "publish");
+  try {
+    expect((await call(path(seeded.productId, mNegro), owner.cookie, "PATCH", { stock: 9 })).status).toBe(200);
+    expect(publish).not.toHaveBeenCalled();
+  } finally { publish.mockRestore(); }
   expect(await stockOf(owner, mNegro)).toBe(9);
   expect(await (await call(`/api/orders/${orderId}/aggregate`, owner.cookie, "GET")).json()).toMatchObject({ stockDeducted: false });
 });
