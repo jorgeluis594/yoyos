@@ -78,12 +78,12 @@ export default function ProductManagementScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discardVersion, product, editor]);
 
-  // A saved variant's action answers the refreshed detail; the product screen takes it when it comes back.
+  // A saved variant's action answers the refreshed detail; the product screen takes it for its structure version and saved values, and keeps the pending edits.
   const published = editor.detail;
   useEffect(() => {
     if (!published || published.id !== productId || !product || published === product) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the detail screen publishes outside this component's render.
-    setProduct(published); setValues(valuesForProduct(published)); editor.reset(editorDraftOf(published), published.currency);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the variants screen publishes outside this component's render.
+    setProduct(published);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [published]);
 
