@@ -1,6 +1,6 @@
 # Variant inline editing on mobile: product definition
 
-**Status:** definition ready for founder review. Mobile only. Today a saved variant is edited on its own screen (`/products/[productId]/variants/[variantId]`) and an unsaved one on another (`/products/[productId]/draft-variant`, `/products/new/draft-variant`). Since PR #395 the stock of a saved variant is editable in the product editor and saved with the product's **Guardar**. Complements [Products](../products.md) and [Orders · Stock deduction](../orders.md#stock-deduction), which the implementing PR corrects (see Closed decisions). Todoist task 6hwfhhCVPqfV7mP3. 2026-11-06.
+**Status:** definition ready to implement. Product gate: 2 rounds (UX/UI r1 rejected, blockers settled by founder decisions and fixes; product r1 rejected, r2 approved). Mobile only. Today a saved variant is edited on its own screen (`/products/[productId]/variants/[variantId]`) and an unsaved one on another (`/products/[productId]/draft-variant`, `/products/new/draft-variant`). Since PR #395 the stock of a saved variant is editable in the product editor and saved with the product's **Guardar**. Complements [Products](../products.md) and [Orders · Stock deduction](../orders.md#stock-deduction), which the implementing PR corrects (see Closed decisions). Todoist task 6hwfhhCVPqfV7mP3. 2026-11-06.
 
 ## Problem and situation
 
@@ -70,7 +70,7 @@ Alternative paths:
 
 ### Refusal texts
 
-The app picks the text by field and reason, never from the server's technical message. Texts with a key reuse today's mobile string (both languages); the rest are new. Delete and status refusals keep today's texts.
+The app picks the text by field and reason, never from the server's technical message. Texts with a key reuse today's mobile string (both languages); keys kept from `variant-detail-translations.ts` (`variantSkuInUse`, `variantGone`, `itemNoLongerAvailable`) move to `variant-editor-translations.ts` when that file is deleted; the rest are new. Delete and status refusals keep today's texts.
 
 | Field · reason | es | pt-BR |
 | --- | --- | --- |
@@ -88,13 +88,13 @@ The app picks the text by field and reason, never from the server's technical me
 
 | Situation | What the seller sees | What she can do |
 | --- | --- | --- |
-| Save succeeds | «Variante guardada.»; row and «Stock total» show the answered values | Keep editing or tap another row |
+| Save succeeds | «Variante guardada.»; row and «Stock total» show the answered values; the row's last product-save error is cleared | Keep editing or tap another row |
 | Known refusal | Editor intact, each field with its reason | Correct and save again |
 | No connection | «No se pudo guardar. Revisa tu conexión e inténtalo otra vez.» | Save again |
 | In doubt (answer lost or server error) | «No se pudo confirmar si se guardó la variante. Inténtalo otra vez.» Never «Variante guardada.» | Save again: the values replace the stored ones, so repeating is harmless |
 | Deactivate / activate / delete offline | Today's offline text («No se pudo {acción} la variante. Revisa tu conexión e inténtalo otra vez.») | Try again |
 | Deactivate / activate / delete in doubt | «No se pudo confirmar el cambio. Inténtalo otra vez.» / «Não foi possível confirmar a alteração. Tente novamente.» Never a text that points to a reload button | Try again, like the save |
-| Variant deleted elsewhere | «Esta variante ya no existe.» with **Recargar producto** | Reload |
+| Variant or product deleted elsewhere (`VARIANT_NOT_FOUND`, `PRODUCT_NOT_FOUND`) | «Esta variante ya no existe.» (today's `variantGone`) with **Recargar producto** | Reload: runs the product screen's reload; its effect on pending edits stays undefined (founder decision) |
 | **Aplicar** with an invalid value | The field's text; row stays expanded | Correct |
 
 ## Closed decisions
@@ -117,7 +117,7 @@ Founder decisions on the review round (Jorge, 2026-11-06): rare edge cases stay 
 Docs the implementing PR corrects:
 
 - `docs/orders.md`: «When it is attempted» (:84) and «Restock» (:88): a seller's manual stock edit is not a restock yet (no event, no same-step serving; 6hwgCJh37mMQ3fRV); «Stock source» (:92): a seller's edit also sets stock; Known limitations (:120): sellers can increase stock by hand, a covered waiting order shows «Descontando stock» and recovery deducts it within about a minute, and a newer paid sale can take the units first.
-- `docs/products.md`: Stock row (:33): saved stock is editable and a seller's increase does not deduct waiting orders in the same transaction; Statuses (:63-64): changing the combination is web only; Bulk editing (:77): **Editar stock** applies to every selected row; Marks (:78): saved variants are deactivated and deleted from their row; Product page, Variants table, Variant detail and Unsaved variant detail (:75-80): mobile edits inline, the detail screens are web only; Discard confirmation (:84); API: the `PATCH` accepts `stock`, and the **Recargar variante** line (:275) is web only.
+- `docs/products.md`: Stock row (:33): saved stock is editable and a seller's increase does not deduct waiting orders in the same transaction; Statuses (:63-64): changing the combination is web only; Bulk editing (:77): **Editar stock** applies to every selected row; Marks (:78): saved variants are deactivated and deleted from their row; Product page, Variants table, Variant detail and Unsaved variant detail (:75-80): mobile edits inline, the detail screens are web only; Printing (:83): print is no longer opened from a variant detail on mobile; Discard confirmation (:84); Eliminar/quitar (:94): mobile deletes from the row at once; In doubt (:247): mobile offers no **Recargar variante** and a save in doubt is saved again; API: the `PATCH` accepts `stock`, and the mobile-writes line (:275) drops **Recargar variante** and combination changes; Concurrency (:279): stock is last write wins and does not raise `structureVersion`.
 
 Other closed decisions: mobile has no **Cambiar combinación** (core keeps the operation for installed apps); one expanded row and only it renders an editor (lists reach 100 variants); the web variant detail is unchanged.
 
