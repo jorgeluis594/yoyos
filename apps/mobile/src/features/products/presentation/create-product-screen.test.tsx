@@ -65,7 +65,7 @@ test("save waits for confirmed creation, then opens the persisted product withou
   fireEvent.press(screen.getByRole("button", { name: "Guardar" }));
   expect(mockReplace).not.toHaveBeenCalled();
   await act(async () => confirm(ok(productId)));
-  expect(mockReplace).toHaveBeenCalledWith({ pathname: "/products/[productId]", params: { productId } });
+  expect(mockReplace).toHaveBeenCalledWith({ pathname: "/products/[productId]", params: { productId, created: "1" } });
   expect(mockStartAttempt).not.toHaveBeenCalled();
 });
 
@@ -156,7 +156,7 @@ test("close returns to the catalog", () => {
 const typeOption = (name: string, values: string[]) => {
   fireEvent.changeText(screen.getByLabelText("Nombre de la opción"), name);
   for (const value of values) fireEvent.changeText(screen.getByLabelText("Agregar otro valor"), value);
-  fireEvent.press(screen.getAllByRole("button", { name: "Listo" })[1]);
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar" }));
 };
 const buildPolo = () => {
   renderFlow();

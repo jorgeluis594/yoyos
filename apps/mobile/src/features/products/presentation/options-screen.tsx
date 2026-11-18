@@ -160,13 +160,14 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
         </View>;
         const issues = issuesOf(option);
         return <View key={option.id} style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-          <Field invalid={!!issues.name}>
+          <Field style={styles.nameField} invalid={!!issues.name}>
             <FieldLabel>{t("optionName")}</FieldLabel>
-            <Input value={option.name} onChangeText={(text) => { clearRejection("options", option.id); setWorking(renameOption(working, option.id, text)); }} accessibilityLabel={t("optionName")} />
+            <Input value={option.name} onChangeText={(text) => { clearRejection("options", option.id); setWorking(renameOption(working, option.id, text)); }} placeholder={t("optionNamePlaceholder")} accessibilityLabel={t("optionName")} />
             {issues.name ? <FieldError>{issues.name}</FieldError> : editor.errors.options[option.id] ? <FieldError>{editor.errors.options[option.id]}</FieldError> : null}
           </Field>
           <ThemedText type="small" style={styles.heading}>{t("optionValues")}</ThemedText>
-          {option.values.map((value, position) => value.marked
+          {/* The field that adds a value shares the array with the values: its key moves to the value it creates, so the Input keeps its text and focus. */}
+          {[...option.values.map((value, position) => value.marked
             ? <View key={value.id} style={styles.marked}>
               <ThemedText style={styles.struck}>{value.name}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
@@ -182,7 +183,7 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
               before={value.saved && original(value.id) !== undefined && original(value.id) !== value.name ? t("valueRenamedFrom", { name: original(value.id) }) : undefined}
               onChange={(text) => { clearRejection("values", value.id); setWorking(renameValue(working, value.id, text)); }}
               onMove={(to) => setWorking(moveValue(working, option.id, value.id, to))}
-              onRemove={() => edit((draft) => removeValue(draft, value.id), value.id, value.name)} />)}
+              onRemove={() => edit((draft) => removeValue(draft, value.id), value.id, value.name)} />),
           <ValueRow key={trailingKey(option.id)} name={trailing[option.id] ?? ""} position={0} total={0} placeholder={t("addAnotherValue")}
             error={notes[`${option.id}:new`] || undefined}
             onChange={(text) => {
@@ -199,26 +200,27 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
                 setTrailing({ ...trailing, [option.id]: text });
                 note(`${option.id}:new`, editFailureMessage(result.error, { draft: working }));
               }
-            }} />
+            }} />]}
           {issues.general ? <FieldError>{issues.general}</FieldError> : null}
           {!option.saved && working.saved && option.valueForExistingVariants !== null
             ? <ExistingValue option={option} count={working.rows.filter((row) => row.id !== null).length} onChange={(valueId) => edit((draft) => setValueForExistingVariants(draft, option.id, valueId), option.id)} /> : null}
           {notes[option.id] ? <FieldError>{notes[option.id]}</FieldError> : null}
           <View style={styles.actions}>
             <Button variant="ghost" onPress={() => removeOptionAt(option)}>{t("deleteOption")}</Button>
-            <Button onPress={() => setEditing(null)} disabled={hasIssues(issues) || !!trailing[option.id]?.trim()}>{t("done")}</Button>
+            <Button onPress={() => setEditing(null)} disabled={hasIssues(issues) || !!trailing[option.id]?.trim()}>{t("confirmOption")}</Button>
           </View>
         </View>;
       })}
       {editing === "new" ? <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <Field invalid={!!cardIssues.name && !!card.name}>
+        <Field style={styles.nameField} invalid={!!cardIssues.name && !!card.name}>
           <FieldLabel>{t("optionName")}</FieldLabel>
-          <Input value={card.name} onChangeText={(text) => setCard({ ...card, name: text })} accessibilityLabel={t("optionName")} />
+          <Input value={card.name} onChangeText={(text) => setCard({ ...card, name: text })} placeholder={t("optionNamePlaceholder")} accessibilityLabel={t("optionName")} />
           {cardIssues.name && card.name ? <FieldError>{cardIssues.name}</FieldError> : null}
         </Field>
         <ThemedText type="small" style={styles.heading}>{t("optionValues")}</ThemedText>
         {card.slots.map((slot, position) => <ValueRow key={slot.id} name={slot.text} position={position + 1} total={card.slots.length - 1}
-          placeholder={position === card.slots.length - 1 ? t("addAnotherValue") : undefined}
+          placeholder={position !== card.slots.length - 1 ? undefined : card.slots.length === 1 ? t("firstValuePlaceholder") : t("addAnotherValue")}
+          label={position === card.slots.length - 1 ? t("addAnotherValue") : undefined}
           error={cardIssues.values[slot.id]} isTrailing={position === card.slots.length - 1}
           onChange={(text) => setCard({ ...card, slots: card.slots.map((candidate) => candidate.id === slot.id ? { ...candidate, text } : candidate).concat(position === card.slots.length - 1 && text.trim() ? [{ id: newId(), text: "" }] : []) })}
           onMove={(to) => setCard({ ...card, slots: moveSlot(card.slots, position, to) })}
@@ -230,7 +232,7 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
           count={working.rows.filter((row) => row.id !== null).length} onChange={(valueId) => setCard({ ...card, existing: valueId })} /> : null}
         <View style={styles.actions}>
           <Button variant="ghost" onPress={() => { setEditing(null); setCard(blankOption()); }}>{t("deleteOption")}</Button>
-          <Button onPress={() => { commitCard(); }} disabled={hasIssues(cardIssues) || !!cardLimit}>{t("done")}</Button>
+          <Button onPress={() => { commitCard(); }} disabled={hasIssues(cardIssues) || !!cardLimit}>{t("confirmOption")}</Button>
         </View>
       </View> : atMaximum ? <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{t("maxOptionsReached")}</ThemedText>
         : <Button variant="secondary" onPress={() => { setEditing("new"); setCard(blankOption()); }}>{t("addAnotherOption")}</Button>}
@@ -262,12 +264,14 @@ function ExistingValue({ option, count, onChange }: { option: EditorOption; coun
   </View>;
 }
 
-function ValueRow({ name, position, total, placeholder, error, before, isTrailing = false, onChange, onMove, onRemove }: {
+function ValueRow({ name, position, total, placeholder, label, error, before, isTrailing = false, onChange, onMove, onRemove }: {
   name: string;
   /** 1-based; 0 for the field that adds a value. */
   position: number;
   total: number;
   placeholder?: string;
+  /** What a screen reader calls the field; the placeholder when absent. */
+  label?: string;
   error?: string | undefined;
   before?: string | undefined;
   isTrailing?: boolean;
@@ -282,7 +286,7 @@ function ValueRow({ name, position, total, placeholder, error, before, isTrailin
     <View style={styles.row}>
       {adding || !onMove ? <View style={styles.handleSpace} /> : <ReorderHandle name={name || t("optionValues")} position={position} total={total} onMove={onMove} />}
       <View style={styles.grow}>
-        <Input value={name} onChangeText={onChange} placeholder={placeholder} accessibilityLabel={placeholder ?? name} />
+        <Input value={name} onChangeText={onChange} placeholder={placeholder} accessibilityLabel={label ?? placeholder ?? name} />
       </View>
       {adding || !onRemove ? <View style={styles.handleSpace} /> : <Pressable accessibilityRole="button" accessibilityLabel={t("deleteValue", { name })} onPress={onRemove}
         style={({ pressed }) => [styles.handleSpace, styles.center, { backgroundColor: pressed ? theme.accent : "transparent", borderRadius: tokens.sizing.touchTargetMinSize / 2 }]}>
@@ -300,6 +304,8 @@ const styles = StyleSheet.create({
   card: { borderWidth: tokens.sizing.borderWidth, borderRadius: tokens.radius.card, padding: tokens.spacing["4"], gap: tokens.spacing["3"] },
   row: { flexDirection: "row", alignItems: "center", gap: tokens.spacing["1"] },
   grow: { flex: 1, minWidth: 0 },
+  // Same inset as the value fields, which sit between a reorder handle and a delete button.
+  nameField: { paddingHorizontal: tokens.sizing.touchTargetMinSize + tokens.spacing["1"] },
   heading: { fontWeight: 600 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: tokens.spacing["2"] },
   chip: { borderRadius: tokens.radius.control, paddingHorizontal: tokens.spacing["3"], paddingVertical: tokens.spacing["1"] },

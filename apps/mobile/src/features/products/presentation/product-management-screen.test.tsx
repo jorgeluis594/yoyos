@@ -29,7 +29,8 @@ const mockReplace = jest.fn();
 const mockPush = jest.fn();
 const renderScreen = () => render(<ProductEditorProvider><ProductManagementScreen /></ProductEditorProvider>);
 jest.mock("expo-network", () => ({ getNetworkStateAsync: async () => ({ isConnected: mockOnline, isInternetReachable: mockOnline }) }));
-jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ productId }), useRouter: () => ({ replace: mockReplace, push: mockPush, canGoBack: () => false, back: jest.fn() }) }));
+let mockParams: Record<string, string> = { productId };
+jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useRouter: () => ({ replace: mockReplace, push: mockPush, canGoBack: () => false, back: jest.fn() }) }));
 jest.mock("expo-image-picker", () => ({ requestCameraPermissionsAsync: jest.fn(), launchCameraAsync: jest.fn(), launchImageLibraryAsync: jest.fn() }));
 jest.mock("@mobile/shared/infrastructure/jpeg-fitting", () => ({ fitJpeg: async (uri: string) => ({ success: true, data: uri }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
@@ -43,7 +44,7 @@ jest.mock("@mobile/features/products/presentation/use-product-navigation-guard",
 let mockDiscardVersion = 0;
 jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: mockDiscardVersion }) }));
 
-beforeEach(() => { jest.clearAllMocks(); mockOnline = true; mockDiscardVersion = 0; });
+beforeEach(() => { jest.clearAllMocks(); mockOnline = true; mockDiscardVersion = 0; mockParams = { productId }; });
 
 test("printing with draft changes opens the print sheet and uses the saved product", async () => {
   mockLoadProduct.mockResolvedValue(ok(product));
@@ -400,22 +401,49 @@ describe("hide product", () => {
     expect(screen.getByLabelText("Ocultar producto").props.disabled).toBe(false);
   });
 
-  test("the saved alert adds the last-visible paragraph when the catalog was emptied", async () => {
+  test("saving shows the confirmation inline, with the last-visible paragraph when the catalog was emptied", async () => {
     mockLoadProduct.mockResolvedValue(ok(product));
     mockSaveProduct.mockResolvedValue(savedWith(true, true));
     renderScreen();
     fireEvent(await screen.findByLabelText("Ocultar producto"), "valueChange", true);
     await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
-    expect(alert).toHaveBeenCalledWith("Cambios guardados", "El producto se actualizó correctamente.\n\nTu catálogo publicado se quedó sin productos visibles. Tus clientes verán la tienda vacía.");
+    expect(alert).not.toHaveBeenCalled();
+    expect(screen.getByText("Producto guardado.")).toBeTruthy();
+    expect(screen.getByText("Tu catálogo publicado se quedó sin productos visibles. Tus clientes verán la tienda vacía.")).toBeTruthy();
   });
 
-  test("the saved alert keeps one paragraph when the catalog was not emptied", async () => {
+  test("the inline confirmation is a single line when the catalog was not emptied and goes away on the next edit", async () => {
     mockLoadProduct.mockResolvedValue(ok(product));
     mockSaveProduct.mockResolvedValue(savedWith(true, false));
     renderScreen();
     fireEvent(await screen.findByLabelText("Ocultar producto"), "valueChange", true);
     await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
-    expect(alert).toHaveBeenCalledWith("Cambios guardados", "El producto se actualizó correctamente.");
+    expect(alert).not.toHaveBeenCalled();
+    expect(screen.getByText("Producto guardado.")).toBeTruthy();
+    expect(screen.queryByText(/se quedó sin productos visibles/)).toBeNull();
+    fireEvent.changeText(screen.getByLabelText("Nombre *"), "Camisa nueva");
+    expect(screen.queryByText("Producto guardado.")).toBeNull();
+  });
+
+  test("a product just created opens with the saved confirmation", async () => {
+    mockParams = { productId, created: "1" };
+    mockLoadProduct.mockResolvedValue(ok(product));
+    renderScreen();
+    expect(await screen.findByText("Producto guardado.")).toBeTruthy();
+    fireEvent.changeText(screen.getByLabelText("Nombre *"), "Camisa nueva");
+    expect(screen.queryByText("Producto guardado.")).toBeNull();
+  });
+  test("the saved confirmation does not come back when the form turns clean again without a save", async () => {
+    mockLoadProduct.mockResolvedValue(ok(product));
+    mockSaveProduct.mockResolvedValue(savedWith(true, false));
+    renderScreen();
+    fireEvent(await screen.findByLabelText("Ocultar producto"), "valueChange", true);
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(screen.getByText("Producto guardado.")).toBeTruthy();
+    const original = screen.getByLabelText("Nombre *").props.value;
+    fireEvent.changeText(screen.getByLabelText("Nombre *"), "Camisa nueva");
+    fireEvent.changeText(screen.getByLabelText("Nombre *"), original);
+    expect(screen.queryByText("Producto guardado.")).toBeNull();
   });
 });
 
