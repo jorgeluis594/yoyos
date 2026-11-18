@@ -57,6 +57,11 @@ describe("pickerKey", () => {
     expect(pickerKey("Enter", null, [sizes])).toEqual({ highlight: { product: 0, chip: 0 }, add: null, preventDefault: true });
   });
 
+  test("Enter without a highlight does nothing while the results are not for the typed text", () => {
+    expect(pickerKey("Enter", null, [single], false)).toEqual({ highlight: null, add: null, preventDefault: true });
+    expect(pickerKey("Enter", { product: 0, chip: null }, [single], false).add).toEqual({ product: 0, variant: 0 });
+  });
+
   test("a second Enter adds the highlighted option", () => {
     const first = pickerKey("Enter", null, [sizes]);
     expect(pickerKey("Enter", first.highlight, [sizes]).add).toEqual({ product: 0, variant: 0 });

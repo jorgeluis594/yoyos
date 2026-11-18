@@ -66,7 +66,7 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (!isPickerKey(event.key) || event.nativeEvent.isComposing) return;
-    const outcome = pickerKey(event.key, listShown ? highlight : null, rows);
+    const outcome = pickerKey(event.key, listShown ? highlight : null, rows, status === "ready");
     if (outcome.preventDefault) event.preventDefault();
     setHighlight(outcome.highlight);
     if (outcome.add) add(products[outcome.add.product]!, products[outcome.add.product]!.variants[outcome.add.variant]!);

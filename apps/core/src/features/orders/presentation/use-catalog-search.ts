@@ -84,6 +84,8 @@ export function useCatalogSearch({ catalogEpoch, debounceMs = catalogSearchDebou
     if (!isOpen.current) return;
     if (next.trim() === "") { void load("", current.current.inStock); return; }
     cancel();
+    // From now on the products on screen answer an older text: «ready» must not claim otherwise while the search waits out its debounce.
+    setStatus("loading");
     timer.current = setTimeout(() => { timer.current = null; void load(next, current.current.inStock); }, debounceMs);
   }, [cancel, load, debounceMs]);
   const setInStock = useCallback((next: boolean) => {

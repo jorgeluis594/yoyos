@@ -65,6 +65,19 @@ describe("useCatalogSearch", () => {
     expect(pending).toHaveLength(2);
   });
 
+  test("marks the search loading as soon as the text changes", async () => {
+    await render(0);
+    await settle(() => latest.open());
+    await settle(() => pending[0].resolve(["Corona"]));
+    expect(latest.status).toBe("ready");
+    await settle(() => latest.setText("prín"));
+    expect(latest.status).toBe("loading");
+    expect(names()).toEqual(["Corona"]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    await settle(() => pending[1].resolve(["Príncipe"]));
+    expect(latest.status).toBe("ready");
+  });
+
   test("aborts the previous request when the text changes", async () => {
     await render(0);
     await settle(() => latest.open());
