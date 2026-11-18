@@ -133,6 +133,22 @@ test("save issues the same statement count for two and for one hundred variants,
   expect(counts[0]).toBe(counts[1]);
 });
 
+test("adding a value keeps the seller's order of the values even when a variant is deactivated", async () => {
+  await asCompany(companyA, async () => {
+    const seeded = await seedProduct({ name: "Orden", options: [{ name: "Talla", values: ["S", "L"] }],
+      variants: [{ attributes: { Talla: "S" }, sku: null }, { attributes: { Talla: "L" }, sku: null, status: "inactive" }] });
+    const product = await load(seeded.productId);
+    const form = formOf(product);
+    const xl = { id: randomUUID(), name: "XL" };
+    const saved = await productEditing.save({ ...form, options: [{ ...form.options[0], values: [...form.options[0].values, xl] }],
+      newVariants: [{ values: [xl.id], sku: null, salePrice: 55, purchasePrice: null, initialStock: 0 }] });
+    if (!saved.success) throw new Error(JSON.stringify(saved.error));
+    const after = await load(seeded.productId);
+    expect(after.options[0].values.map((value) => value.name)).toEqual(["S", "L", "XL"]);
+    expect(after.variants.map((variant) => variant.status)).toEqual(["active", "inactive", "active"]);
+  });
+});
+
 test("swapping SKUs between two variants in one save succeeds", async () => {
   await asCompany(companyA, async () => {
     const seeded = await seedProduct({ name: "Canje", options: [{ name: "Talla", values: ["S", "M"] }], variants: [{ attributes: { Talla: "S" }, sku: "AAA" }, { attributes: { Talla: "M" }, sku: "BBB" }] });
