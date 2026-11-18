@@ -60,6 +60,8 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
   const state = payment?.status === "confirmed" ? "paymentStateConfirmed" : payment?.status === "rejected" ? "paymentStateRejected"
     : payment?.status === "voided" ? "paymentStateVoided" : "paymentStateCancelled";
   const deciding = step !== "choose" && reviewable;
+  // After core refuses an amount above the balance the order reloads with that same balance, and the amount field already says «Supera el saldo pendiente de X»: one message, not two.
+  const explainedInline = failure === "PAYMENT_EXCEEDS_BALANCE" && failureBalance?.amount === order.balanceDue.amount && deciding && kind !== "reject" && step !== "reject";
   return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
     <DialogContent ref={setContent} closeLabel={t("orders.receiptClose")} onCloseAutoFocus={onCloseAutoFocus} className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
       <SelectPortalContainer.Provider value={content}>
@@ -78,7 +80,7 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
                   onClick={() => { if (approveBlockedNote) return; clearFailure(); setStep("approve"); }}>{t("orders.approve")}</Button></div>
               {(approveBlockedNote || paidAlready) && <p id={approveNoteId} className="basis-full text-sm text-muted-foreground">{paidAlready ? t("orders.paymentPaidAlready") : approveBlockedNote}</p>}</div>
             : <p className="text-sm font-medium">{t(`orders.${state}`)}</p>}
-          {failure && <Alert variant="destructive"><AlertDescription role="alert">{paymentErrorText(t, i18n.language, failure, failureBalance)}</AlertDescription></Alert>}
+          {failure && !explainedInline && <Alert variant="destructive"><AlertDescription role="alert">{paymentErrorText(t, i18n.language, failure, failureBalance)}</AlertDescription></Alert>}
         </div>
       </div>
       </SelectPortalContainer.Provider>

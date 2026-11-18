@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigation, useSubmit } from "react-router";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { paymentErrorText, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
-import { paymentAmountMessage, typedPaymentAmount } from "@core/src/features/orders/presentation/payment-amount-text";
+import { paymentAmountMessage } from "@core/src/features/orders/presentation/payment-amount-text";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { VoidPaymentDialog } from "@core/src/features/orders/presentation/void-payment-dialog";
 import { offeredChoiceName, offeredChoiceOf, offeredPayment, type OfferedChoice, type PaymentOptions } from "@core/src/features/orders/presentation/payment-options";
@@ -114,24 +114,24 @@ export function OrderPaymentsPanel(props: PaymentsPanelProps) {
 // New sale: draft rows
 
 /** Balance for a draft row: the total minus the other rows, so the partial stock box follows what this row would leave. */
-function balanceWithout(totals: Totals, row: PaymentRow): Money {
-  const typedRow = typedPaymentAmount(row.amount, totals.total.currency);
+function balanceWithout(totals: Totals, typedRow: Money | null): Money {
   const others = typedRow ? subtract(typedRow)(totals.paid) : { success: true as const, data: totals.paid };
   const left = others.success ? subtract(others.data)(totals.total) : null;
   return left?.success && left.data.amount > 0 ? left.data : left?.success ? { amount: 0, currency: totals.total.currency } : totals.balance;
 }
 
 /** Whether the partial stock box shows for a draft row: only when the row leaves a balance. */
-function offersStockBox(totals: Totals, row: PaymentRow) {
-  return offersPartialStockDeduction({ stockDeducted: false, balanceDue: balanceWithout(totals, row) }, typedPaymentAmount(row.amount, totals.total.currency));
+function offersStockBox(totals: Totals, typedRow: Money | null) {
+  return offersPartialStockDeduction({ stockDeducted: false, balanceDue: balanceWithout(totals, typedRow) }, typedRow);
 }
 
 function DraftRow({ row, index, totals, check, options, invalid, autoFocus, busy, onChange, onRemove }: { row: PaymentRow; index: number; totals: Totals; check: DraftPaymentCheck | undefined; options: PaymentOptions; invalid: boolean; autoFocus: boolean; busy: boolean;
   onChange: (row: PaymentRow) => void; onRemove: () => void }) {
   const { t, i18n } = useTranslation();
   // The limit is what the rows above leave to collect, not the whole balance: the same wording whichever row went over.
-  const error = check?.problem ? paymentAmountMessage(t, i18n.language, check.problem, check.left, "sale") : null;
-  const stockBox = offersStockBox(totals, row);
+  // A cleared prefilled amount is not announced as an error until a save attempt marks it: the other fields of the screen behave the same.
+  const error = check?.problem && !(check.problem === "empty" && !invalid) ? paymentAmountMessage(t, i18n.language, check.problem, check.left, "sale") : null;
+  const stockBox = offersStockBox(totals, check?.amount ?? null);
   const value: PaymentDraft = { amount: row.amount, method: row.method, walletProvider: row.walletProvider, deductStockIfPartial: row.deductStockIfPartial && stockBox };
   const label = offeredChoiceName(offeredChoiceOf(row), options, { wallet: t("orders.wallet"), bankTransfer: t("orders.bankTransfer") });
   return <li id={draftPaymentRowId(row.paymentId)} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-start">
@@ -148,7 +148,7 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
   const removed = useRef(false);
   const content = useRef<HTMLDivElement>(null);
   const canAdd = hasProducts && estimate.balance.amount > 0;
-  const checks = draftPaymentChecks(payments, estimate.total);
+  const checks = useMemo(() => draftPaymentChecks(payments, estimate.total), [payments, estimate.total]);
   // A removed row takes the focus with it: it goes back to the first payment button.
   useEffect(() => {
     if (!removed.current) return;
@@ -161,9 +161,10 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
   }, [payments]);
   // A hidden partial stock box never keeps a ticked flag: the request would make the order due on a payment the seller did not choose.
   useEffect(() => {
-    if (!payments.some(row => row.deductStockIfPartial && !offersStockBox(estimate, row))) return;
-    onChange(payments.map(row => row.deductStockIfPartial && !offersStockBox(estimate, row) ? { ...row, deductStockIfPartial: false } : row));
-  }, [payments, estimate, onChange]);
+    const stockBoxOf = (row: PaymentRow) => offersStockBox(estimate, checks.get(row.paymentId)?.amount ?? null);
+    if (!payments.some(row => row.deductStockIfPartial && !stockBoxOf(row))) return;
+    onChange(payments.map(row => row.deductStockIfPartial && !stockBoxOf(row) ? { ...row, deductStockIfPartial: false } : row));
+  }, [payments, estimate, checks, onChange]);
   const add = (choice: OfferedChoice) => {
     const row: PaymentRow = { paymentId: newPaymentId(), amount: estimate.balance.amount.toFixed(2), deductStockIfPartial: false, ...offeredPayment(choice) };
     setLastAdded(row.paymentId);
@@ -264,7 +265,7 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
                 aria-disabled={blockedNote ? true : undefined} aria-describedby={paidAlready ? paidNoteId : blockedNote ? approveNoteId : undefined}
                 onClick={event => { if (!blockedNote) open("approve", payment.id, event.currentTarget); }}>{t("orderView.payments.approve")}</Button>}
               {actions.void && <Button type="button" variant="outline" className="min-h-touch md:min-h-control" aria-label={name("void")} disabled={!idle}
-                onClick={() => setVoiding(payment)}>{t("orderView.payments.void")}</Button>}
+                onClick={() => { setDismissedVoid(voidResult); setVoiding(payment); }}>{t("orderView.payments.void")}</Button>}
             </div>
           </li>;
         })}</ul>}
@@ -275,7 +276,7 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
     </CardContent>
     {voiding && voiding.amount && <VoidPaymentDialog amount={voiding.amount} orderNumber={order.number} buyerName={order.buyer?.name?.trim() || null}
       onKeep={() => setVoiding(null)}
-      onVoid={() => { setVoiding(null); submit({ operation: "void", paymentId: voiding.id }, { method: "post" }); }} />}
+      onVoid={() => { if (!idle) return; setVoiding(null); submit({ operation: "void", paymentId: voiding.id }, { method: "post" }); }} />}
     {dialog && <PaymentDialog key={`${dialog.kind}-${dialog.paymentId}`} kind={dialog.kind} paymentId={dialog.paymentId} payment={dialogPayment} order={order}
       receiptUrl={receiptUrls[dialog.paymentId] ?? null} format={format} options={paymentOptions} initialChoice={dialog.choice} approveBlockedNote={blockedNote ?? undefined}
       onClose={() => setDialog(null)} onSubmitted={paymentId => { submitted.current = { paymentId, order }; }}

@@ -260,7 +260,7 @@ test("the amount above the balance shows the balance and disables saving", async
 test("an empty, non-numeric or zero amount shows its own reason and disables saving", async () => {
   await mount(<OrderPaymentsPanel {...savedProps(order60())} />);
   act(() => buttonNamed("Agregar Yape")!.click());
-  const reasons: Array<[string, string]> = [["", "Escribe el monto del pago."], ["-5", "Escribe un importe mayor a 0 con hasta 2 decimales."], ["0", "El monto debe ser mayor que cero."], ["12.345", "Escribe un importe mayor a 0 con hasta 2 decimales."]];
+  const reasons: Array<[string, string]> = [["", "Escribe el monto del pago."], ["abc", "Escribe un importe mayor a 0 con hasta 2 decimales."], ["12e", "Escribe un importe mayor a 0 con hasta 2 decimales."], ["-5", "Escribe un importe mayor a 0 con hasta 2 decimales."], ["0", "El monto debe ser mayor que cero."], ["12.345", "Escribe un importe mayor a 0 con hasta 2 decimales."]];
   for (const [typed, reason] of reasons) {
     type(dialogAmount(), typed);
     expect(dialogText(), typed).toContain(reason);
@@ -327,4 +327,36 @@ test("when core still refuses the amount the dialog shows the balance core sent"
   await act(async () => dialogButton("Confirmar pago")!.click());
   await vi.waitFor(() => expect(dialogText()).toContain("Supera el saldo pendiente de S/ 25.00"));
   expect(document.body.querySelector("[role=dialog] [role=alert]")).not.toBeNull();
+});
+
+test("a cleared prefilled amount on a new-sale row is not announced as an alert before a save attempt", async () => {
+  const row = (paymentId: string, amount: string): PaymentRow => ({ paymentId, amount, method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false });
+  await mount(<NewSale total={55} initial={[row("a", "55")]} />);
+  type(amountInputs()[0]!, "");
+  expect(container.querySelector("[role=alert]")).toBeNull();
+  type(amountInputs()[0]!, "abc");
+  expect(plain(container.querySelector("[role=alert]")?.textContent)).toBe("Escribe un importe mayor a 0 con hasta 2 decimales.");
+});
+
+test("opening the void confirmation clears the previous «Pago actualizado.»", async () => {
+  const twenty = { ...confirmed, id: "p-20", amount: money(20) };
+  await mount(<OrderPaymentsPanel {...savedProps(order60({ paidAmount: money(20), balanceDue: money(40), payments: [twenty] }), { voidResult: { success: true, error: false } })} />);
+  expect(container.textContent).toContain("Pago actualizado.");
+  act(() => buttonNamed("Anular pago")!.click());
+  expect(container.textContent).not.toContain("Pago actualizado.");
+});
+
+test("the refusal of an amount above the balance is said once when the field already explains it", async () => {
+  const action = vi.fn(() => ({ url: null, success: false, error: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(25) }));
+  const Harness = () => { const [order, setOrder] = useState(order60()); return <>
+    <button type="button" data-testid="reload" onClick={() => setOrder(order60({ paidAmount: money(35), balanceDue: money(25) }))} />
+    <OrderPaymentsPanel {...savedProps(order)} /></>; };
+  await mountWithAction(<Harness />, action);
+  act(() => buttonNamed("Agregar Yape")!.click());
+  type(dialogAmount(), "60");
+  await act(async () => dialogButton("Confirmar pago")!.click());
+  await vi.waitFor(() => expect(action).toHaveBeenCalled());
+  await act(async () => container.querySelector<HTMLButtonElement>("[data-testid=reload]")!.click());
+  const text = dialogText();
+  expect(text.match(/Supera el saldo pendiente de S\/ 25\.00/g)).toHaveLength(1);
 });

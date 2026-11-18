@@ -214,7 +214,6 @@ export function lineWarnings(state: OrderViewState, line: DraftLine): Readonly<{
 
 export type Estimate = Readonly<{ subtotal: Money; delivery: Money; paid: Money; total: Money; balance: Money; excess: Money }>;
 
-const isValidAmount = (amount: string) => /^\d+(\.\d{1,2})?$/.test(amount.trim()) && Number(amount) >= 0.01;
 const zero = (currency: Currency): Money => ({ amount: 0, currency });
 
 /** A kept variant is priced at its saved price, also when the seller removed it and added it again. */
@@ -240,15 +239,15 @@ function deliveryCharge(state: OrderViewState, currency: Currency): Money {
   return delivery.fields.ratePrice ?? savedCharge;
 }
 
-function sumPaid(state: OrderViewState, currency: Currency): Result<Money, MoneyError> {
+/** A new sale's draft payments that can be sent: each valid amount within what the rows above leave to collect. */
+function sumPaid(state: OrderViewState, currency: Currency, total: Money): Result<Money, MoneyError> {
   if (state.loaded) return ok(state.loaded.order.paidAmount);
-  return state.draft.payments.reduce<Result<Money, MoneyError>>((sum, payment) => {
-    if (!sum.success || !isValidAmount(payment.amount)) return sum;
-    return add({ amount: Number(payment.amount), currency })(sum.data);
-  }, ok(zero(currency)));
+  const checks = draftPaymentChecks(state.draft.payments, total);
+  return [...checks.values()].reduce<Result<Money, MoneyError>>((sum, check) => !sum.success || !check.amount ? sum : add(check.amount)(sum.data), ok(zero(currency)));
 }
 
-export type DraftPaymentCheck = Readonly<{ left: Money; problem: PaymentAmountProblem | null }>;
+/** `amount` is the row's money when it can be sent (a valid amount within `left`), else null. */
+export type DraftPaymentCheck = Readonly<{ left: Money; problem: PaymentAmountProblem | null; amount: Money | null }>;
 
 /**
  * What each draft payment row of a new sale may still collect: the total minus the rows above it that can be sent, and the problem of its amount, if any.
@@ -259,7 +258,7 @@ export function draftPaymentChecks(payments: readonly PaymentRow[], total: Money
   let left: Money = total.amount > 0 ? total : zero(total.currency);
   for (const row of payments) {
     const checked = checkPaymentAmount(row.amount, left);
-    checks.set(row.paymentId, { left, problem: checked.success ? null : checked.error.problem });
+    checks.set(row.paymentId, { left, problem: checked.success ? null : checked.error.problem, amount: checked.success ? checked.data : null });
     if (!checked.success) continue;
     const rest = subtract(checked.data)(left);
     if (rest.success) left = rest.data;
@@ -279,8 +278,8 @@ export function estimate(state: OrderViewState): Result<Estimate, MoneyError> {
   if (!subtotal.success) return subtotal;
   const delivery = deliveryCharge(state, currency);
   const total = add(delivery)(subtotal.data);
-  const paid = sumPaid(state, currency);
   if (!total.success) return total;
+  const paid = sumPaid(state, currency, total.data);
   if (!paid.success) return paid;
   const owed = subtract(paid.data)(total.data);
   if (!owed.success) return owed;
@@ -348,7 +347,7 @@ export function invalidFields(state: OrderViewState): readonly InvalidField[] {
   const estimated = estimate(state);
   // A payment that is not an amount, or that the rows above it leave nothing to collect for, is refused by the save before core is asked.
   const checks = estimated.success ? draftPaymentChecks(draft.payments, estimated.data.total) : null;
-  const payments = draft.payments.filter((payment) => checks ? checks.get(payment.paymentId)?.problem != null : !isValidAmount(payment.amount))
+  const payments = draft.payments.filter((payment) => checks?.get(payment.paymentId)?.problem != null)
     .map((payment): InvalidField => ({ section: "payments", field: "amount", id: payment.paymentId, reason: "amount_invalid" }));
   const customer = locks.customer === null && (base === null || edited.includes("customer")) ? invalidCustomer(draft.customer, customerRequired(state)) : [];
   const delivery = locks.delivery === null && (base === null || edited.includes("delivery")) ? invalidDelivery(draft.delivery, base) : [];

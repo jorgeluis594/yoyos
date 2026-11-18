@@ -499,10 +499,20 @@ describe("draft payment checks", () => {
 
   test("each row may collect what the rows above leave and a row over it is flagged with that amount", () => {
     const checks = draftPaymentChecks([row("a", "40"), row("b", "20"), row("c", "15")], pen(55));
-    expect(checks.get("a")).toEqual({ left: pen(55), problem: null });
-    expect(checks.get("b")).toEqual({ left: pen(15), problem: "exceeds_balance" });
+    expect(checks.get("a")).toEqual({ left: pen(55), problem: null, amount: pen(40) });
+    expect(checks.get("b")).toEqual({ left: pen(15), problem: "exceeds_balance", amount: null });
     // The refused row leaves nothing to the next one: it does not count as collected.
-    expect(checks.get("c")).toEqual({ left: pen(15), problem: null });
+    expect(checks.get("c")).toEqual({ left: pen(15), problem: null, amount: pen(15) });
+  });
+
+  test("a sale whose payment row is over what is left is refused by invalidFields and the over row is not counted as paid", () => {
+    let state = initialDraft({ kind: "new", orderId, currency: "PEN" });
+    const row = (paymentId: string, amount: string) => ({ paymentId, amount, method: "digital_wallet" as const, walletProvider: "yape" as const, deductStockIfPartial: false });
+    state = { ...state, draft: { ...state.draft, items: [newLine(crown, "1")], payments: [row("a", "20"), row("b", "20")] } };
+    // Crown costs S/ 35: the second S/ 20 exceeds the S/ 15 left.
+    expect(invalidFields(state)).toEqual([{ section: "payments", field: "amount", id: "b", reason: "amount_invalid" }]);
+    const estimated = estimate(state);
+    expect(estimated.success && estimated.data.paid).toEqual(pen(20));
   });
 
   test("flags an empty, non-numeric and zero amount before the limit", () => {
