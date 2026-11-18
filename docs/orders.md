@@ -68,6 +68,7 @@ An order has three independent dimensions plus a derived status:
 
 - An order is created `active`, unpaid, undelivered, without deducted stock and without reserving stock. Reason: creating an order is a record of intent; stock moves only when it is paid.
 - No payment is ever rejected, deleted or left unrecorded because of stock. The payment, the balance, the paid status and completion are recorded whether or not stock can be deducted. Reason: founder rule; money that arrived must be recorded.
+- A payment above the pending balance is refused (`409 PAYMENT_EXCEEDS_BALANCE`, see [Payments](#payments)). Reason: founder decision 2026-11-18, money above the balance is settled with the buyer outside Yoyos, so it is not recorded. It does not contradict the rule above: that one is about never refusing a payment because of stock, this one about never recording more than the order owes.
 - Voiding a confirmed payment can return the order from `completed` to `active`. It never restores stock.
 - Delivery details (home, agency or store pickup) can change only while delivery is `pending`; afterwards they return `DELIVERY_LOCKED`.
 - A dispatch date can be scheduled only while delivery is `pending`.
@@ -134,6 +135,7 @@ A payment is either a buyer report («Ya pagué» with a receipt, from the [chec
 Transitions: `reported → confirmed`, `reported → rejected`, `confirmed → voided`. `rejected` and `voided` are final; existing records keep their state.
 
 - **Who sets the amount:** the buyer does not declare amount or method. Approving turns the report into a confirmed payment with the same receipt and the amount and method the seller typed. Reason: only the seller knows what arrived.
+- **Balance limit:** a confirmed payment is never above the pending balance, which core computes under the order row lock from the confirmed, non-voided payments (reported, rejected and voided ones do not count). A payment above it answers `409 PAYMENT_EXCEEDS_BALANCE` with `balanceDue` (the balance at that moment) and records nothing, so two concurrent payments cannot add up to more than the total: the second one gets the remaining balance. A payment equal to the balance is accepted, and a replay of an already recorded payment id answers the stored order before the rule runs. It applies to a manual payment, to approving a report and to the payments of a new sale (`POST /api/orders` answers the same code and creates nothing). An approval on an order already paid is refused for the same reason; the report can still be rejected. Shared `checkPaymentAmount` and `paymentProgress` (`shared/orders-payment.ts`) let clients explain the problem before sending; core stays the only authority. Reason: see [Lifecycle](#lifecycle).
 - **Approve** and a manual payment always record the payment and then apply [Stock deduction](#stock-deduction); with short stock the order is left waiting. A confirmation stores the seller's `deductStockIfPartial` (a voided payment no longer makes the order due). `POST /:id/payments` answers `{ order }`, with `stockDue` from the same transaction.
 - **Reject** applies only to a pending report. It keeps the receipt, report date, who rejected it, when, and an optional reason (trimmed, empty means none, at most 200 characters) that the buyer sees. It changes neither the received amount, the balance, stock nor completion. Reason: a wrong receipt must not stay pending forever nor block the buyer. Rejected is final: a mistaken rejection is solved by the buyer sending the receipt again, which creates a new report; the rejected one stays in the history.
 - **Repeated decisions:** repeating the same decision on the same payment returns the first result and writes nothing (a repeated approval publishes no stock event and deducts at most once). Approving again with the same amount and method returns that confirmation, even with a different `deductStockIfPartial`; rejecting again returns the original rejection and reason, whatever reason the retry carries; a buyer report resent with the id and receipt of a rejected payment returns the rejection. A different decision is refused: approving a rejected payment, rejecting a confirmed or voided one, or approving with another amount or method answers `409 PAYMENT_CONFLICT`; voiding a rejected or reported payment answers `409 INVALID_TRANSITION`. Clients show both codes as «Este pago ya fue revisado.» and reload. Reason: a retry after an uncertain response must never create a second payment or overwrite a decision.
@@ -220,7 +222,7 @@ Web shows «Marcar enviado», «Entregar directamente» and «Marcar entregado»
 | Deactivated variant | A kept line of a deactivated variant can stay or be lowered. Raising it, or adding a deactivated variant, answers `VARIANT_NOT_FOUND` with its `variantId`. A variant deleted between the lookup and the insert answers the same. |
 | Customer | Name and phone, both or none. Changing them keeps the order's link to its contact. Emptying them is refused with `CUSTOMER_REQUIRED` on an order the buyer confirmed (it can be changed to another customer, not left empty); otherwise an order with a contact keeps the contact with empty name and phone (a WhatsApp order returns to «chat contact without name or phone»); any other order loses its buyer row and reads as «Público general». The customer is a copy; no contact is updated. |
 | Delivery | Either a replacement or an amendment. A replacement (method, district, rate or agency) is quoted again with the `expectedPrice` the seller saw and can answer `TOTAL_CHANGED` with the current price, `RATE_UNAVAILABLE`, `DELIVERY_UNAVAILABLE` or `DELIVERY_METHOD_DISABLED`. An amendment changes only the recipient, the home address text, the reference or the agency identity document, keeps the stored rate, cost and charge and is never quoted. Both record the seller as the author, so «Elegida por el comprador» disappears. An empty reference is stored as `null`. A delivery that was not sent is never re-quoted or rewritten. |
-| Payments | Never changed, voided or removed by an edit. Payment status is derived again, and an overpayment is an amount shown as «Exceso recibido», with no refund recorded. |
+| Payments | Never changed, voided or removed by an edit. Payment status is derived again, and an overpayment is an amount shown as «Exceso recibido», with no refund recorded. The excess only arises when an edit lowers the total below what was already received, because a payment above the balance is refused. |
 
 ### Locks enforced by core
 
@@ -288,6 +290,7 @@ Errors use the envelope `{ code, error, issues? }`; `issues` points to the affec
 | Not enough stock for immediate delivery, immediate shipment or an immediate sale | `409 INSUFFICIENT_STOCK` with the short `variantId` (nothing persists) |
 | Repeated order ID | `409 ORDER_ALREADY_EXISTS` |
 | Delivery already progressed / payment not covered | `409 DELIVERY_LOCKED` / `409 PAYMENT_REQUIRED` |
+| A payment of the new sale is above what the order owes | `409 PAYMENT_EXCEEDS_BALANCE` with `balanceDue`; nothing is created |
 | Known persistence failure, or a contended stock deduction for immediate delivery | `503 SERVICE_UNAVAILABLE` |
 
 An order of another company responds exactly as a missing one. Outside creation, `INSUFFICIENT_STOCK` remains only for shipping and delivering (`/ship`, `/deliver` and `PATCH /:id/shipping`).
@@ -303,7 +306,7 @@ All under `/api/orders`, authenticated, scoped to the session company and sent w
 | Operation | Route |
 | --- | --- |
 | List with filters (view `all`/`unpaid`/`undelivered`, search, created dates, delivery status, courier, scheduled dispatch, shipped dates), 20 per page | `GET /mixed` |
-| Read one order (with `stockDue`) | `GET /:id/aggregate` |
+| Read one order (with `stockDue`, and `checkoutLink`: `{ kind: "ready", url }` or `{ kind: "subdomain_required" }`; no field for a cancelled order or when the link cannot be read, which means unknown, never «no link») | `GET /:id/aggregate` |
 | Search sellable products (`search`, `variantIds` up to 100, `inStock=true` to keep only products with an active variant in stock, shown with all their active variants) | `GET /catalog` |
 | Register / void a payment | `POST /:id/payments`, `POST /:id/payments/:paymentId/void` |
 | Reject a buyer report (body `{ reason: string \| null }`) | `POST /:id/payments/:paymentId/reject` |
@@ -312,7 +315,7 @@ All under `/api/orders`, authenticated, scoped to the session company and sent w
 | Edit items of a saved order (mobile: remove, quantity) | `PATCH /:id/items` |
 | Read / confirm the order review; undo what one message did; record a taken checkout link | `GET /:id/review`, `POST /:id/reviews`, `POST /:id/messages/:messageId/undo`, `POST /:id/link-actions` ([order-review](order-review.md)) |
 | Ship, deliver, cancel | `POST /:id/ship`, `/deliver`, `/cancel` |
-| Read the buyer checkout link (idempotent, used by mobile; `409 SUBDOMAIN_REQUIRED` or `409 ORDER_CANCELLED`) | `POST /:orderId/checkout-link` |
+| Read the buyer checkout link (idempotent, mobile fallback when the aggregate does not carry `checkoutLink`; `409 SUBDOMAIN_REQUIRED` or `409 ORDER_CANCELLED`) | `POST /:orderId/checkout-link` |
 
 There is no route that deducts the stock of an order.
 
