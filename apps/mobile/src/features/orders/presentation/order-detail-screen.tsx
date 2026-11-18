@@ -163,7 +163,7 @@ export default function OrderDetailScreen() {
     if (fresh.success) { setOrder(fresh.data.order); setOrderReview(fresh.data.review); setError(""); loaded.current = true; }
     else if (!silent) setError(fresh.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
-  }, [id, scope, loadBoth]);
+  }, [id, scope, loadBoth, setOrder]);
   const confirmDiscardItems = (onConfirm: () => void) => showConfirmation({ title: t("itemsEdit.discardTitle"), confirmLabel: t("itemsEdit.discard"), cancelLabel: t("itemsEdit.keepEditing"), destructive: true, onConfirm });
   const leaveAllowed = useRef(false);
   // Swipe-back, the header button and the hardware back all ask before dropping unsaved product edits.
