@@ -156,7 +156,7 @@ test("close returns to the catalog", () => {
 const typeOption = (name: string, values: string[]) => {
   fireEvent.changeText(screen.getByLabelText("Nombre de la opción"), name);
   for (const value of values) fireEvent.changeText(screen.getByLabelText("Agregar otro valor"), value);
-  fireEvent.press(screen.getAllByRole("button", { name: "Listo" })[1]);
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar" }));
 };
 const buildPolo = () => {
   renderFlow();

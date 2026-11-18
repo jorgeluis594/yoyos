@@ -508,14 +508,16 @@ test("a cleared base price does not block saving once the product has options", 
   expect(mockSave).toHaveBeenCalledTimes(1);
 });
 
-const typePrice = (value: string) => fireEvent.changeText(screen.getByLabelText("Precio de venta"), value);
+const typePrice = (value: string) => fireEvent.changeText(screen.getByLabelText(/Precio de venta/), value);
 
 test("Desactivar variante is not styled as the destructive Eliminar variante", () => {
-  renderSaved();
+  const full = savedProduct();
+  const empty: EditorDraft = { ...full, rows: full.rows.map((row) => ({ ...row, stock: 0, original: { sku: null, salePrice: 39.9, purchasePrice: null, stock: 0 } })) };
+  renderSaved(empty);
   open("S / Negro");
-  const background = (name: string) => screen.getByRole("button", { name });
-  expect(background("Eliminar variante")).toHaveStyle({ backgroundColor: Colors.light.destructive });
-  expect(background("Desactivar variante")).not.toHaveStyle({ backgroundColor: Colors.light.destructive });
+  expect(screen.getByRole("button", { name: "Eliminar variante" })).toHaveStyle({ backgroundColor: Colors.light.destructive });
+  expect(screen.getByRole("button", { name: "Desactivar variante" })).not.toHaveStyle({ backgroundColor: Colors.light.destructive });
+  expect(screen.getByRole("button", { name: "Desactivar variante" })).toHaveStyle({ backgroundColor: Colors.light.secondary });
 });
 
 test("after Guardar variante the confirmation reads as success and the editor offers Cerrar instead of Cancelar", async () => {
@@ -538,7 +540,7 @@ test("the bulk actions bar also shows while a row is expanded and chips select v
   open("S / Negro");
   expect(screen.queryByRole("button", { name: "Editar precio" })).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "L" }));
-  expect(screen.getAllByText("1 seleccionada").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("2 seleccionadas").length).toBeGreaterThan(0);
   expect(screen.getByRole("button", { name: "Editar precio" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Editar stock" })).toBeTruthy();
 });
@@ -554,7 +556,7 @@ test("an invalid price on a saved row is flagged on leaving the field and disabl
   typeStock("7");
   expect(screen.getByRole("button", { name: "Guardar variante" }).props.accessibilityState.disabled).toBe(false);
   typePrice("0");
-  fireEvent(screen.getByLabelText("Precio de venta"), "blur");
+  fireEvent(screen.getByLabelText(/Precio de venta/), "blur");
   expect(screen.getByText("Ingresa un precio mayor que cero, con hasta dos decimales.")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Guardar variante" }).props.accessibilityState.disabled).toBe(true);
   expect(mockUpdate).not.toHaveBeenCalled();
