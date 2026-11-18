@@ -288,7 +288,7 @@ test("missing coverage and technical failure never display a free shipping charg
 test("a changed price preserves the form and requires a new rate choice before reconfirming", async () => {
   getSettings.mockResolvedValueOnce(ok(allMethods)).mockResolvedValue(ok({ ...allMethods, version: 2 }));
   quote.mockResolvedValueOnce(ok(quotation)).mockResolvedValueOnce(ok({ ...quotation, rates: [{ ...firstRate,
-    id: "00000000-0000-4000-8000-000000000034", price: { amount: 10, currency: "PEN" } }] }));
+    id: "00000000-0000-4000-8000-000000000034", price: { amount: 10, currency: "PEN" } }, { ...firstRate, id: "00000000-0000-4000-8000-000000000035", price: { amount: 11, currency: "PEN" } }] }));
   save.mockResolvedValueOnce(err({ code: "TOTAL_CHANGED", message: "private", currentPrice: { amount: 10, currency: "PEN" } })).mockResolvedValueOnce(ok(pending));
   const screen = render(<OrderDeliveryScreen />);
   await screen.findByText("Current address");
@@ -343,7 +343,7 @@ test("reselecting the destination requires fresh rates instead of reviving an ol
   await waitFor(() => expect(quote).toHaveBeenCalledTimes(2));
   expect(screen.queryByTestId("delivery-rate")).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
-  await act(async () => { finish?.(ok({ ...quotation, rates: [{ ...firstRate, id: "00000000-0000-4000-8000-000000000039" }] })); });
+  await act(async () => { finish?.(ok({ ...quotation, rates: [{ ...firstRate, id: "00000000-0000-4000-8000-000000000039" }, { ...firstRate, id: "00000000-0000-4000-8000-000000000040" }] })); });
   expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeEnabled();
@@ -364,4 +364,21 @@ test("chosen district collapses to an editable summary without losing the select
   expect(screen.getByLabelText("Nombre del destinatario *").props.value).toBe("Customer");
   expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeEnabled();
   expect(quote).toHaveBeenCalledTimes(1);
+});
+
+test("a single rate for the district is selected", async () => {
+  getSettings.mockResolvedValue(ok(allMethods));
+  save.mockResolvedValue(ok(pending));
+  quote.mockResolvedValue(ok({ ...quotation, rates: [firstRate] }));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByText("Current address");
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 1);
+  selectDistrict(screen);
+  await screen.findByTestId("delivery-rate");
+  await waitFor(() => expect(screen.getByText(/Entrega:\sS\/\s8\.00/)).toBeTruthy());
+  fireEvent.changeText(screen.getByLabelText("Dirección de entrega *"), "Final street");
+  fireEvent.changeText(screen.getByLabelText("Nombre del destinatario *"), "Recipient");
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
+  expect(save).toHaveBeenCalledWith(mockId, expect.objectContaining({ expectedPrice: firstRate.price, delivery: expect.objectContaining({ rateId: firstRate.id }) }));
 });

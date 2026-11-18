@@ -21,7 +21,7 @@ import { usePreventRemove } from "expo-router/react-navigation";
 import { useTranslation } from "react-i18next";
 import { subtract } from "@shared/money";
 import { ok } from "@shared/functional";
-import { offersPartialStockDeduction } from "@shared/orders-payment";
+import { offersPartialStockDeduction, paymentProgress } from "@shared/orders-payment";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { ConfirmOrderReviewResponse, OrderReviewResponse } from "@shared/contracts/order-review";
 import { orders } from "@mobile/features/orders/composition";
@@ -36,7 +36,7 @@ import { useNotices } from "@mobile/features/notifications/composition";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
-import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentBadgeStatus, paymentMethodLabel } from "@mobile/features/orders/presentation/order-payment-parts";
+import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentAmountMessage, paymentAmountProblem, paymentMethodLabel } from "@mobile/features/orders/presentation/order-payment-parts";
 import { DeliveryBadge, DeliveryRow, deliveryRowSymbols, useShippingSummary } from "@mobile/features/orders/presentation/order-delivery-parts";
 import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-print-review";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
@@ -91,7 +91,12 @@ export default function OrderDetailScreen() {
   const { id, noticeAt } = useLocalSearchParams<{ id: string; noticeAt?: string }>();
   const { state } = useAccess();
   const { notice, clear } = useOrderResult();
-  const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
+  const [order, setOrderState] = useState<OrderAggregateResponse | null>(null);
+  /** A write answer carries no store link: the order keeps the last one a load carried. */
+  const setOrder = useCallback((next: React.SetStateAction<OrderAggregateResponse | null>) => setOrderState(previous => {
+    const value = typeof next === "function" ? next(previous) : next;
+    return value && !value.checkoutLink && previous?.id === value.id && previous.checkoutLink ? { ...value, checkoutLink: previous.checkoutLink } : value;
+  }), []);
   const [orderReview, setOrderReview] = useState<OrderReviewResponse | null>(null);
   // The review modal, with the link action that opened it (null from the detail).
   const [reviewFlow, setReviewFlow] = useState<Readonly<{ origin: "link" | "detail"; action: LinkActionKind | null }> | null>(null);
@@ -138,7 +143,8 @@ export default function OrderDetailScreen() {
   const cancellationBusy = cancellation.kind === "submitting" || cancellation.kind === "verifying";
   const cancellationBlocked = cancellationBusy || cancellation.kind === "uncertain" || detailRefreshFailed;
   // A result belongs to the order it was read for, so another order never shows this one's link while its own loads.
-  const checkoutLink: CheckoutLinkState = linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" };
+  const carried = order?.checkoutLink ?? null;
+  const checkoutLink: CheckoutLinkState = carried ?? (linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" });
   const { copied, copy: copyLink, open: openLink } = useCopyLink(checkoutLink.kind === "ready" ? checkoutLink.url : null);
   const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling || savingItems;
   /** The order and its review are one read: either failing fails it. */
@@ -157,7 +163,7 @@ export default function OrderDetailScreen() {
     if (fresh.success) { setOrder(fresh.data.order); setOrderReview(fresh.data.review); setError(""); loaded.current = true; }
     else if (!silent) setError(fresh.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
-  }, [id, scope, loadBoth]);
+  }, [id, scope, loadBoth, setOrder]);
   const confirmDiscardItems = (onConfirm: () => void) => showConfirmation({ title: t("itemsEdit.discardTitle"), confirmLabel: t("itemsEdit.discard"), cancelLabel: t("itemsEdit.keepEditing"), destructive: true, onConfirm });
   const leaveAllowed = useRef(false);
   // Swipe-back, the header button and the hardware back all ask before dropping unsaved product edits.
@@ -206,9 +212,12 @@ export default function OrderDetailScreen() {
       if (source === "manual") manualPaymentId.current = null;
     }
     else {
-      const failure = confirmPaymentFailure(result.error.code);
-      setPaymentError(failure === "already_reviewed" ? t("paymentAlreadyReviewed")
-        : failure === "unknown" ? t("paymentUnknownResult") : t("paymentSaveError"));
+      const failure = confirmPaymentFailure(result.error);
+      setPaymentError(failure === "already_reviewed" ? t("paymentAlreadyReviewed") : failure === "unknown" ? t("paymentUnknownResult")
+        : failure === "failed" ? t("paymentSaveError")
+        : t("paymentExceedsBalanceServer", { amount: format(failure.balanceDue ?? order.balanceDue) }));
+      // The order is reloaded below: closing the register sheet keeps it from offering «Registrar S/ 0.00».
+      if (typeof failure === "object" && source === "manual") setEditor(null);
       if (failure !== "failed") { const refreshed = await orders.loadOrderAggregate(order.id); if (refreshed.success) setOrder(refreshed.data); }
     }
     setSavingPayment(null);
@@ -234,6 +243,14 @@ export default function OrderDetailScreen() {
     if (result.success) setOrder(result.data);
     else setPaymentError(t("paymentSaveError"));
     setSavingPayment(null);
+  }
+  /** Voiding returns the money to the balance, so it asks first naming the amount, the order and the buyer when there is one. */
+  function askVoid(paymentId: string, amount: string) {
+    if (!order || cancellationLock.current || writeBusy || order.cancelled) return;
+    const buyer = order.buyer?.name?.trim();
+    showConfirmation({ title: t("voidTitle", { amount }),
+      description: buyer ? t("voidDescription", { number: order.number, buyer }) : t("voidDescriptionNoBuyer", { number: order.number }),
+      confirmLabel: t("voidConfirm"), cancelLabel: t("voidKeep"), destructive: true, onConfirm: () => void voidPayment(paymentId) });
   }
   const endItemsEdit = (notice: ItemsNotice | null) => { setItemsDraft(null); setItemsNotice(notice); };
   /** A lost answer: reading the order tells whether the edit went through, nothing changed or somebody else changed the items. */
@@ -322,8 +339,13 @@ export default function OrderDetailScreen() {
   // The live region is Android-only, so VoiceOver gets the same text announced once when the line appears.
   useEffect(() => { if (paymentLine) AccessibilityInfo.announceForAccessibility(translations.t(paymentLine === "waiting" ? "paymentRecordedWaiting" : "paymentRecorded")); }, [paymentLine]);
   useEffect(() => { if (copied) AccessibilityInfo.announceForAccessibility(translations.t("checkoutCopied")); }, [copied]);
+  const linkCarried = !!carried;
+  const saleSaved = !!order && notice?.id === order.id && notice.shownTotal.currency === order.total.currency && notice.shownTotal.amount === order.total.amount;
+  // The live region speaks on Android; iOS needs the announcement, so each platform says it once.
+  useEffect(() => { if (saleSaved && Platform.OS === "ios") AccessibilityInfo.announceForAccessibility(translations.t("saleSaved")); }, [saleSaved]);
+  // Only an order that does not say whether the store has a link asks for it, and only while no load has said so.
   useEffect(() => {
-    if (!linkOrderId || linkCancelled) return;
+    if (!linkOrderId || linkCancelled || linkCarried) return;
     const request = ++linkRequest.current;
     void (async () => {
       try {
@@ -334,7 +356,7 @@ export default function OrderDetailScreen() {
       } catch { if (request === linkRequest.current) setLinkResult({ orderId: linkOrderId, link: { kind: "error" } }); }
     })();
     return () => { linkRequest.current += 1; };
-  }, [linkOrderId, linkCancelled, linkRefresh]);
+  }, [linkOrderId, linkCancelled, linkRefresh, linkCarried]);
   async function runCancellation(verify: boolean) {
     if (!order || cancellationBusy || cancellationLock.current || savingPayment || fulfilling) return;
     if (!verify && (cancellationBlocked || order.cancelled || order.status !== "active" || order.deliveryStatus !== "pending")) return;
@@ -459,7 +481,8 @@ export default function OrderDetailScreen() {
   const canEditItems = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
   const itemsLockedText = order.cancelled || order.deliveryStatus === "pending" ? null : t(order.deliveryStatus === "shipped" ? "itemsEdit.lockedShipped" : "itemsEdit.lockedDelivered");
   const canEditDelivery = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
-  const checkoutState = order.cancelled ? t("checkoutCancelled") : order.checkoutConfirmedAt ? t("checkoutConfirmed") : order.status === "active" ? t("checkoutPending") : null;
+  const checkoutState = order.cancelled ? t("checkoutCancelled") : order.checkoutConfirmedAt ? t("checkoutConfirmed")
+    : order.status === "active" && checkoutLink.kind !== "subdomain_required" ? t("checkoutPending") : null;
   const openPayments = () => {
     scroll.current?.scrollTo({ y: paymentPosition.current, animated: false });
   };
@@ -523,6 +546,7 @@ export default function OrderDetailScreen() {
             <ThemedText type="small" style={{ color: theme.warning }}>{isWaitingDue(order.stockDue) ? t("stockWaitingHelp") : t("stockDeductingHelp")}</ThemedText>
           </View>
         </View> : null}
+        {saleSaved ? <ThemedText accessibilityLiveRegion="polite" style={{ color: theme.success }}>{t("saleSaved")}</ThemedText> : null}
         {changed && original ? <View style={[styles.card, styles.section, { backgroundColor: theme.warningSurface, borderColor: theme.border }]}>
           <ThemedText type="subtitle" accessibilityRole="header">{t('reviewCharge')}</ThemedText>
           <ThemedText>{t('shownAtConfirmation', { amount: money(original.amount, original.currency, locale) })}</ThemedText>
@@ -574,7 +598,7 @@ export default function OrderDetailScreen() {
         <View onLayout={(event) => { paymentPosition.current = event.nativeEvent.layout.y; }} style={[styles.card, styles.section, cardStyle]}>
           <View style={styles.row}>
             <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('payments')}</ThemedText>
-            <PaymentBadge status={paymentBadgeStatus(order.paidAmount.amount, order.balanceDue.amount)} />
+            <PaymentBadge progress={paymentProgress(order)} format={amount => format({ amount, currency: order.total.currency })} />
           </View>
           <PaymentSummary total={format(order.total)} paid={format(order.paidAmount)} balance={format(order.balanceDue)} showPaid={hasPaid} />
           {paymentLine ? <ThemedText accessibilityLiveRegion="polite" style={paymentLine === "recorded" ? { color: theme.success } : undefined}>{t(paymentLine === "waiting" ? "paymentRecordedWaiting" : "paymentRecorded")}</ThemedText> : null}
@@ -595,7 +619,7 @@ export default function OrderDetailScreen() {
                 onPress={receiptImageId ? () => void viewReceipt(receiptImageId) : undefined} />
               {payment.status === "rejected" && payment.data.reason ? <ThemedText type="small">{payment.data.reason}</ThemedText> : null}
               {payment.status === "reported" && !order.cancelled ? <Button variant="secondary" disabled={writeBusy} onPress={() => openEditor({ paymentId: payment.id, receiptImageId: payment.data.receiptImageId })}>{t('detailReviewPayment')}</Button> : null}
-              {payment.status === "confirmed" && !order.cancelled ? <Button variant="ghost" disabled={writeBusy} onPress={() => void voidPayment(payment.id)}>{t('voidPayment')}</Button> : null}
+              {payment.status === "confirmed" && !order.cancelled ? <Button variant="ghost" disabled={writeBusy} onPress={() => askVoid(payment.id, payment.amount ? format(payment.amount) : "")}>{t('voidPayment')}</Button> : null}
             </View>;
           })}
           {paymentError && !editor ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
@@ -722,7 +746,7 @@ export default function OrderDetailScreen() {
             {review && rejection ? <RejectionForm busy={writeBusy} reason={rejection.reason}
               onChange={reason => setRejection({ reason })} onBack={() => { setRejection(null); setPaymentError(""); }}
               onConfirm={() => void rejectReport(review.paymentId, rejection.reason)} /> : null}
-            {review && !rejection ? <PaymentEditor key={review.paymentId} order={order} busy={writeBusy}
+            {review && !rejection ? <PaymentEditor key={review.paymentId} order={order} busy={writeBusy} format={format}
               onConfirm={(amount, method, deduct) => void confirmPayment(review.paymentId, "buyer_report", amount, method, deduct)} /> : null}
             {review && !rejection ? <Button variant="secondary" disabled={writeBusy} onPress={() => { setPaymentError(""); setRejection({ reason: "" }); }}>{t('rejectPayment')}</Button> : null}
             {paymentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
@@ -806,15 +830,21 @@ const styles = StyleSheet.create({
   item: { gap: 4, paddingVertical: 12 },
 });
 
-function PaymentEditor({ order, busy, onConfirm }: { order: OrderAggregateResponse; busy: boolean;
+function PaymentEditor({ order, busy, format, onConfirm }: { order: OrderAggregateResponse; busy: boolean; format: (value: { amount: number; currency: string }) => string;
   onConfirm: (amount: string, method: PaymentMethodAndProvider, deductStockIfPartial: boolean) => void }) {
   const { t } = useTranslation();
   const balance = order.balanceDue.amount;
   const [value, setValue] = useState<PaymentFieldsValue>({ amount: balance > 0 ? balance.toFixed(2) : "", ...paymentFromChoice(defaultPaymentChoice), deductStockIfPartial: false });
   const typed = Number(normalizeDecimalInput(value.amount));
   const showStock = offersPartialStockDeduction(order, value.amount.trim() && Number.isFinite(typed) ? { amount: typed, currency: order.total.currency } : null);
-  return <View style={styles.section}><PaymentFields value={value} onChange={setValue} currency={order.total.currency} busy={busy} showStockOption={showStock} />
-    <Button disabled={busy} loading={busy} onPress={() => onConfirm(value.amount, paymentFromChoice(choiceOfPayment(value) ?? defaultPaymentChoice), showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
+  const paid = balance <= 0;
+  const problem = paid ? null : paymentAmountProblem(value.amount, balance, order.total.currency);
+  const amountError = paymentAmountMessage(t, problem, format(order.balanceDue));
+  return <View style={styles.section}>
+    {paid ? <ThemedText accessibilityRole="alert">{t('paymentZeroBalance')}</ThemedText>
+      : <PaymentFields value={value} onChange={setValue} currency={order.total.currency} busy={busy} showStockOption={showStock} amountError={amountError} />}
+    <Button disabled={busy || paid || problem !== null} loading={busy} accessibilityHint={amountError || undefined}
+      onPress={() => onConfirm(value.amount, paymentFromChoice(choiceOfPayment(value) ?? defaultPaymentChoice), showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
   </View>;
 }
 

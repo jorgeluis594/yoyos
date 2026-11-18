@@ -1,4 +1,6 @@
 import { useState } from "react";
+import type { Money } from "@shared/money";
+import { checkPaymentAmount, type PaymentAmountProblem, type PaymentProgress } from "@shared/orders-payment";
 import { choiceOfPayment, defaultPaymentChoice, paymentChoices, paymentFromChoice, walletProviderLabel, type PaymentChoice, type PaymentMethodAndProvider } from "@shared/wallet-providers";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -17,11 +19,19 @@ export function paymentMethodLabel(t: (key: 'wallet' | 'bankTransfer') => string
   const choice = choiceOfPayment(payment);
   return choice === null ? t('wallet') : choice === "bank_transfer" ? t('bankTransfer') : walletProviderLabel(choice);
 }
-export type PaymentBadgeStatus = "pending" | "partial" | "paid";
 export type PillTone = "neutral" | "success" | "warning";
 
-/** Pending without money in, partial while a balance remains, paid once nothing is owed. */
-export const paymentBadgeStatus = (paid: number, balance: number): PaymentBadgeStatus => paid > 0 ? (balance > 0 ? "partial" : "paid") : balance > 0 ? "pending" : "paid";
+/** What is wrong with a typed payment amount, in the seller's words, or "" when it can be sent. */
+export function paymentAmountMessage(t: (key: string, options?: Record<string, string>) => string, problem: PaymentAmountProblem | null, balance: string): string {
+  return problem === null ? "" : problem === "empty" ? t('paymentAmountEmpty') : problem === "not_numeric" ? t('paymentAmountNotNumeric')
+    : problem === "zero" ? t('paymentAmountZero') : t('paymentOverBalance', { amount: balance });
+}
+/** The problem of a typed amount against the balance, or null when it is valid. */
+export function paymentAmountProblem(typed: string, balance: number, currency: string, capAtBalance = true): PaymentAmountProblem | null {
+  const checked = checkPaymentAmount(normalizeDecimalInput(typed), { amount: balance, currency: currency as Money["currency"] });
+  if (checked.success) return null;
+  return checked.error.problem === "exceeds_balance" && !capAtBalance ? null : checked.error.problem;
+}
 
 export function StatusPill({ label, tone, symbol }: { label: string; tone: PillTone; symbol?: { ios: string; android: string } }) {
   const theme = useTheme();
@@ -32,10 +42,10 @@ export function StatusPill({ label, tone, symbol }: { label: string; tone: PillT
   </View>;
 }
 
-export function PaymentBadge({ status }: { status: PaymentBadgeStatus }) {
+export function PaymentBadge({ progress, format }: { progress: PaymentProgress; format: (amount: number) => string }) {
   const { t } = useTranslation();
-  return status === "paid" ? <StatusPill tone="success" label={t('paymentPaid')} symbol={{ ios: "checkmark.circle", android: "check_circle" }} />
-    : status === "partial" ? <StatusPill tone="warning" label={t('paymentPartial')} symbol={{ ios: "circle.lefthalf.filled", android: "timelapse" }} />
+  return progress.kind === "paid" ? <StatusPill tone="success" label={t('paymentPaid')} symbol={{ ios: "checkmark.circle", android: "check_circle" }} />
+    : progress.kind === "partial" ? <StatusPill tone="warning" label={t('paymentPartialLeft', { amount: format(progress.balanceDue.amount) })} symbol={{ ios: "circle.lefthalf.filled", android: "timelapse" }} />
     : <StatusPill tone="warning" label={t('paymentPending')} symbol={{ ios: "clock", android: "schedule" }} />;
 }
 
@@ -55,7 +65,9 @@ export function PaymentSummary({ total, paid, balance, showPaid }: { total: stri
   </View>;
 }
 
-export function PaymentRow({ method, amount, meta, tag, onPress, accessibilityLabel, trailing }: {
+export function PaymentRow({ method, amount, meta, tag, onPress, accessibilityLabel, trailing, error }: {
+  /** Why this row cannot be saved, shown under it. */
+  error?: string;
   /** Absent while the payment has no method yet (reported by the buyer, or rejected); the tag then leads the row. */
   method?: string; amount: string; meta?: string; tag?: string; onPress?: () => void; accessibilityLabel?: string; trailing?: React.ReactNode;
 }) {
@@ -67,6 +79,7 @@ export function PaymentRow({ method, amount, meta, tag, onPress, accessibilityLa
         {method && tag ? <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>· {tag}</ThemedText> : null}
       </View>
       {meta ? <ThemedText type="small" themeColor="textSecondary">{meta}</ThemedText> : null}
+      {error ? <ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText> : null}
     </View>
     <ThemedText style={[styles.amount, styles.strong]}>{amount}</ThemedText>
     {onPress ? <SymbolView name={{ ios: "chevron.right", android: "chevron_right" }} size={18} tintColor={theme.textSecondary} /> : null}
@@ -82,13 +95,13 @@ type StockOffer = Readonly<{ offered: boolean; reason: string | null }>;
 type SheetProps = {
   visible: boolean;
   balance: number;
+  /** False while the sale total is not final (shipping not chosen yet): an amount above the balance is then accepted. */
+  capAtBalance?: boolean;
   currency: string;
   format: (amount: number) => string;
   busy: boolean;
   /** Failure of the operation (stock, save, unknown result), shown as an alert. */
   error: string;
-  /** Validation of the typed amount, shown on the field. */
-  amountError?: string;
   /** Whether "deduct stock now" applies to the typed amount, and why not when it does not. */
   stockOffer: (amount: number | null) => StockOffer;
   onClose: () => void;
@@ -101,7 +114,7 @@ export function PaymentRegisterSheet({ visible, onClose, ...body }: SheetProps) 
   const theme = useTheme();
   return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <Pressable style={styles.scrim} accessibilityRole="button" accessibilityLabel={t('detailClose')} onPress={onClose} />
+      <Pressable style={styles.scrim} accessible={false} importantForAccessibility="no" onPress={onClose} />
       <SafeAreaView edges={["bottom"]} style={[styles.sheet, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <View style={[styles.grab, { backgroundColor: theme.input }]} />
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
@@ -116,7 +129,7 @@ export function PaymentRegisterSheet({ visible, onClose, ...body }: SheetProps) 
   </Modal>;
 }
 
-function SheetBody({ balance, currency, format, busy, error, amountError = "", stockOffer, onSubmit }: Omit<SheetProps, "visible" | "onClose">) {
+function SheetBody({ balance, capAtBalance = true, currency, format, busy, error, stockOffer, onSubmit }: Omit<SheetProps, "visible" | "onClose">) {
   const { t } = useTranslation();
   const theme = useTheme();
   const [mode, setMode] = useState<"full" | "other">("full");
@@ -128,6 +141,8 @@ function SheetBody({ balance, currency, format, busy, error, amountError = "", s
   const offer = mode === "other" ? stockOffer(amount) : { offered: false, reason: null };
   const choiceLabel = (value: PaymentChoice) => paymentMethodLabel(t, paymentFromChoice(value));
   const label = mode === "full" ? format(balance) : amount !== null && amount > 0 ? format(amount) : "";
+  const problem = mode === "other" ? paymentAmountProblem(other, balance, currency, capAtBalance) : null;
+  const amountError = paymentAmountMessage(t, problem, format(balance));
   return <>
     <View accessibilityRole="radiogroup" style={styles.gap12}>
       <Pressable accessibilityRole="radio" accessibilityState={{ checked: mode === "full", disabled: busy }} disabled={busy} onPress={() => setMode("full")}
@@ -169,7 +184,7 @@ function SheetBody({ balance, currency, format, busy, error, amountError = "", s
       <Switch disabled={busy} value={deduct} onValueChange={setDeduct} accessibilityLabel={t('deductStockIfPartial')} />
     </View> : mode === "other" && offer.reason ? <ThemedText type="small" themeColor="textSecondary">{offer.reason}</ThemedText> : null}
     {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText> : null}
-    <Button disabled={busy || (mode === "other" && !(amount !== null && amount > 0))} loading={busy}
+    <Button disabled={busy || problem !== null} loading={busy} accessibilityHint={amountError || undefined}
       onPress={() => onSubmit({ amount: mode === "full" ? balance.toFixed(2) : other, ...paymentFromChoice(choice), deductStockIfPartial: offer.offered && deduct })}>
       {t('registerAmount', { amount: label })}
     </Button>

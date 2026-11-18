@@ -102,6 +102,13 @@ export default function OrderDeliveryScreen() {
   }, [canQuote, districtCode, requestKey, setValue]);
   const rates = quotation?.districtCode === districtCode ? quotation.rates.filter(rate => rate.method === method) : [];
   const selectedRate = rates.find(rate => rate.id === rateId);
+  // One rate for the district leaves nothing to choose: it is selected (with its only agency, as when it is chosen by hand).
+  const onlyRate = rates.length === 1 && !quoting ? rates[0] : null;
+  useEffect(() => {
+    if (!onlyRate || rateId === onlyRate.id) return;
+    setValue("rateId", onlyRate.id); setValue("price", onlyRate.price);
+    setValue("agencyId", "agencies" in onlyRate && onlyRate.agencies.length === 1 ? onlyRate.agencies[0].id : "");
+  }, [onlyRate, rateId, setValue]);
   const price = method === "store" && order ? { amount: 0, currency: order.total.currency } : selectedRate?.price;
   const shownTotal = order && price ? add(price)(order.itemsTotal) : null;
   const agencyChosen = selectedRate?.method === "agency" && selectedRate.agencies.some(agency => agency.id === agencyId);

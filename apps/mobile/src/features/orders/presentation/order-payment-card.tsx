@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { useTranslation } from "react-i18next";
-import type { DraftPayment } from "@mobile/features/orders/domain/order-draft";
-import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentBadgeStatus, paymentMethodLabel } from "@mobile/features/orders/presentation/order-payment-parts";
+import { paymentsOverLeft, type DraftPayment } from "@mobile/features/orders/domain/order-draft";
+import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentMethodLabel } from "@mobile/features/orders/presentation/order-payment-parts";
+import { paymentProgress } from "@shared/orders-payment";
+import type { Money } from "@shared/money";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
 import { useTheme } from "@mobile/hooks/use-theme";
@@ -31,7 +33,6 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
   const { t } = useTranslation();
   const theme = useTheme();
   const [sheet, setSheet] = useState(false);
-  const [invalid, setInvalid] = useState(false);
   // Whole cents, so sums such as 10.10 + 20.20 settle a 30.30 order exactly.
   const paidCents = payments.reduce((sum, payment) => sum + amountCents(payment), 0);
   const totalCents = total === null ? 0 : cents(total);
@@ -44,18 +45,21 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
     if (next < totalCents) advanceIds.add(payment.paymentId);
     return next;
   }, 0);
-  const status = paymentBadgeStatus(paid, balance);
-  const open = () => { setInvalid(false); setSheet(true); };
+  // Each payment is checked against what the earlier ones leave to collect, like core does in order; before the shipping rate is chosen the total is not final, so nothing is refused yet.
+  const overLeft = new Map(totalConfirmed && total !== null
+    ? paymentsOverLeft(payments, { amount: total, currency: currency as Money["currency"] }).map(over => [over.paymentId, over.left.amount] as const) : []);
+  const progress = paymentProgress({ paymentStatus: balance > 0 ? "pending" : "paid", total: { amount: total ?? 0, currency: currency as Money["currency"] }, balanceDue: { amount: balance, currency: currency as Money["currency"] } });
+  const open = () => setSheet(true);
 
   return <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
     <View style={styles.header}>
       <ThemedText type="subtitle" accessibilityRole="header" style={styles.title}>{t('payments')}</ThemedText>
-      <PaymentBadge status={status} />
+      <PaymentBadge progress={progress} format={format} />
     </View>
     {total !== null && totalConfirmed ? <PaymentSummary total={format(total)} paid={format(paid)} balance={format(balance)} showPaid={payments.length > 0} /> : null}
-    {total !== null && paidCents > totalCents ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format((paidCents - totalCents) / 100) })}</ThemedText> : null}
     {payments.map(payment => <PaymentRow key={payment.paymentId} method={paymentMethodLabel(t, payment)} amount={validAmount(payment.amount) ? format(Number(payment.amount)) : payment.amount}
       tag={advanceIds.has(payment.paymentId) ? t('advancePayment') : undefined}
+      error={overLeft.has(payment.paymentId) ? t('newSalePaymentOver', { amount: format(overLeft.get(payment.paymentId)!) }) : undefined}
       trailing={<Pressable accessibilityRole="button" accessibilityLabel={`${t('removePayment')} ${validAmount(payment.amount) ? format(Number(payment.amount)) : payment.amount}`} disabled={busy}
         onPress={() => onPaymentsChange(current => current.filter(row => row.paymentId !== payment.paymentId))} style={styles.remove}>
         <SymbolView name={{ ios: "xmark", android: "close" }} size={18} tintColor={theme.textSecondary} />
@@ -63,14 +67,14 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
     {total !== null && balance > 0 ? <Button disabled={busy} onPress={open}>{payments.length ? t('collectBalance', { amount: format(balance) }) : t('detailRegisterPayment')}</Button> : null}
     {payments.length === 0 ? <ThemedText type="small" themeColor="textSecondary">{t('noInitialPayments')}</ThemedText> : null}
 
-    <PaymentRegisterSheet visible={sheet} balance={balance} currency={currency} format={format} busy={busy}
-      error="" amountError={invalid ? t('invalidPaymentAmount') : ""}
+    <PaymentRegisterSheet visible={sheet} capAtBalance={totalConfirmed} balance={balance} currency={currency} format={format} busy={busy}
+      error=""
       stockOffer={amount => amount === null || cents(amount) < cents(balance) ? { offered: true, reason: null }
         : { offered: false, reason: t('stockWithFullPayment') }}
       onClose={() => setSheet(false)}
       onSubmit={({ amount, deductStockIfPartial, ...method }) => {
         const normalized = normalizeDecimalInput(amount.trim());
-        if (!validAmount(normalized)) { setInvalid(true); return; }
+        if (!validAmount(normalized)) return;
         onPaymentsChange(current => [...current, { paymentId: newId(), amount: normalized, ...method, deductStockIfPartial }]);
         setSheet(false);
       }} />

@@ -96,6 +96,14 @@ test("a refused first save clears the queued sale and leaves the cart available"
   expect(selected.kind).toBe("items");
 });
 
+test("a first save core refuses for exceeding the total returns the refusal and queues nothing", async () => {
+  const api = createOrderApi(async () => err({ code: "API_ERROR", message: "Exceeds", http: { status: 409,
+    body: { code: "PAYMENT_EXCEEDS_BALANCE", error: "Exceeds", balanceDue: { amount: 5, currency: "PEN" } } } }));
+  const store = storage();
+  expect(await createOrderOperations(api, store).completeOrder(draft(), companyId)).toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE" } });
+  expect(await store.list(companyId)).toEqual(ok([]));
+});
+
 test("sync resends the exact stored request after checking core, keeps waiting while it fails and clears it once saved", async () => {
   const calls: string[] = [];
   const bodies: unknown[] = [];
@@ -134,6 +142,7 @@ test.each([
   ["INVALID_TRANSITION", 409], ["STOCK_NOT_DEDUCTED", 409],
   ["DELIVERY_UNAVAILABLE", 422], ["DELIVERY_METHOD_DISABLED", 422],
   ["RATE_UNAVAILABLE", 422], ["TOTAL_CHANGED", 409], ["INVALID_DISTRICT", 422], ["INVALID_DELIVERY_RATE", 422],
+  ["PAYMENT_EXCEEDS_BALANCE", 409],
 ] as const)("sync keeps a sale core refuses (%s) for review and stops retrying it", async (code, status) => {
   const store = storage();
   let posts = 0;
@@ -142,7 +151,7 @@ test.each([
     if (path !== "/api/orders") return missing();
     posts++;
     return refuse
-      ? err({ code: "API_ERROR", message: "Rejected", http: { status, body: { code, error: "Rejected", ...(code === "TOTAL_CHANGED" ? { currentPrice: { amount: 8, currency: "PEN" } } : {}) } } })
+      ? err({ code: "API_ERROR", message: "Rejected", http: { status, body: { code, error: "Rejected", ...(code === "TOTAL_CHANGED" ? { currentPrice: { amount: 8, currency: "PEN" } } : {}), ...(code === "PAYMENT_EXCEEDS_BALANCE" ? { balanceDue: { amount: 5, currency: "PEN" } } : {}) } } })
       : err({ code: "NETWORK_ERROR", message: "Lost response" });
   });
   expect(await createOrderOperations(api, store).completeOrder({ ...draft(), deliverImmediately: true }, companyId))
@@ -317,11 +326,12 @@ test("maps a conflicting rejection to already reviewed", async () => {
 });
 
 test("maps a failed confirmation to already reviewed, a lost answer or a plain failure", () => {
-  expect(confirmPaymentFailure("PAYMENT_CONFLICT")).toBe("already_reviewed");
-  expect(confirmPaymentFailure("INVALID_TRANSITION")).toBe("already_reviewed");
-  for (const code of ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "INVALID_RESPONSE"] as const) expect(confirmPaymentFailure(code)).toBe("unknown");
-  expect(confirmPaymentFailure("INVALID_PAYMENT")).toBe("failed");
-  expect(confirmPaymentFailure("INSUFFICIENT_STOCK")).toBe("failed");
+  expect(confirmPaymentFailure({ code: "PAYMENT_CONFLICT" })).toBe("already_reviewed");
+  expect(confirmPaymentFailure({ code: "INVALID_TRANSITION" })).toBe("already_reviewed");
+  for (const code of ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "INVALID_RESPONSE"] as const) expect(confirmPaymentFailure({ code: code })).toBe("unknown");
+  expect(confirmPaymentFailure({ code: "INVALID_PAYMENT" })).toBe("failed");
+  expect(confirmPaymentFailure({ code: "INSUFFICIENT_STOCK" })).toBe("failed");
+  expect(confirmPaymentFailure({ code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: { amount: 60, currency: "PEN" } })).toEqual({ kind: "exceeds_balance", balanceDue: { amount: 60, currency: "PEN" } });
 });
 
 test("a queued sale core refuses with VARIANT_NOT_FOUND keeps which item and how it was named", async () => {
