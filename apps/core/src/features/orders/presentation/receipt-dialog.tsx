@@ -7,7 +7,7 @@ import { Button } from "@core/app/components/ui/button";
 import { RetryableImage } from "@core/src/shared/images/presentation/retryable-image";
 import { SelectPortalContainer } from "@core/app/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
-import { paymentErrorKey, PaymentDecisionForm, type DecisionKind, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
+import { paymentErrorKey, paymentErrorText, PaymentDecisionForm, type DecisionKind, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
 import { paymentDate, reportedAt, type PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
 import type { OfferedChoice, PaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 
@@ -28,7 +28,7 @@ function ReceiptImage({ url, className }: { url: string; className: string }) {
 }
 
 export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, format, onClose, onDone, onSubmitted, onUncertain, onCloseAutoFocus, options, initialChoice, approveBlockedNote }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const approveNoteId = useId();
   const [step, setStep] = useState<Step>(kind === "receipt" ? "choose" : kind === "reject" ? "reject" : "approve");
   // A failure is shown until the seller changes step or submits again; the fetcher keeps the last answer.
@@ -46,6 +46,9 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
   }, [fetcher.state, fetcher.data, paymentId, onDone, onUncertain]);
   const answer = fetcher.state === "idle" && fetcher.data !== dismissed ? fetcher.data : undefined;
   const failure = answer && "error" in answer && answer.error ? String(answer.error) : "";
+  const failureBalance = answer && "balanceDue" in answer ? answer.balanceDue : undefined;
+  // A report on an order with nothing left to collect cannot be approved, only rejected.
+  const paidAlready = order.balanceDue.amount === 0;
   const clearFailure = () => setDismissed(fetcher.data);
   const withReceipt = kind === "receipt" && receiptUrl !== null;
   const reviewable = kind === "register" || (payment?.status === "reported" && !order.cancelled);
@@ -71,11 +74,11 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
               <p className="text-sm font-medium tabular-nums">{t("orders.orderPendingBalance", { amount: format.amount(order.balanceDue) })}</p>
               <div className="flex gap-2">
                 <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" onClick={() => { clearFailure(); setStep("reject"); }}>{t("orders.reject")}</Button>
-                <Button type="button" className="min-h-touch md:min-h-control" aria-disabled={approveBlockedNote ? true : undefined} aria-describedby={approveBlockedNote ? approveNoteId : undefined}
+                <Button type="button" className="min-h-touch md:min-h-control" disabled={paidAlready} aria-disabled={approveBlockedNote ? true : undefined} aria-describedby={approveBlockedNote || paidAlready ? approveNoteId : undefined}
                   onClick={() => { if (approveBlockedNote) return; clearFailure(); setStep("approve"); }}>{t("orders.approve")}</Button></div>
-              {approveBlockedNote && <p id={approveNoteId} className="basis-full text-sm text-muted-foreground">{approveBlockedNote}</p>}</div>
+              {(approveBlockedNote || paidAlready) && <p id={approveNoteId} className="basis-full text-sm text-muted-foreground">{paidAlready ? t("orders.paymentPaidAlready") : approveBlockedNote}</p>}</div>
             : <p className="text-sm font-medium">{t(`orders.${state}`)}</p>}
-          {failure && <Alert variant="destructive"><AlertDescription role="alert">{t(paymentErrorKey(failure))}</AlertDescription></Alert>}
+          {failure && <Alert variant="destructive"><AlertDescription role="alert">{paymentErrorText(t, i18n.language, failure, failureBalance)}</AlertDescription></Alert>}
         </div>
       </div>
       </SelectPortalContainer.Provider>

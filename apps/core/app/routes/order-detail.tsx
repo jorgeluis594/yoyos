@@ -288,7 +288,7 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
       if (!parsed.success) return { url: null, success: false, error: "INVALID_INPUT" };
       const result = await orders.registerPayment({ ...parsed.data, orderId: id.data as OrderId,
         paymentId: parsed.data.paymentId as PaymentId }, seller);
-      if (!result.success) return { url: null, success: false, error: paymentErrorCode(result.error.code) };
+      if (!result.success) return { url: null, success: false, error: paymentErrorCode(result.error.code), ...(result.error.code === "PAYMENT_EXCEEDS_BALANCE" ? { balanceDue: result.error.balanceDue } : {}) };
       return { url: null, success: true, error: false, recorded: true, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order, result.data.stockDue)) };
     } catch (cause) {
       log.error({ event: "order_payment_request_failed", operation, orderId: id.data, userId: access.user.id, errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle payment decision");
@@ -396,7 +396,7 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
   const cancellation = rawAction && "operation" in rawAction && rawAction.operation === "cancellation" && rawAction.orderId === order.id ? rawAction : undefined;
   const actionData = rawAction && "operation" in rawAction && (rawAction.operation === "cancel" || rawAction.operation === "cancellation" || rawAction.operation === "save_changes") ? undefined : rawAction;
   const fulfillment = actionData && "operation" in actionData && (actionData.operation === "ship" || actionData.operation === "deliver") ? actionData : undefined;
-  const voidResult = useMemo<PaymentDecisionResult | undefined>(() => actionData && !("operation" in actionData) ? { success: actionData.success, error: actionData.error === false ? false : String(actionData.error) } : undefined, [actionData]);
+  const voidResult = useMemo<PaymentDecisionResult | undefined>(() => actionData && !("operation" in actionData) ? { success: actionData.success, error: actionData.error === false ? false : String(actionData.error), ...("balanceDue" in actionData ? { balanceDue: actionData.balanceDue } : {}) } : undefined, [actionData]);
   const cancellationState: CancellationUiState = navigation.state !== "idle" && navigation.formData?.get("operation") === "cancel"
     ? { kind: "submitting", orderId: order.id }
     : navigation.state !== "idle" && navigation.formData?.get("operation") === "check-cancellation" ? { kind: "verifying", orderId: order.id }

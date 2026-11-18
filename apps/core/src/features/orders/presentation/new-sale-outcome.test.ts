@@ -55,3 +55,7 @@ test("applies the rate recovery only to a chosen delivery", () => {
   expect(applyRateRecovery(changed, "clear").quoteEpoch).toBe(2);
   expect(applyRateRecovery(home, "keep")).toBe(home);
 });
+
+test("a sale refused for exceeding the total says the payments add up to more than the total and focuses the payments", () => {
+  expect(saleOutcome(refuse("PAYMENT_EXCEEDS_BALANCE"), context).notice).toMatchObject({ kind: "alert", text: "Los pagos suman más que el total de la venta. Revisa los montos de los pagos.", focus: "order-payments" });
+});

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Form, Link, useNavigation } from "react-router";
+import { Link, useNavigation, useSubmit } from "react-router";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Search } from "lucide-react";
@@ -10,12 +10,14 @@ import { walletProviderLabel } from "@shared/wallet-providers";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
-import { paymentErrorKey, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
-import { isValidPaymentAmount, PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
+import { paymentErrorText, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
+import { paymentAmountMessage, typedPaymentAmount } from "@core/src/features/orders/presentation/payment-amount-text";
+import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
+import { VoidPaymentDialog } from "@core/src/features/orders/presentation/void-payment-dialog";
 import { offeredChoiceName, offeredChoiceOf, offeredPayment, type OfferedChoice, type PaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 import { paymentDate, paymentRowId, type PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
 import { PaymentDialog, type PaymentDialogKind } from "@core/src/features/orders/presentation/receipt-dialog";
-import type { Estimate, PaymentRow } from "@core/src/features/orders/presentation/order-view-state";
+import { draftPaymentChecks, type DraftPaymentCheck, type Estimate, type PaymentRow } from "@core/src/features/orders/presentation/order-view-state";
 import { paymentRecordedKey } from "@core/src/features/orders/presentation/stock-due";
 
 type Order = OrderAggregateResponse;
@@ -113,27 +115,28 @@ export function OrderPaymentsPanel(props: PaymentsPanelProps) {
 
 /** Balance for a draft row: the total minus the other rows, so the partial stock box follows what this row would leave. */
 function balanceWithout(totals: Totals, row: PaymentRow): Money {
-  const others = isValidPaymentAmount(row.amount) ? subtract({ amount: Number(row.amount), currency: totals.total.currency })(totals.paid) : { success: true as const, data: totals.paid };
+  const typedRow = typedPaymentAmount(row.amount, totals.total.currency);
+  const others = typedRow ? subtract(typedRow)(totals.paid) : { success: true as const, data: totals.paid };
   const left = others.success ? subtract(others.data)(totals.total) : null;
   return left?.success && left.data.amount > 0 ? left.data : left?.success ? { amount: 0, currency: totals.total.currency } : totals.balance;
 }
 
 /** Whether the partial stock box shows for a draft row: only when the row leaves a balance. */
 function offersStockBox(totals: Totals, row: PaymentRow) {
-  const typed = isValidPaymentAmount(row.amount) ? { amount: Number(row.amount), currency: totals.total.currency } : null;
-  return offersPartialStockDeduction({ stockDeducted: false, balanceDue: balanceWithout(totals, row) }, typed);
+  return offersPartialStockDeduction({ stockDeducted: false, balanceDue: balanceWithout(totals, row) }, typedPaymentAmount(row.amount, totals.total.currency));
 }
 
-function DraftRow({ row, index, totals, options, invalid, autoFocus, busy, onChange, onRemove }: { row: PaymentRow; index: number; totals: Totals; options: PaymentOptions; invalid: boolean; autoFocus: boolean; busy: boolean;
+function DraftRow({ row, index, totals, check, options, invalid, autoFocus, busy, onChange, onRemove }: { row: PaymentRow; index: number; totals: Totals; check: DraftPaymentCheck | undefined; options: PaymentOptions; invalid: boolean; autoFocus: boolean; busy: boolean;
   onChange: (row: PaymentRow) => void; onRemove: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // The limit is what the rows above leave to collect, not the whole balance: the same wording whichever row went over.
+  const error = check?.problem ? paymentAmountMessage(t, i18n.language, check.problem, check.left, "sale") : null;
   const stockBox = offersStockBox(totals, row);
   const value: PaymentDraft = { amount: row.amount, method: row.method, walletProvider: row.walletProvider, deductStockIfPartial: row.deductStockIfPartial && stockBox };
   const label = offeredChoiceName(offeredChoiceOf(row), options, { wallet: t("orders.wallet"), bankTransfer: t("orders.bankTransfer") });
   return <li id={draftPaymentRowId(row.paymentId)} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-start">
-    <PaymentFields value={value} options={options} showStockBox={stockBox} autoFocusAmount={autoFocus} invalid={invalid}
+    <PaymentFields value={value} options={options} showStockBox={stockBox} autoFocusAmount={autoFocus} invalid={invalid} error={error}
       onChange={next => onChange({ paymentId: row.paymentId, amount: next.amount, method: next.method, walletProvider: next.walletProvider, deductStockIfPartial: next.deductStockIfPartial })} />
-    {invalid && row.amount === "" && <p role="alert" className="col-span-full text-sm text-destructive">{t("orders.paymentInvalidAmount")}</p>}
     <Button type="button" variant="outline" className="min-h-touch self-end sm:col-start-3 sm:row-start-1 md:min-h-control" disabled={busy} aria-label={`${t("orderView.payments.remove")} ${index + 1}: ${label}`}
       onClick={onRemove}>{t("orderView.payments.remove")}</Button>
   </li>;
@@ -145,6 +148,7 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
   const removed = useRef(false);
   const content = useRef<HTMLDivElement>(null);
   const canAdd = hasProducts && estimate.balance.amount > 0;
+  const checks = draftPaymentChecks(payments, estimate.total);
   // A removed row takes the focus with it: it goes back to the first payment button.
   useEffect(() => {
     if (!removed.current) return;
@@ -171,7 +175,7 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
       {hasProducts && <Summary totals={estimate} reviewPending={false} format={format} />}
       {!hasProducts && payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderView.payments.needProducts")}</p>
         : payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderView.payments.empty")}</p>
-        : <ul className="flex flex-col gap-3">{payments.map((row, index) => <DraftRow key={row.paymentId} row={row} index={index} totals={estimate} options={paymentOptions} busy={busy}
+        : <ul className="flex flex-col gap-3">{payments.map((row, index) => <DraftRow key={row.paymentId} row={row} index={index} totals={estimate} check={checks.get(row.paymentId)} options={paymentOptions} busy={busy}
             invalid={invalidPaymentIds.includes(row.paymentId)} autoFocus={row.paymentId === lastAdded}
             onChange={next => onChange(payments.map(item => item.paymentId === row.paymentId ? next : item))}
             onRemove={() => { removed.current = true; onChange(payments.filter(item => item.paymentId !== row.paymentId)); }} />)}</ul>}
@@ -186,9 +190,12 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
 type OpenDialog = Readonly<{ kind: PaymentDialogKind; paymentId: string; choice?: OfferedChoice }>;
 
 function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedChanges, hasProducts, busy = false, format, paymentOptions, paymentSettingsHref }: Common & SavedProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigation = useNavigation();
+  const submit = useSubmit();
   const idle = navigation.state === "idle" && !busy;
+  // The payment whose void waits for the seller's confirmation.
+  const [voiding, setVoiding] = useState<Payment | null>(null);
   const [dialog, setDialog] = useState<OpenDialog | null>(null);
   const [saved, setSaved] = useState<"orders.paymentSaved" | ReturnType<typeof paymentRecordedKey> | null>(null);
   // A void answer belongs to the moment it arrived: opening a dialog dismisses it so it never sits next to a later result.
@@ -201,11 +208,14 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
   // The order seen when the decision was sent: a lost answer blocks its row only until the panel shows a newer order.
   const submitted = useRef<{ paymentId: string; order: Order } | null>(null);
   const approveNoteId = useId();
+  const paidNoteId = useId();
   const blockedNote = unsavedChanges ? t("orderView.status.saveFirst") : null;
   const history = [...order.payments].sort((a, b) => paymentDate(b).localeCompare(paymentDate(a)));
   const totals = { total: order.total, paid: order.paidAmount, balance: order.balanceDue, excess: order.overpaidAmount };
   const reviewPending = !order.cancelled && order.payments.some(payment => payment.status === "reported");
   const canAdd = !order.cancelled && hasProducts && order.balanceDue.amount > 0;
+  // A report on an order with nothing left to collect cannot be approved, only rejected: the row says so.
+  const paidAlready = order.balanceDue.amount === 0;
   const open = (kind: PaymentDialogKind, paymentId: string, element: HTMLElement, choice?: OfferedChoice) => {
     opener.current = element; decided.current = false; setSaved(null); setDismissedVoid(voidResult); setDialog({ kind, paymentId, choice });
   };
@@ -222,7 +232,7 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
     <CardHeader><CardTitle id="order-payments-title">{t("orderView.payments.title")}</CardTitle></CardHeader>
     <CardContent className="flex flex-col gap-4">
       {!order.cancelled && <Summary totals={totals} reviewPending={reviewPending} format={format} />}
-      {visibleVoid?.error && <Alert variant="destructive"><AlertDescription>{t(paymentErrorKey(visibleVoid.error))}</AlertDescription></Alert>}
+      {visibleVoid?.error && <Alert variant="destructive"><AlertDescription>{paymentErrorText(t, i18n.language, visibleVoid.error, visibleVoid.balanceDue)}</AlertDescription></Alert>}
       {((saved && !visibleVoid?.error) || visibleVoid?.success) && <Alert variant="success"><AlertDescription role="status">{t(visibleVoid?.success ? "orders.paymentSaved" : saved ?? "orders.paymentSaved")}</AlertDescription></Alert>}
       {history.length === 0 ? <p className="text-sm text-muted-foreground">{t(hasProducts ? "orderView.payments.empty" : "orderView.payments.needProducts")}</p>
         : <ul className="flex flex-col gap-3">{history.map(payment => {
@@ -250,18 +260,22 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {actions.reject && <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" aria-label={name("reject")} disabled={blocked}
                 onClick={event => open("reject", payment.id, event.currentTarget)}>{t("orderView.payments.reject")}</Button>}
-              {actions.approve && <Button type="button" className="min-h-touch md:min-h-control" aria-label={name("approve")} disabled={blocked}
-                aria-disabled={blockedNote ? true : undefined} aria-describedby={blockedNote ? approveNoteId : undefined}
+              {actions.approve && <Button type="button" className="min-h-touch md:min-h-control" aria-label={name("approve")} disabled={blocked || paidAlready}
+                aria-disabled={blockedNote ? true : undefined} aria-describedby={paidAlready ? paidNoteId : blockedNote ? approveNoteId : undefined}
                 onClick={event => { if (!blockedNote) open("approve", payment.id, event.currentTarget); }}>{t("orderView.payments.approve")}</Button>}
-              {actions.void && <Form method="post"><input type="hidden" name="operation" value="void" /><input type="hidden" name="paymentId" value={payment.id} />
-                <Button type="submit" variant="outline" className="min-h-touch md:min-h-control" aria-label={name("void")} disabled={!idle}>{t("orderView.payments.void")}</Button></Form>}
+              {actions.void && <Button type="button" variant="outline" className="min-h-touch md:min-h-control" aria-label={name("void")} disabled={!idle}
+                onClick={() => setVoiding(payment)}>{t("orderView.payments.void")}</Button>}
             </div>
           </li>;
         })}</ul>}
+      {paidAlready && history.some(payment => rowActions(payment, order).approve) && <p id={paidNoteId} className="text-sm text-muted-foreground">{t("orders.paymentPaidAlready")}</p>}
       {blockedNote && history.some(payment => rowActions(payment, order).approve) && <p id={approveNoteId} className="sr-only">{blockedNote}</p>}
       {canAdd && <ActionButtons options={paymentOptions} settingsHref={paymentSettingsHref} blockedNote={blockedNote} disabled={!idle}
         onPick={(choice, element) => open("register", manualPaymentId, element, choice)} />}
     </CardContent>
+    {voiding && voiding.amount && <VoidPaymentDialog amount={voiding.amount} orderNumber={order.number} buyerName={order.buyer?.name?.trim() || null}
+      onKeep={() => setVoiding(null)}
+      onVoid={() => { setVoiding(null); submit({ operation: "void", paymentId: voiding.id }, { method: "post" }); }} />}
     {dialog && <PaymentDialog key={`${dialog.kind}-${dialog.paymentId}`} kind={dialog.kind} paymentId={dialog.paymentId} payment={dialogPayment} order={order}
       receiptUrl={receiptUrls[dialog.paymentId] ?? null} format={format} options={paymentOptions} initialChoice={dialog.choice} approveBlockedNote={blockedNote ?? undefined}
       onClose={() => setDialog(null)} onSubmitted={paymentId => { submitted.current = { paymentId, order }; }}

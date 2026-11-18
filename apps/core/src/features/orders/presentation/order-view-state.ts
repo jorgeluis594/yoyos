@@ -2,6 +2,7 @@ import { completeOrderSchema, newOrderCustomerSchema, ratedDeliverySelectionSche
 import { err, ok } from "@shared/functional";
 import { add, multiply, subtract, type Currency, type Money, type MoneyError } from "@shared/money";
 import { maxOrderLineQuantity, maxOrderLines } from "@shared/orders-edit";
+import { checkPaymentAmount, type PaymentAmountProblem } from "@shared/orders-payment";
 import type { Result } from "@shared/result";
 import type { WalletProvider } from "@shared/wallet-providers";
 import type { OrderPart } from "@core/src/features/orders/domain/order-edit";
@@ -247,6 +248,25 @@ function sumPaid(state: OrderViewState, currency: Currency): Result<Money, Money
   }, ok(zero(currency)));
 }
 
+export type DraftPaymentCheck = Readonly<{ left: Money; problem: PaymentAmountProblem | null }>;
+
+/**
+ * What each draft payment row of a new sale may still collect: the total minus the rows above it that can be sent, and the problem of its amount, if any.
+ * An amount above that is refused here before core refuses the sale. Core decides; this only explains.
+ */
+export function draftPaymentChecks(payments: readonly PaymentRow[], total: Money): ReadonlyMap<string, DraftPaymentCheck> {
+  const checks = new Map<string, DraftPaymentCheck>();
+  let left: Money = total.amount > 0 ? total : zero(total.currency);
+  for (const row of payments) {
+    const checked = checkPaymentAmount(row.amount, left);
+    checks.set(row.paymentId, { left, problem: checked.success ? null : checked.error.problem });
+    if (!checked.success) continue;
+    const rest = subtract(checked.data)(left);
+    if (rest.success) left = rest.data;
+  }
+  return checks;
+}
+
 /** Subtotal, delivery, paid, total and balance or excess of what is on screen, with `shared/money`. Core recalculates on save. */
 export function estimate(state: OrderViewState): Result<Estimate, MoneyError> {
   const currency = state.loaded?.order.total.currency ?? state.draft.currency;
@@ -325,11 +345,13 @@ export function invalidFields(state: OrderViewState): readonly InvalidField[] {
   const { draft, base } = state;
   const locks = screenLocks(state);
   const edited = unsavedParts(state);
-  const payments = draft.payments.filter((payment) => !isValidAmount(payment.amount))
+  const estimated = estimate(state);
+  // A payment that is not an amount, or that the rows above it leave nothing to collect for, is refused by the save before core is asked.
+  const checks = estimated.success ? draftPaymentChecks(draft.payments, estimated.data.total) : null;
+  const payments = draft.payments.filter((payment) => checks ? checks.get(payment.paymentId)?.problem != null : !isValidAmount(payment.amount))
     .map((payment): InvalidField => ({ section: "payments", field: "amount", id: payment.paymentId, reason: "amount_invalid" }));
   const customer = locks.customer === null && (base === null || edited.includes("customer")) ? invalidCustomer(draft.customer, customerRequired(state)) : [];
   const delivery = locks.delivery === null && (base === null || edited.includes("delivery")) ? invalidDelivery(draft.delivery, base) : [];
-  const estimated = estimate(state);
   const unpaid = base === null && draft.deliverImmediately && !(estimated.success && estimated.data.paid.amount > 0);
   const deliverNow: readonly InvalidField[] = unpaid ? [{ section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }] : [];
   return [...invalidItems(state), ...payments, ...customer, ...delivery, ...deliverNow];
