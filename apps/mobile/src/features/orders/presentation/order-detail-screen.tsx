@@ -21,7 +21,7 @@ import { usePreventRemove } from "expo-router/react-navigation";
 import { useTranslation } from "react-i18next";
 import { subtract } from "@shared/money";
 import { ok } from "@shared/functional";
-import { offersPartialStockDeduction } from "@shared/orders-payment";
+import { offersPartialStockDeduction, paymentProgress } from "@shared/orders-payment";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { ConfirmOrderReviewResponse, OrderReviewResponse } from "@shared/contracts/order-review";
 import { orders } from "@mobile/features/orders/composition";
@@ -36,7 +36,7 @@ import { useNotices } from "@mobile/features/notifications/composition";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
-import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentBadgeStatus, paymentMethodLabel } from "@mobile/features/orders/presentation/order-payment-parts";
+import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentAmountMessage, paymentAmountProblem, paymentMethodLabel } from "@mobile/features/orders/presentation/order-payment-parts";
 import { DeliveryBadge, DeliveryRow, deliveryRowSymbols, useShippingSummary } from "@mobile/features/orders/presentation/order-delivery-parts";
 import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-print-review";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
@@ -206,9 +206,10 @@ export default function OrderDetailScreen() {
       if (source === "manual") manualPaymentId.current = null;
     }
     else {
-      const failure = confirmPaymentFailure(result.error.code);
-      setPaymentError(failure === "already_reviewed" ? t("paymentAlreadyReviewed")
-        : failure === "unknown" ? t("paymentUnknownResult") : t("paymentSaveError"));
+      const failure = confirmPaymentFailure(result.error);
+      setPaymentError(failure === "already_reviewed" ? t("paymentAlreadyReviewed") : failure === "unknown" ? t("paymentUnknownResult")
+        : failure === "failed" ? t("paymentSaveError")
+        : t("paymentExceedsBalanceServer", { amount: format(failure.balanceDue ?? order.balanceDue) }));
       if (failure !== "failed") { const refreshed = await orders.loadOrderAggregate(order.id); if (refreshed.success) setOrder(refreshed.data); }
     }
     setSavingPayment(null);
@@ -234,6 +235,14 @@ export default function OrderDetailScreen() {
     if (result.success) setOrder(result.data);
     else setPaymentError(t("paymentSaveError"));
     setSavingPayment(null);
+  }
+  /** Voiding returns the money to the balance, so it asks first naming the amount, the order and the buyer when there is one. */
+  function askVoid(paymentId: string, amount: string) {
+    if (!order || cancellationLock.current || writeBusy || order.cancelled) return;
+    const buyer = order.buyer?.name?.trim();
+    showConfirmation({ title: t("voidTitle", { amount }),
+      description: buyer ? t("voidDescription", { number: order.number, buyer }) : t("voidDescriptionNoBuyer", { number: order.number }),
+      confirmLabel: t("voidConfirm"), cancelLabel: t("voidKeep"), destructive: true, onConfirm: () => void voidPayment(paymentId) });
   }
   const endItemsEdit = (notice: ItemsNotice | null) => { setItemsDraft(null); setItemsNotice(notice); };
   /** A lost answer: reading the order tells whether the edit went through, nothing changed or somebody else changed the items. */
@@ -574,7 +583,7 @@ export default function OrderDetailScreen() {
         <View onLayout={(event) => { paymentPosition.current = event.nativeEvent.layout.y; }} style={[styles.card, styles.section, cardStyle]}>
           <View style={styles.row}>
             <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('payments')}</ThemedText>
-            <PaymentBadge status={paymentBadgeStatus(order.paidAmount.amount, order.balanceDue.amount)} />
+            <PaymentBadge progress={paymentProgress(order)} format={amount => format({ amount, currency: order.total.currency })} />
           </View>
           <PaymentSummary total={format(order.total)} paid={format(order.paidAmount)} balance={format(order.balanceDue)} showPaid={hasPaid} />
           {paymentLine ? <ThemedText accessibilityLiveRegion="polite" style={paymentLine === "recorded" ? { color: theme.success } : undefined}>{t(paymentLine === "waiting" ? "paymentRecordedWaiting" : "paymentRecorded")}</ThemedText> : null}
@@ -595,7 +604,7 @@ export default function OrderDetailScreen() {
                 onPress={receiptImageId ? () => void viewReceipt(receiptImageId) : undefined} />
               {payment.status === "rejected" && payment.data.reason ? <ThemedText type="small">{payment.data.reason}</ThemedText> : null}
               {payment.status === "reported" && !order.cancelled ? <Button variant="secondary" disabled={writeBusy} onPress={() => openEditor({ paymentId: payment.id, receiptImageId: payment.data.receiptImageId })}>{t('detailReviewPayment')}</Button> : null}
-              {payment.status === "confirmed" && !order.cancelled ? <Button variant="ghost" disabled={writeBusy} onPress={() => void voidPayment(payment.id)}>{t('voidPayment')}</Button> : null}
+              {payment.status === "confirmed" && !order.cancelled ? <Button variant="ghost" disabled={writeBusy} onPress={() => askVoid(payment.id, payment.amount ? format(payment.amount) : "")}>{t('voidPayment')}</Button> : null}
             </View>;
           })}
           {paymentError && !editor ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
@@ -808,13 +817,20 @@ const styles = StyleSheet.create({
 
 function PaymentEditor({ order, busy, onConfirm }: { order: OrderAggregateResponse; busy: boolean;
   onConfirm: (amount: string, method: PaymentMethodAndProvider, deductStockIfPartial: boolean) => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const balance = order.balanceDue.amount;
   const [value, setValue] = useState<PaymentFieldsValue>({ amount: balance > 0 ? balance.toFixed(2) : "", ...paymentFromChoice(defaultPaymentChoice), deductStockIfPartial: false });
   const typed = Number(normalizeDecimalInput(value.amount));
   const showStock = offersPartialStockDeduction(order, value.amount.trim() && Number.isFinite(typed) ? { amount: typed, currency: order.total.currency } : null);
-  return <View style={styles.section}><PaymentFields value={value} onChange={setValue} currency={order.total.currency} busy={busy} showStockOption={showStock} />
-    <Button disabled={busy} loading={busy} onPress={() => onConfirm(value.amount, paymentFromChoice(choiceOfPayment(value) ?? defaultPaymentChoice), showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
+  const paid = balance <= 0;
+  const problem = paid ? null : paymentAmountProblem(value.amount, balance, order.total.currency);
+  const amountError = paymentAmountMessage(t, problem, money(balance, order.total.currency, i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE'));
+  return <View style={styles.section}>
+    {paid ? <ThemedText accessibilityRole="alert">{t('paymentZeroBalance')}</ThemedText> : <>
+      <PaymentFields value={value} onChange={setValue} currency={order.total.currency} busy={busy} showStockOption={showStock} amountError={amountError} />
+      <Button disabled={busy || problem !== null} loading={busy} accessibilityHint={amountError || undefined}
+        onPress={() => onConfirm(value.amount, paymentFromChoice(choiceOfPayment(value) ?? defaultPaymentChoice), showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button></>}
+    {paid ? <Button disabled onPress={() => undefined}>{t("confirmPayment")}</Button> : null}
   </View>;
 }
 

@@ -157,12 +157,32 @@ test("never labels a rejected payment as confirmed", async () => {
   expect(screen.queryByRole("button", { name: "Revisar comprobante" })).toBeNull();
 });
 
-test("seller can void a confirmed payment from mobile", async () => {
+test("voiding a payment asks for confirmation and cancelling keeps it", async () => {
   mockVoidPayment.mockResolvedValue({ success: true, data: { ...initialOrder, payments: [] } });
+  mockOrder = { ...initialOrder, number: 1006, buyer: { name: "Ana Pérez", phone: "+51987654321", contactId: null } };
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Venta completada");
   fireEvent.press(screen.getByRole("button", { name: "Anular pago" }));
+  const [title, description, buttons] = alert.mock.calls[0];
+  expect((title as string).replace(/\s/g, " ")).toBe("¿Anular el pago de S/ 12.00?");
+  expect(description).toBe("Pedido #1006 · Ana Pérez. El monto vuelve al saldo pendiente.");
+  expect(buttons?.map(button => [button.text, button.style])).toEqual([["Mantener pago", "cancel"], ["Anular pago", "destructive"]]);
+  act(() => buttons?.[0]?.onPress?.());
+  expect(mockVoidPayment).not.toHaveBeenCalled();
+  expect(screen.getByText("Venta completada")).toBeTruthy();
+  act(() => buttons?.[1]?.onPress?.());
   await waitFor(() => expect(mockVoidPayment).toHaveBeenCalledWith(mockId, initialOrder.payments[0].id));
+  alert.mockRestore();
+});
+
+test("the void confirmation of an order without buyer names only the order", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Venta completada");
+  fireEvent.press(screen.getByRole("button", { name: "Anular pago" }));
+  expect(alert.mock.calls[0][1]).toBe("Pedido #1001. El monto vuelve al saldo pendiente.");
+  alert.mockRestore();
 });
 
 test("manual payment opens on demand, validates input and updates the summary after confirmation", async () => {
@@ -1397,4 +1417,67 @@ test("an empty or invalid quantity blocks saving with its message", async () => 
   fireEvent.changeText(screen.getByLabelText("Cantidad de Polo básico"), "3");
   expect(screen.queryByText("Ingresa una cantidad de 1 a 9999.")).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
+});
+
+const openOrderOf60 = () => { mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveredAt: null, paymentStatus: "pending", payments: [], total: { amount: 60, currency: "PEN" },
+  paidAmount: { amount: 0, currency: "PEN" }, balanceDue: { amount: 60, currency: "PEN" }, deliveryStatus: "pending", stockDeducted: false }; };
+
+test("the disabled register button explains empty, non-numeric, zero and over-balance amounts", async () => {
+  openOrderOf60();
+  const screen = render(<OrderDetailScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Registrar pago" }));
+  fireEvent.press(screen.getByRole("radio", { name: /Otro monto/ }));
+  const register = () => screen.getAllByRole("button", { name: /^Registrar/ }).at(-1)!;
+  for (const [typed, text] of [["", "Escribe el importe del pago."], ["abc", "Escribe solo números, con hasta dos decimales."], ["0", "El importe debe ser mayor que cero."],
+    ["999", "Supera el saldo pendiente de S/ 60.00"]] as const) {
+    fireEvent.changeText(screen.getByLabelText(/Monto/), typed);
+    expect(screen.getByText(text)).toBeTruthy();
+    expect(register()).toBeDisabled();
+    expect(register().props.accessibilityHint.replace(/\s/g, " ")).toBe(text);
+  }
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "60");
+  expect(register()).toBeEnabled();
+  expect(mockRegisterPayment).not.toHaveBeenCalled();
+});
+
+test("the register sheet exposes one close control to screen readers", async () => {
+  openOrderOf60();
+  const screen = render(<OrderDetailScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Registrar pago" }));
+  expect(screen.getAllByRole("button", { name: "Cerrar" })).toHaveLength(1);
+});
+
+test("an over-balance rejection shows the pending balance", async () => {
+  openOrderOf60();
+  mockRegisterPayment.mockResolvedValue({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", message: "x", balanceDue: { amount: 40, currency: "PEN" } } });
+  const screen = render(<OrderDetailScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Registrar pago" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Registrar S/ }));
+  expect(await screen.findByText("El pago supera el saldo pendiente de S/ 40.00. Se actualizó el pedido.")).toBeTruthy();
+});
+
+const reportOn = (balance: number) => { const reportId = "00000000-0000-4000-8000-000000000099";
+  mockOrder = { ...initialOrder, status: "active", paymentStatus: balance > 0 ? "pending" : "paid", completedAt: null, total: { amount: 60, currency: "PEN" },
+    paidAmount: { amount: 60 - balance, currency: "PEN" }, balanceDue: { amount: balance, currency: "PEN" }, deliveryStatus: "pending", stockDeducted: false,
+    payments: [{ id: reportId, orderId: mockId, status: "reported", currency: "PEN", amount: null, method: null,
+      data: { receiptImageId: "00000000-0000-4000-8000-000000000098", reportedAt: "2026-09-29T11:30:00.000Z" } }] }; };
+
+test("approving a report above the balance shows the balance and disables «Confirmar pago»", async () => {
+  reportOn(60);
+  const screen = render(<OrderDetailScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.changeText(screen.getAllByLabelText(/Importe recibido/)[0], "999");
+  expect(screen.getByText("Supera el saldo pendiente de S/ 60.00")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Confirmar pago" })[0]).toBeDisabled();
+  fireEvent.changeText(screen.getAllByLabelText(/Importe recibido/)[0], "60");
+  expect(screen.getAllByRole("button", { name: "Confirmar pago" })[0]).toBeEnabled();
+});
+
+test("a report on a paid order cannot be approved, says to reject a repeated receipt, and can still be rejected", async () => {
+  reportOn(0);
+  const screen = render(<OrderDetailScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Revisar comprobante" }));
+  expect(screen.getByText("Este pedido ya está pagado. Si el comprobante repite un pago que ya registraste, recházalo: el motivo que escribas lo verá el comprador.")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Confirmar pago" })[0]).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Rechazar" })).toBeEnabled();
 });

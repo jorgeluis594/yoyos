@@ -54,9 +54,9 @@ const errorSchemas = {
   create: httpErrorSchema(["INVALID_ORDER", "CURRENCY_MISMATCH", "VARIANT_NOT_FOUND",
     "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_REQUIRED",
     "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED", "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED",
-    "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
+    "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "PAYMENT_EXCEEDS_BALANCE", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   payment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH",
-    "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED",
+    "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED", "PAYMENT_EXCEEDS_BALANCE",
     "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   void: httpErrorSchema(["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "INVALID_ORDER"]),
   reject: httpErrorSchema(["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "ORDER_CANCELLED",
@@ -82,8 +82,8 @@ function requestError(error: TransportError, operation: Operation): OrderRequest
   if (error.http) {
     const parsed = errorSchemas[operation].safeParse(error.http);
     if (parsed.success) {
-      const { code, error: message, issues, currentPrice } = parsed.data.body;
-      return { code, message, ...(issues ? { issues } : {}), ...(currentPrice ? { currentPrice } : {}) };
+      const { code, error: message, issues, currentPrice, balanceDue } = parsed.data.body;
+      return { code, message, ...(issues ? { issues } : {}), ...(currentPrice ? { currentPrice } : {}), ...(code === "PAYMENT_EXCEEDS_BALANCE" && balanceDue ? { balanceDue } : {}) };
     }
     if (error.code === "API_ERROR" || orderApiErrorSchema.safeParse(error.http.body).success) {
       return { code: "INVALID_RESPONSE", message: "Unexpected order error" };

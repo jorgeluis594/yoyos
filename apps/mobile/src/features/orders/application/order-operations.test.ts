@@ -317,11 +317,12 @@ test("maps a conflicting rejection to already reviewed", async () => {
 });
 
 test("maps a failed confirmation to already reviewed, a lost answer or a plain failure", () => {
-  expect(confirmPaymentFailure("PAYMENT_CONFLICT")).toBe("already_reviewed");
-  expect(confirmPaymentFailure("INVALID_TRANSITION")).toBe("already_reviewed");
-  for (const code of ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "INVALID_RESPONSE"] as const) expect(confirmPaymentFailure(code)).toBe("unknown");
-  expect(confirmPaymentFailure("INVALID_PAYMENT")).toBe("failed");
-  expect(confirmPaymentFailure("INSUFFICIENT_STOCK")).toBe("failed");
+  expect(confirmPaymentFailure({ code: "PAYMENT_CONFLICT" })).toBe("already_reviewed");
+  expect(confirmPaymentFailure({ code: "INVALID_TRANSITION" })).toBe("already_reviewed");
+  for (const code of ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "INVALID_RESPONSE"] as const) expect(confirmPaymentFailure({ code: code })).toBe("unknown");
+  expect(confirmPaymentFailure({ code: "INVALID_PAYMENT" })).toBe("failed");
+  expect(confirmPaymentFailure({ code: "INSUFFICIENT_STOCK" })).toBe("failed");
+  expect(confirmPaymentFailure({ code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: { amount: 60, currency: "PEN" } })).toEqual({ kind: "exceeds_balance", balanceDue: { amount: 60, currency: "PEN" } });
 });
 
 test("a queued sale core refuses with VARIANT_NOT_FOUND keeps which item and how it was named", async () => {

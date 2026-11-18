@@ -431,3 +431,16 @@ describe("order review requests", () => {
     expect(await api.recordLinkAction("nope", { id: id(11), action: "copy" })).toMatchObject({ error: { code: "INVALID_INPUT" } });
   });
 });
+
+test("parses PAYMENT_EXCEEDS_BALANCE with its balance", async () => {
+  const body = { code: "PAYMENT_EXCEEDS_BALANCE", error: "Payment exceeds the pending balance", balanceDue: { amount: 60, currency: "PEN" } };
+  const refused = createOrderApi(async () => err({ code: "API_ERROR", message: "API error", http: { status: 409, body } }));
+  const total = { amount: 999, currency: "PEN" } as const;
+  expect(await refused.registerPayment(id(1), { paymentId: id(5), amount: total, method: "digital_wallet", deductStockIfPartial: false }))
+    .toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: { amount: 60, currency: "PEN" } } });
+  expect(await refused.create({ id: id(1), items: [{ variantId: id(2), quantity: 1 }] }))
+    .toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: { amount: 60, currency: "PEN" } } });
+  const wrongStatus = createOrderApi(async () => err({ code: "API_ERROR", message: "API error", http: { status: 422, body } }));
+  expect(await wrongStatus.registerPayment(id(1), { paymentId: id(5), amount: total, method: "digital_wallet", deductStockIfPartial: false }))
+    .toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});

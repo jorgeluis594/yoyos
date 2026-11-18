@@ -125,7 +125,7 @@ test("review preserves payment and shows one save action", async () => {
   expect(screen.getByText("Productos (referencial)")).toBeTruthy();
   expect(screen.getByLabelText("Pendiente")).toBeTruthy();
   advance(screen, "5");
-  expect(screen.getByLabelText("Pago parcial")).toBeTruthy();
+  expect(screen.getByLabelText(/^Pago parcial · falta S\/\s*5\.00$/)).toBeTruthy();
   expect(screen.getAllByRole("button", { name: "Guardar pedido" })).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
@@ -437,7 +437,7 @@ test("one save retains editable payments and delivery on rejection and prevents 
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   advance(screen, "5");
-  advance(screen, "13");
+  advance(screen, "5");
   fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Av. Lima 123");
   selectDistrict(screen);
@@ -451,7 +451,7 @@ test("one save retains editable payments and delivery on rejection and prevents 
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
   await waitFor(() => expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled());
   expect(mockCompleteOrder.mock.calls[0][0]).toMatchObject({ id: mockId(3), payments: [
-    { paymentId: mockId(4), amount: "5" }, { paymentId: mockId(5), amount: "13" }],
+    { paymentId: mockId(4), amount: "5" }, { paymentId: mockId(5), amount: "5" }],
     ratedDelivery: { expectedPrice: firstRate.price, delivery: { method: "home", rateId: firstRate.id,
       destination: { address: "Av. Lima 123", districtCode: "150122" }, recipient: { name: "Ana", phone: "+51999001" } } }, deliverImmediately: true });
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Av. Lima 123");
