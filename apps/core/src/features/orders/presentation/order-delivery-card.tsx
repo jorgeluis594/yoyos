@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/u
 import { Checkbox } from "@core/app/components/ui/checkbox";
 import { Field, FieldError, FieldLabel, FieldSet } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
+import { PhoneField } from "@core/app/components/phone-field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@core/app/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@core/app/components/ui/tabs";
 import { TextLink } from "@core/app/components/ui/text-link";
@@ -85,10 +86,13 @@ export function OrderDeliveryCard({ state, settings, invalid, settingsHref, onCh
   const showSaved = untouched && loaded?.order.delivery != null;
   const recordedByBuyer = loaded?.order.delivery?.recordedBy.kind === "buyer" && untouched;
   const set = (patch: Partial<DeliveryFields>, sameAsCustomer = delivery.sameAsCustomer) => onChange({ ...delivery, sameAsCustomer, fields: { ...fields, ...patch } });
+  // Home and agency write the recipient's phone like the customer's (country and number); a pickup keeps the free text it always had.
   const recipientInput = (name: "name" | "phone" | "document", label: string) => <Field data-invalid={marked.has(name)}>
     <FieldLabel htmlFor={`${idPrefix}-${name}`}>{label}</FieldLabel>
-    <Input id={`${idPrefix}-${name}`} value={fields[name]} type={name === "phone" ? "tel" : "text"} required aria-invalid={marked.has(name)}
-      onChange={event => set({ [name]: event.target.value }, name === "document" ? delivery.sameAsCustomer : false)} /></Field>;
+    {name === "phone" && tab !== "store"
+      ? <PhoneField id={`${idPrefix}-phone`} value={fields.phone} invalid={marked.has("phone")} required onChange={phone => set({ phone }, false)} />
+      : <Input id={`${idPrefix}-${name}`} value={fields[name]} type={name === "phone" ? "tel" : "text"} required aria-invalid={marked.has(name)}
+      onChange={event => set({ [name]: event.target.value }, name === "document" ? delivery.sameAsCustomer : false)} />}</Field>;
   const documentItems = [{ value: "absent", label: t("orderDelivery.noDocument") }, ...documentTypes.map(type => ({ value: type, label: t(`orders.documentType.${type}`) }))];
   const internalCost = tab === "store" ? 0 : fields.ratePrice?.amount ?? (untouched ? loaded?.order.deliveryCost.amount ?? null : null);
   const incomplete = marked.size > 0 ? t(isNew || !savedHasDelivery ? "orderView.delivery.incompleteNew" : "orderView.delivery.incompleteSaved") : null;

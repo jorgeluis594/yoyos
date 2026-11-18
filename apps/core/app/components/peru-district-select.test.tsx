@@ -35,6 +35,23 @@ test("empty selection requires hierarchy and provides labelled comboboxes", () =
   expect(html).toContain("Escribe para buscar y elige tu distrito en la misma lista.");
 });
 
+test("a failed save marks an empty Departamento as invalid", () => {
+  const html = renderToStaticMarkup(withI18n(<PeruDistrictSelect value={null} invalid onChange={() => undefined} />));
+  const inputs = html.match(/<input[^>]*role="combobox"[^>]*>/g) ?? [];
+  expect(inputs).toHaveLength(3);
+  expect(inputs[0]).toContain('aria-invalid="true"');
+  expect(inputs[1]).not.toContain('aria-invalid="true"');
+  expect(inputs[2]).not.toContain('aria-invalid="true"');
+});
+
+test("an invalid hierarchy marks the first level still empty and nothing once it is complete", () => {
+  const marked = (value: Parameters<typeof PeruLocationFields>[0]["value"]) =>
+    (renderToStaticMarkup(withI18n(<PeruLocationFields value={value} invalid onChange={() => undefined} />)).match(/<input[^>]*role="combobox"[^>]*>/g) ?? []).map(input => input.includes('aria-invalid="true"'));
+  expect(marked({ kind: "department", code: district.departmentCode })).toEqual([false, true, false]);
+  expect(marked({ kind: "province", code: district.provinceCode })).toEqual([false, false, true]);
+  expect(marked({ kind: "district", code: district.code })).toEqual([false, false, false]);
+});
+
 test("district search ignores accents and case and supports official codes within the selected province", () => {
   const districts = getPeruDistricts(district.provinceCode);
   expect(filterPeruDistricts(districts, "  míRAflores ").map(item => item.code)).toEqual(["150122", "150133"]);

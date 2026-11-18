@@ -202,10 +202,13 @@ describe("OrderView (saved order)", () => {
     expect(button("Marcar enviado")).toBeDefined();
   });
 
-  test("shows only Venta completada, only Pedido cancelado, or Pago pendiente and Enviada in the saved order header with their accessible names", async () => {
+  test("shows only Venta completada, only Pedido cancelado, or the payment and Enviada in the saved order header with their accessible names", async () => {
     await mountSaved(savedState({ order: order1042({ deliveryStatus: "shipped" }) }));
-    expect([...container.querySelectorAll('[role="group"][aria-label^="Estado"]')].map((label) => label.getAttribute("aria-label")))
-      .toEqual(["Estado del pago: Pago pendiente", "Estado de la entrega: Enviada"]);
+    // 1042 has S/ 150 paid of S/ 298: the badge reads like the card, «Pago parcial · falta X».
+    expect([...container.querySelectorAll('[role="group"][aria-label^="Estado"]')].map((label) => label.getAttribute("aria-label")?.replace(/\u00a0/g, " ")))
+      .toEqual(["Estado del pago: Pago parcial · falta S/ 148.00", "Estado de la entrega: Enviada"]);
+    act(() => root!.unmount());
+    await mountSaved(savedState({ order: order1042({ deliveryStatus: "shipped", paidAmount: { amount: 0, currency: "PEN" }, balanceDue: { amount: 298, currency: "PEN" } }) }));
     expect(labelOf("Estado del pago: Pago pendiente")?.textContent).toBe("Pago pendiente");
     act(() => root!.unmount());
     await mountSaved(savedState({ order: order1042({ status: "completed", paymentStatus: "paid", deliveryStatus: "delivered", completedAt: "2026-10-31T16:40:00.000Z" }) }));
