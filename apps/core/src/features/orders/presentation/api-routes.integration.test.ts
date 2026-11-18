@@ -51,7 +51,7 @@ function hostContext(companyId: string) {
 }
 const subdomains = new Map<string, string>();
 /** GET aggregate alone carries the store link; the mutation answers do not, so comparisons drop it. */
-function withoutLink<T extends object>(order: T): Omit<T, "checkoutLink"> { const { checkoutLink: _link, ...rest } = order as T & { checkoutLink?: unknown }; return rest; }
+function withoutLink<T extends object>(order: T): Omit<T, "checkoutLink"> { const rest = { ...order } as T & { checkoutLink?: unknown }; delete rest.checkoutLink; return rest; }
 
 /** The brand host of `companyId`, created on first use: the buyer APIs answer on the store's own origin only. */
 async function brandHost(companyId: string) {

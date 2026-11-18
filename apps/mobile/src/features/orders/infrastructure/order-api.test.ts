@@ -73,7 +73,7 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   const zero = { amount: 0, currency: "PEN" as const };
   const summary = { number: 1001, id: id(1), buyer: null, source: "manual", toReview: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, sellerId: "seller",
     createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
-    deliveryStatus: "pending", stockDeducted: false, total };
+    deliveryStatus: "pending", stockDeducted: false, total, balanceDue: total };
   const { toReview: _toReview, ...aggregateBase } = summary;
   const order = { ...aggregateBase, revisions: { items: "A".repeat(43) }, cancelledAt: null, stockDeductedAt: null, stockDue: null, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
