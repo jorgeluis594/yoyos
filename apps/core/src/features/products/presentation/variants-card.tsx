@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Trash2 } from "lucide-react";
 import { Link } from "react-router";
@@ -34,15 +34,19 @@ type Props = Readonly<{
   commitOption: (buffer: OptionBuffer) => Edit;
   /** Back to a product without options, with the values the form had before the first one. */
   onClearOptions: () => void;
+  /** True while an option editor is open: what is typed there reaches the product only with its «Listo». */
+  onEditingChange?: (editing: boolean) => void;
 }>;
 
 const { options: maxOptions, variants: maxVariants } = productOptionLimits;
 const itemClass = "py-3 first:pt-0 last:pb-0";
 const tagVariant = { new: "info", inactive: "secondary", removed: "warning", deleted: "destructive" } as const;
 
-export function VariantsCard({ draft, setDraft, variantHref, currency, originalNames, targets, commitOption, onClearOptions }: Props) {
+export function VariantsCard({ draft, setDraft, variantHref, currency, originalNames, targets, commitOption, onClearOptions, onEditingChange }: Props) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState<OptionBuffer | null>(null);
+  const isEditing = editing !== null;
+  useEffect(() => { onEditingChange?.(isEditing); }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
   const [notices, setNotices] = useState<Readonly<Record<string, string>>>({});
   const [valueNotices, setValueNotices] = useState<Readonly<Record<string, string>>>({});
   const [selected, setSelected] = useState<readonly string[]>([]);

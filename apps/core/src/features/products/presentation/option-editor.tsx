@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
 import { Button } from "@core/app/components/ui/button";
@@ -32,6 +32,10 @@ export function OptionEditor({ draft, buffer, issues, originalNames, notice, val
   const option = draft.options.find((candidate) => candidate.id === buffer.optionId);
   const marked = new Set(option?.values.filter((value) => value.marked).map((value) => value.id));
   const [pendingId, setPendingId] = useState(() => crypto.randomUUID());
+  // A new option opens quiet: its errors show after leaving the name or after the first Listo that cannot apply it.
+  const [attempted, setAttempted] = useState(false);
+  const [nameLeft, setNameLeft] = useState(false);
+  const section = useRef<HTMLElement>(null);
   const live = buffer.values.filter((value) => !marked.has(value.id));
   const liveIds = live.map((value) => value.id);
   // Handles number only the values that are not marked, so a move translates its live position into the full list.
@@ -43,7 +47,8 @@ export function OptionEditor({ draft, buffer, issues, originalNames, notice, val
     rest.splice(rest.findIndex((value) => value.id === target) + (to > liveIds.indexOf(id) ? 1 : 0), 0, moved);
     onChange({ ...buffer, values: rest });
   });
-  const nameIssue = issues.find((issue) => issue.kind === "NAME_REQUIRED" || issue.kind === "NAME_DUPLICATE" || issue.kind === "NAME_TOO_LONG");
+  const quiet = buffer.isNew && !attempted;
+  const nameIssue = quiet && !nameLeft ? undefined : issues.find((issue) => issue.kind === "NAME_REQUIRED" || issue.kind === "NAME_DUPLICATE" || issue.kind === "NAME_TOO_LONG");
   const nameText = nameIssue?.kind === "NAME_REQUIRED" ? t("productEditor.nameRequired")
     : nameIssue?.kind === "NAME_DUPLICATE" ? t("productEditor.nameDuplicate", { name: nameIssue.name })
     : nameIssue?.kind === "NAME_TOO_LONG" ? t("productEditor.tooLong", { count: productOptionLimits.nameLength }) : undefined;
@@ -54,7 +59,7 @@ export function OptionEditor({ draft, buffer, issues, originalNames, notice, val
     if (issue?.kind === "VALUE_REQUIRED") return t("productEditor.valueRequired");
     return valueNotices[valueId];
   };
-  const listIssues = issues.flatMap((issue) => issue.kind === "NO_VALUES" ? [t("productEditor.noValues")]
+  const listIssues = quiet && buffer.values.length === 0 ? [] : issues.flatMap((issue) => issue.kind === "NO_VALUES" ? [t("productEditor.noValues")]
     : issue.kind === "TOO_MANY_VALUES" ? [t("productEditor.tooManyValues", { count: issue.maximum })]
     : issue.kind === "TOO_MANY_OPTIONS" ? [t("productEditor.maxOptions", { count: issue.maximum })] : []);
   const limit = issues.find((issue) => issue.kind === "TOO_MANY_VARIANTS");
@@ -75,16 +80,28 @@ export function OptionEditor({ draft, buffer, issues, originalNames, notice, val
   }
 
   const blocked = issues.length > 0;
+  function finish() {
+    if (!blocked) return onDone();
+    setAttempted(true);
+    const target = nameIssue || buffer.name.trim() === "" ? `#option-name-${buffer.optionId}` : "[data-pending-value]";
+    section.current?.querySelector<HTMLInputElement>(target)?.focus();
+  }
+  // Enter in a field of the option never submits the product: it adds the value and moves on to the next empty one.
+  function keepEnter(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
+    event.preventDefault();
+    section.current?.querySelector<HTMLInputElement>("[data-pending-value]")?.focus();
+  }
   const position = (valueId: string) => live.findIndex((value) => value.id === valueId) + 1;
   const keptValue = buffer.valueForExistingVariants && live.some((value) => value.id === buffer.valueForExistingVariants) ? buffer.valueForExistingVariants : live[0]?.id ?? "";
   const existingCount = draft.rows.filter((row) => row.id !== null).length;
   const showExisting = draft.saved && (buffer.isNew || option?.saved === false) && live.length > 1 && existingCount > 0;
 
-  return <section aria-label={t("productEditor.optionEditor", { name: buffer.name || t("productEditor.newOption") })} className="grid gap-4">
+  return <section ref={section} onKeyDown={keepEnter} aria-label={t("productEditor.optionEditor", { name: buffer.name || t("productEditor.newOption") })} className="grid gap-4">
     <Field data-invalid={Boolean(nameText)}>
       <FieldLabel htmlFor={`option-name-${buffer.optionId}`}>{t("productEditor.optionName")}</FieldLabel>
       <Input id={`option-name-${buffer.optionId}`} value={buffer.name} aria-invalid={Boolean(nameText) || undefined} aria-describedby={nameText ? `option-name-error-${buffer.optionId}` : undefined}
-        onChange={(event) => onChange({ ...buffer, name: event.target.value })} autoComplete="off" />
+        onChange={(event) => onChange({ ...buffer, name: event.target.value })} onBlur={() => setNameLeft(true)} autoComplete="off" />
       {nameText && <FieldError id={`option-name-error-${buffer.optionId}`}>{nameText}</FieldError>}
     </Field>
     <fieldset className="grid gap-2">
@@ -109,7 +126,7 @@ export function OptionEditor({ draft, buffer, issues, originalNames, notice, val
               {value.pending ? null : <ReorderHandle id={value.id} name={value.text || String(index)} position={index} total={live.length} onMove={reorder.move} announce={reorder.announce} dragProps={reorder.handleProps(value.id)} />}
               <Input value={value.text} className="min-w-0 flex-1" autoComplete="off" aria-invalid={Boolean(error) || undefined}
                 aria-label={value.pending ? t("productEditor.addValue") : t("productEditor.valueLabel", { position: index, name: buffer.name || t("productEditor.newOption") })}
-                placeholder={value.pending ? t("productEditor.addValue") : undefined}
+                placeholder={value.pending ? t("productEditor.addValue") : undefined} {...value.pending ? { "data-pending-value": "" } : {}}
                 onChange={(event) => value.pending ? typeNew(event.target.value) : change(value.id, event.target.value)} />
               {value.pending ? null : <Button type="button" variant="ghost" size="icon" aria-label={t("productEditor.removeValue", { name: value.text })} onClick={() => option?.values.some((candidate) => candidate.id === value.id) ? onRemoveValue(value.id) : drop(value.id)}><Trash2 aria-hidden="true" /></Button>}
             </div>
@@ -133,7 +150,7 @@ export function OptionEditor({ draft, buffer, issues, originalNames, notice, val
     {notice && <FieldError>{notice}</FieldError>}
     <div className="flex flex-wrap gap-3">
       <Button type="button" variant="destructive" onClick={onDelete}>{t("productEditor.deleteOption")}</Button>
-      <Button type="button" onClick={onDone} disabled={blocked}>{t("productEditor.done")}</Button>
+      <Button type="button" onClick={finish}>{t("productEditor.done")}</Button>
     </div>
   </section>;
 }

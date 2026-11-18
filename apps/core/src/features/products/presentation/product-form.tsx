@@ -72,6 +72,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
   const photos = useProductPhotos(savedPhotos);
   const [photosUnusable, setPhotosUnusable] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
+  const [editingOption, setEditingOption] = useState(false);
   const [targets, setTargets] = useState<FeedbackTargets>(noTargets);
   const submitted = useRef<EditorDraft>(initialDraft);
   const [opened] = useState(() => draftSnapshot([initialValues, initialDraft, "keep", storedHidden]));
@@ -94,6 +95,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (editingOption) return;
     const toSave = photos.prepareSave();
     if (!toSave) return;
     setPhotosUnusable(false);
@@ -135,7 +137,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
         </Fragment>;
       })}
       </section>
-      <VariantsCard draft={draft} setDraft={setDraft} variantHref={variantHref} currency={currency} originalNames={originalNames} targets={targets} commitOption={commitOption}
+      <VariantsCard draft={draft} setDraft={setDraft} variantHref={variantHref} currency={currency} originalNames={originalNames} targets={targets} commitOption={commitOption} onEditingChange={setEditingOption}
         onClearOptions={() => setDraft((current) => clearOptions(current))} />
       </div>
       <aside className="grid gap-5 lg:col-start-2 lg:row-start-2">
@@ -154,8 +156,9 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
     {reviewed > 0 && <Alert variant="destructive"><AlertDescription>{t("productEditor.reviewVariants", { count: reviewed })}</AlertDescription></Alert>}
     {errors.form && <Alert variant="destructive"><AlertDescription>{errors.form}</AlertDescription></Alert>}
     <div className="flex flex-wrap gap-3 border-t border-border pt-5">
-      <Button type="submit" disabled={pending || !ready}>{pending ? t("products.saving") : submitLabel ?? t("products.save")}</Button>
+      <Button type="submit" disabled={pending || !ready || editingOption} aria-describedby={editingOption ? "save-blocked" : undefined}>{pending ? t("products.saving") : submitLabel ?? t("products.save")}</Button>
       <Button asChild variant="outline"><Link to={cancelTo}>{t("products.cancel")}</Link></Button>
+      {editingOption && <p id="save-blocked" className="basis-full text-sm text-muted-foreground">{t("productEditor.finishOption")}</p>}
     </div>
     {guard.dialog}
     {confirmReload && <ConfirmDialog title={t("productEditor.discardTitle")} description={t("productEditor.discardDescription")} confirm={t("productEditor.discard")} cancel={t("productEditor.keepEditing")}

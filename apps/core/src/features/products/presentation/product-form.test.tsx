@@ -267,3 +267,64 @@ test("the switch is disabled while saving", () => {
   expect(hideSwitch().disabled).toBe(true);
   expect(hideSwitch().getAttribute("aria-checked")).toBe("true");
 });
+
+const pressEnter = (element: Element) => {
+  const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+  act(() => { element.dispatchEvent(event); });
+  return event;
+};
+const saveButton = () => button("Guardar producto")!;
+
+test("Enter in a value field only adds the value: it is prevented and never saves the product", () => {
+  const saves: ProductFormSubmission[] = [];
+  mount({ onSave: (submission) => saves.push(submission) });
+  type(byLabel("Nombre"), "Polo");
+  type(byLabel("Precio de venta (PEN) *"), "10");
+  click(button("Agregar opciones como talla o color"));
+  type(byLabel("Nombre de la opción"), "Talla");
+  type(byLabel("Agregar otro valor"), "S");
+  const first = container.querySelector<HTMLInputElement>("fieldset input")!;
+  expect(pressEnter(first).defaultPrevented).toBe(true);
+  expect(pressEnter(byLabel("Agregar otro valor")).defaultPrevented).toBe(true);
+  expect(pressEnter(byLabel("Nombre de la opción")).defaultPrevented).toBe(true);
+  expect(saves).toHaveLength(0);
+  expect(valueInputs()).toEqual(["S", ""]);
+});
+
+test("Guardar is disabled while an option is being edited and the reason is visible until Listo", () => {
+  mount();
+  type(byLabel("Nombre"), "Polo");
+  type(byLabel("Precio de venta (PEN) *"), "10");
+  expect(saveButton().disabled).toBe(false);
+  click(button("Agregar opciones como talla o color"));
+  type(byLabel("Nombre de la opción"), "Talla");
+  type(byLabel("Agregar otro valor"), "S");
+  expect(saveButton().disabled).toBe(true);
+  expect(saveButton().getAttribute("aria-describedby")).toBe("save-blocked");
+  expect(container.querySelector("#save-blocked")?.textContent).toBe("Pulsa «Listo» en la opción para aplicar tus cambios antes de guardar el producto.");
+  click(button("Listo"));
+  expect(saveButton().disabled).toBe(false);
+  expect(container.querySelector("#save-blocked")).toBeNull();
+});
+
+test("a new option opens without errors; they appear on leaving the name or on the first Listo", () => {
+  mount();
+  click(button("Agregar opciones como talla o color"));
+  expect(container.textContent).not.toContain("Escribe el nombre de la opción.");
+  expect(container.textContent).not.toContain("Agrega al menos un valor.");
+  expect(button("Listo").disabled).toBe(false);
+  click(button("Listo"));
+  expect(container.textContent).toContain("Escribe el nombre de la opción.");
+  expect(container.textContent).toContain("Agrega al menos un valor.");
+});
+
+test("leaving the empty option name shows its error without pressing Listo", () => {
+  mount();
+  click(button("Agregar opciones como talla o color"));
+  const name = byLabel("Nombre de la opción");
+  act(() => name.focus());
+  expect(container.textContent).not.toContain("Escribe el nombre de la opción.");
+  act(() => { name.blur(); name.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+  expect(container.textContent).toContain("Escribe el nombre de la opción.");
+  expect(container.textContent).not.toContain("Agrega al menos un valor.");
+});
