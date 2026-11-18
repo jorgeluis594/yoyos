@@ -166,7 +166,8 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
             {issues.name ? <FieldError>{issues.name}</FieldError> : editor.errors.options[option.id] ? <FieldError>{editor.errors.options[option.id]}</FieldError> : null}
           </Field>
           <ThemedText type="small" style={styles.heading}>{t("optionValues")}</ThemedText>
-          {option.values.map((value, position) => value.marked
+          {/* The field that adds a value shares the array with the values: its key moves to the value it creates, so the Input keeps its text and focus. */}
+          {[...option.values.map((value, position) => value.marked
             ? <View key={value.id} style={styles.marked}>
               <ThemedText style={styles.struck}>{value.name}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
@@ -182,7 +183,7 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
               before={value.saved && original(value.id) !== undefined && original(value.id) !== value.name ? t("valueRenamedFrom", { name: original(value.id) }) : undefined}
               onChange={(text) => { clearRejection("values", value.id); setWorking(renameValue(working, value.id, text)); }}
               onMove={(to) => setWorking(moveValue(working, option.id, value.id, to))}
-              onRemove={() => edit((draft) => removeValue(draft, value.id), value.id, value.name)} />)}
+              onRemove={() => edit((draft) => removeValue(draft, value.id), value.id, value.name)} />),
           <ValueRow key={trailingKey(option.id)} name={trailing[option.id] ?? ""} position={0} total={0} placeholder={t("addAnotherValue")}
             error={notes[`${option.id}:new`] || undefined}
             onChange={(text) => {
@@ -199,7 +200,7 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
                 setTrailing({ ...trailing, [option.id]: text });
                 note(`${option.id}:new`, editFailureMessage(result.error, { draft: working }));
               }
-            }} />
+            }} />]}
           {issues.general ? <FieldError>{issues.general}</FieldError> : null}
           {!option.saved && working.saved && option.valueForExistingVariants !== null
             ? <ExistingValue option={option} count={working.rows.filter((row) => row.id !== null).length} onChange={(valueId) => edit((draft) => setValueForExistingVariants(draft, option.id, valueId), option.id)} /> : null}

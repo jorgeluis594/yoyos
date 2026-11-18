@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { Alert } from "react-native";
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen, userEvent } from "@testing-library/react-native";
 import { addOption, addValue, createDraft, type EditorDraft } from "@shared/product-variants";
 import OptionsScreen from "@mobile/features/products/presentation/options-screen";
 import { ProductEditorProvider, useProductEditor } from "@mobile/features/products/presentation/product-editor-state";
@@ -157,4 +157,19 @@ test("the option and value fields say what goes in them", () => {
   fireEvent.changeText(screen.getByPlaceholderText("Ej. S, M o Negro"), "S");
   expect(screen.getByPlaceholderText("Agregar otro valor")).toBeTruthy();
   empty.unmount();
+});
+
+test("typing several letters into «Agregar otro valor» of an option keeps the whole text and the focus", async () => {
+  jest.useFakeTimers();
+  try {
+    const user = userEvent.setup();
+    const saved = tallaColor();
+    renderOptions({ ...saved, saved: true, options: saved.options.map((option) => ({ ...option, saved: true, values: option.values.map((value) => ({ ...value, saved: true })) })) });
+    fireEvent.press(screen.getByRole("button", { name: "Editar Talla" }));
+    const field = screen.getByLabelText("Agregar otro valor");
+    await user.type(field, "XXL");
+    expect(screen.getByLabelText("XXL").props.value).toBe("XXL");
+    expect(screen.getByLabelText("XXL")).toBe(field);
+    expect(screen.getByLabelText("Agregar otro valor").props.value).toBe("");
+  } finally { jest.useRealTimers(); }
 });
