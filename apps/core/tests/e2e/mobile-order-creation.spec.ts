@@ -52,7 +52,10 @@ test("mobile creation screen integrates with real order API, database and persis
       expect(saved.find(order => order.completedAt === null && order.payments.some(payment => String(payment.amount) === "18"))).toMatchObject({
         itemsTotal: expect.any(Object), stockDeducted: true, deliveryStatus: "pending", payments: [expect.any(Object)],
       });
-      expect(saved.find(order => order.payments.some(payment => String(payment.amount) === "40"))).toMatchObject({ stockDeducted: true, deliveryStatus: "delivered", delivery: null });
+      // The restarted rejected sale pays S/ 10 for a S/ 10 order (a payment cannot exceed the total): every order with a S/ 10 payment was delivered with stock deducted.
+      const tenPaid = saved.filter(order => order.payments.some(payment => String(payment.amount) === "10"));
+      expect(tenPaid.length).toBeGreaterThan(0);
+      for (const order of tenPaid) expect(order).toMatchObject({ stockDeducted: true, deliveryStatus: "delivered", delivery: null });
       expect(saved.find(order => order.payments.some(payment => String(payment.amount) === "4.5"))).toMatchObject({ stockDeducted: false });
       const rated = saved.filter(order => order.delivery !== null);
       expect(rated).toHaveLength(6);

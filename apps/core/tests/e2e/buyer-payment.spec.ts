@@ -177,6 +177,7 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("button", { name: "Agregar Yape" })).toHaveCount(0);
     await page.getByRole("button", { name: /^Anular pago del/ }).click();
+    await page.getByRole("dialog", { name: /^¿Anular el pago de/ }).getByRole("button", { name: "Anular pago" }).click();
     await browserExpect(page.getByText("Pago anulado", { exact: false }).first()).toBeVisible();
     expect((await withTenantIsolation(tenantId, async () => await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } }))).status).toBe("voided");
     await page.getByRole("button", { name: "Agregar Yape" }).click();

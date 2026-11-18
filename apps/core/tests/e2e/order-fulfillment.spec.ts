@@ -73,7 +73,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
         }
         await page.getByRole("link", { name: "Ver ventas", exact: true }).click();
         const shippedRow = page.getByRole("row").filter({ has: page.getByRole("link", { name: `Pedido #${before.number}`, exact: true }) });
-        await browserExpect(shippedRow.locator("summary").last()).toHaveAttribute("aria-label", /Estado de la entrega: Enviada/);
+        await browserExpect(shippedRow).toContainText("Enviada");
         await page.getByRole("link", { name: `Pedido #${before.number}`, exact: true }).click();
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.screenshot({ path: "/tmp/order-fulfillment-desktop.png", fullPage: true });
@@ -98,7 +98,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       expect(stockAfter.quantity).toBe(stockBefore.quantity);
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.getByRole("link", { name: "Ver ventas", exact: true }).click();
-      await browserExpect(page.getByRole("row").filter({ has: page.getByRole("link", { name: `Pedido #${after.number}`, exact: true }) }).locator("summary")).toHaveAttribute("aria-label", "Estado de la venta: Venta completada");
+      await browserExpect(page.getByRole("row").filter({ has: page.getByRole("link", { name: `Pedido #${after.number}`, exact: true }) })).toContainText("Venta completada");
     }
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {

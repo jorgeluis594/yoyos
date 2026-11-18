@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { EditOrderResult } from "@core/src/features/orders/presentation/order-edit-schemas";
 import {
-  applySaveResult, buildCreateRequest, buildEditRequest, clearCustomer, customerRequired, estimate, inDoubtOutcome, initialDraft, invalidFields, isEmptyDraft, lineWarnings,
+  applySaveResult, buildCreateRequest, buildEditRequest, clearCustomer, customerRequired, draftPaymentChecks, estimate, inDoubtOutcome, initialDraft, invalidFields, isEmptyDraft, lineWarnings,
   refreshFromLoader, screenLocks, setCustomer, unsavedParts, type DeliveryDraft, type DraftLine, type LoadedOrder, type OrderViewState,
 } from "@core/src/features/orders/presentation/order-view-state";
 
@@ -491,5 +491,32 @@ describe("create request", () => {
     expect(buildCreateRequest(state)).toMatchObject({ success: false, error: { code: "INVALID_DRAFT" } });
     const half = { ...state, draft: { ...state.draft, items: [newLine(crown)], customer: { name: "Ana", phone: "" } } };
     expect(buildCreateRequest(half)).toMatchObject({ success: false, error: { code: "INVALID_DRAFT" } });
+  });
+});
+
+describe("draft payment checks", () => {
+  const row = (paymentId: string, amount: string) => ({ paymentId, amount, method: "digital_wallet" as const, walletProvider: "yape" as const, deductStockIfPartial: false });
+
+  test("each row may collect what the rows above leave and a row over it is flagged with that amount", () => {
+    const checks = draftPaymentChecks([row("a", "40"), row("b", "20"), row("c", "15")], pen(55));
+    expect(checks.get("a")).toEqual({ left: pen(55), problem: null, amount: pen(40) });
+    expect(checks.get("b")).toEqual({ left: pen(15), problem: "exceeds_balance", amount: null });
+    // The refused row leaves nothing to the next one: it does not count as collected.
+    expect(checks.get("c")).toEqual({ left: pen(15), problem: null, amount: pen(15) });
+  });
+
+  test("a sale whose payment row is over what is left is refused by invalidFields and the over row is not counted as paid", () => {
+    let state = initialDraft({ kind: "new", orderId, currency: "PEN" });
+    const row = (paymentId: string, amount: string) => ({ paymentId, amount, method: "digital_wallet" as const, walletProvider: "yape" as const, deductStockIfPartial: false });
+    state = { ...state, draft: { ...state.draft, items: [newLine(crown, "1")], payments: [row("a", "20"), row("b", "20")] } };
+    // Crown costs S/ 35: the second S/ 20 exceeds the S/ 15 left.
+    expect(invalidFields(state)).toEqual([{ section: "payments", field: "amount", id: "b", reason: "amount_invalid" }]);
+    const estimated = estimate(state);
+    expect(estimated.success && estimated.data.paid).toEqual(pen(20));
+  });
+
+  test("flags an empty, non-numeric and zero amount before the limit", () => {
+    const checks = draftPaymentChecks([row("a", ""), row("b", "x"), row("c", "0")], pen(55));
+    expect([...checks.values()].map(check => check.problem)).toEqual(["empty", "not_numeric", "zero"]);
   });
 });

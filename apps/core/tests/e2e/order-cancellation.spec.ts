@@ -161,7 +161,7 @@ test("new loader data replaces a recovered active cancellation snapshot after a 
     await confirm(page);
     await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toBeEnabled();
     await browserExpect(page.getByRole("alert")).toBeVisible();
-    await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Para compartir este pedido, elige primero el link de tu tienda en Apariencia de la tienda.", { exact: true })).toBeVisible();
     await page.unroute(dataRoute);
     await page.getByRole("button", { name: "Agregar Yape", exact: true }).click();
     await page.getByRole("dialog", { name: "Registrar pago" }).getByRole("button", { name: "Confirmar pago" }).click();

@@ -74,7 +74,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     await browserExpect(page.getByRole("status").filter({ hasText: "Cambios guardados." })).toBeVisible();
     const assigned = orderAggregateSchema.parse(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json());
     expect(assigned).toMatchObject({ delivery: { method: "agency", courier: { name: "Shalom" }, agency: { id: agencyIds[0], name: "Sucursal Arequipa", location: { districtCode: "040110" } }, destination: { districtCode: "040110" },
-      recipient: { name: "Destinataria", phone: "00123", identity: { documentType: "passport", document: "00-A-001" } }, recordedBy: { kind: "seller", userId: sellerId } },
+      recipient: { name: "Destinataria", phone: "+5100123", identity: { documentType: "passport", document: "00-A-001" } }, recordedBy: { kind: "seller", userId: sellerId } },
       deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 }, total: { amount: 13 }, stockDeducted: false });
     // The saved agency is shown as stored; quoting again starts by choosing the district.
     await chooseDistrict(page, "040103");

@@ -369,7 +369,7 @@ test("restarted stock rejection of a paid delivered sale keeps the attempt edita
   const paymentId = randomUUID();
   const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 40, currency: "PEN" },
     request: { id: orderId, items: [{ variantId, quantity: 4 }], deliverImmediately: true,
-      payments: [{ paymentId, amount: { amount: 40, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }] } };
+      payments: [{ paymentId, amount: { amount: 10, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }] } };
   writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
   restartOperations();
   expect(await mockOrders.syncPendingOrders(companyId)).toEqual({ waiting: 0 });
@@ -384,8 +384,8 @@ test("restarted stock rejection of a paid delivered sale keeps the attempt edita
   fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${orderId}`), { timeout: 10000 });
   expect(await mockOrders.loadOrder(orderId)).toMatchObject({ success: true, data: {
-    total: { amount: 10, currency: "PEN" }, stockDeducted: true, deliveryStatus: "delivered", overpaidAmount: { amount: 30, currency: "PEN" },
-    payments: [expect.objectContaining({ id: paymentId, amount: { amount: 40, currency: "PEN" } })],
+    total: { amount: 10, currency: "PEN" }, stockDeducted: true, deliveryStatus: "delivered", paymentStatus: "paid",
+    payments: [expect.objectContaining({ id: paymentId, amount: { amount: 10, currency: "PEN" } })],
     items: [expect.objectContaining({ variantId, quantity: 1 })],
   } });
   expect(mockPosts).toBe(2);

@@ -40,6 +40,7 @@ export function saleOutcome(result: SaleActionResult, context: Readonly<{ t: TFu
       return outcome({ rate: { price: result.currentPrice }, notice: alert(t("orderView.delivery.priceChanged", { amount: formatMoney(result.currentPrice) }), "order-delivery-rateId") });
     case rateGone.includes(result.code): return outcome({ rate: "clear", notice: alert(t("orderView.delivery.unavailable"), "order-delivery-rateId") });
     case result.code === "ORDER_ALREADY_EXISTS": return outcome({ notice: alert(t("orders.alreadyExists"), undefined, { to: orderPath, label: t("orderView.header.viewSale") }) });
+    case result.code === "PAYMENT_EXCEEDS_BALANCE": return outcome({ notice: alert(t("orders.saleExceedsTotal"), "order-payments") });
     case result.code === "CURRENCY_MISMATCH": return outcome({ notice: alert(t("orders.currencyMismatch")) });
     case result.code === "PERSISTENCE_UNAVAILABLE": return outcome({ notice: alert(t("orders.saveError")) });
     default: return outcome({ notice: alert(t("orders.invalidOrder")) });

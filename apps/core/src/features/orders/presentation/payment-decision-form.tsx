@@ -1,17 +1,22 @@
 import { useState } from "react";
 import type { FetcherWithComponents } from "react-router";
 import { useTranslation } from "react-i18next";
-import { offersPartialStockDeduction } from "@shared/orders-payment";
+import type { TFunction } from "i18next";
+import { checkPaymentAmount, offersPartialStockDeduction } from "@shared/orders-payment";
+import type { Money } from "@shared/money";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import { formatCurrency } from "@core/app/format-currency";
-import { isValidPaymentAmount, PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
+import { paymentAmountMessage } from "@core/src/features/orders/presentation/payment-amount-text";
+import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { offeredPayment, type OfferedChoice, type PaymentOptions } from "@core/src/features/orders/presentation/payment-options";
 
 /** What the route action answers to a payment decision. A recorded payment carries the order it left, which chooses the success text. */
-export type PaymentDecisionResult = Readonly<{ success: boolean; error: string | false; recorded?: boolean; order?: Pick<OrderAggregateResponse, "stockDue"> }>;
+export type PaymentDecisionResult = Readonly<{ success: boolean; error: string | false; recorded?: boolean; order?: Pick<OrderAggregateResponse, "stockDue">;
+  /** Sent with PAYMENT_EXCEEDS_BALANCE: what core still sees left to collect. */
+  balanceDue?: Money }>;
 
 export type DecisionKind = "approve" | "register" | "reject";
 
@@ -19,7 +24,14 @@ export type DecisionKind = "approve" | "register" | "reject";
 export function paymentErrorKey(error: string) {
   if (error === "ALREADY_REVIEWED") return "orders.paymentAlreadyReviewed" as const;
   if (error === "NO_RESPONSE" || error === "INTERNAL_ERROR" || error === "PERSISTENCE_UNAVAILABLE") return "orders.paymentUncertain" as const;
+  if (error === "PAYMENT_EXCEEDS_BALANCE") return "orders.paymentExceedsBalance" as const;
   return "orders.paymentSaveError" as const;
+}
+
+/** The sentence of a failed payment decision; an over-balance refusal names the balance core sent. */
+export function paymentErrorText(t: TFunction, language: string, error: string, balanceDue?: Money): string {
+  const key = paymentErrorKey(error);
+  return key === "orders.paymentExceedsBalance" && balanceDue ? paymentAmountMessage(t, language, "exceeds_balance", balanceDue) : key === "orders.paymentExceedsBalance" ? t("orders.paymentSaveError") : t(key);
 }
 
 /** The fetcher belongs to the dialog: the form unmounts as soon as the reload shows the payment decided, before it could report the answer. */
@@ -34,15 +46,19 @@ export function PaymentDecisionForm({ kind, paymentId, order, heading, fetcher, 
   const [reason, setReason] = useState("");
   const pending = fetcher.state !== "idle";
 
-  const validAmount = isValidPaymentAmount(draft.amount);
-  const typed = validAmount ? { amount: Number(draft.amount), currency: order.total.currency } : null;
+  const checked = checkPaymentAmount(draft.amount, order.balanceDue);
+  const typed = checked.success ? checked.data : null;
+  // A report on an order with nothing left to collect cannot be approved: the only step is to reject it.
+  const alreadyPaid = kind === "approve" && order.balanceDue.amount === 0;
+  const problem = kind === "reject" || alreadyPaid || checked.success ? null : checked.error.problem;
+  const blocked = kind !== "reject" && (alreadyPaid || !checked.success);
   const stockBox = kind !== "reject" && offersPartialStockDeduction(order, typed);
   const submitLabel = kind === "reject" ? t("orders.rejectConfirm") : kind === "register" ? t("orders.confirmPayment")
     : typed ? t("orders.approvePaymentAmount", { amount: formatCurrency(typed.amount, typed.currency, i18n.language) }) : t("orders.approvePayment");
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending || (kind !== "reject" && !validAmount)) return;
+    if (pending || blocked) return;
     onSubmit();
     const body = new FormData();
     body.set("paymentId", paymentId);
@@ -61,10 +77,12 @@ export function PaymentDecisionForm({ kind, paymentId, order, heading, fetcher, 
       {heading && <div className="col-span-full flex flex-col gap-1"><h3 className="font-semibold">{t("orders.rejectTitle")}</h3><p className="text-muted-foreground">{t("orders.rejectBody")}</p></div>}
       <Field className="col-span-full min-w-0"><FieldLabel htmlFor={`reject-reason-${paymentId}`}>{t("orders.rejectReasonLabel")}</FieldLabel>
         <Input id={`reject-reason-${paymentId}`} className="h-control" maxLength={200} value={reason} onChange={event => setReason(event.target.value)} autoFocus /></Field>
-    </> : <PaymentFields value={draft} onChange={setDraft} options={options} showStockBox={stockBox} autoFocusAmount />}
+    </> : <>
+      {alreadyPaid ? <p role="status" className="col-span-full text-sm text-muted-foreground">{t("orders.paymentPaidAlready")}</p>
+        : <PaymentFields value={draft} onChange={setDraft} options={options} showStockBox={stockBox} autoFocusAmount error={problem ? paymentAmountMessage(t, i18n.language, problem, order.balanceDue) : null} />}</>}
     <div className="col-span-full flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
       <Button type="button" variant="outline" className="min-h-touch md:min-h-control" onClick={onCancel}>{t(kind === "reject" ? "orders.backDecision" : "orders.cancelDecision")}</Button>
-      <Button type="submit" variant={kind === "reject" ? "destructive" : "default"} className="min-h-touch md:min-h-control" disabled={pending || (kind !== "reject" && !validAmount)}>{submitLabel}</Button>
+      <Button type="submit" variant={kind === "reject" ? "destructive" : "default"} className="min-h-touch md:min-h-control" disabled={pending || blocked}>{submitLabel}</Button>
     </div>
   </form>;
 }

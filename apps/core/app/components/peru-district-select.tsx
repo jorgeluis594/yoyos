@@ -26,7 +26,7 @@ function levelsOf(area: PeruArea | null): Readonly<{ department: string | null; 
  * The three controlled levels of a Peruvian delivery place. `places` limits what it offers (absent = the whole country); it must keep its identity across
  * renders, because the option lists are memoized on it.
  */
-export function PeruLocationFields({ value, onChange, places, texts, disabled = false, themed = false }: Readonly<{
+export function PeruLocationFields({ value, onChange, places, texts, disabled = false, themed = false, invalid = false }: Readonly<{
   value: PeruArea | null;
   /** The level the person changed; the levels below arrive already cleared. Clearing reports the parent (or null) with the cleared level. */
   onChange: (next: PeruArea | null, level: LocationLevel) => void;
@@ -36,6 +36,8 @@ export function PeruLocationFields({ value, onChange, places, texts, disabled = 
   disabled?: boolean;
   /** Carries the hooks of the checkout themes; the seller views keep their own look. */
   themed?: boolean;
+  /** A refused save marks the first level still empty (Departamento, then Provincia, then Distrito), the one the seller has to fill next. */
+  invalid?: boolean;
 }>) {
   const { t } = useTranslation();
   // The checkout themes lay these fields out as one group, like the buyer fields; the seller views keep their own layout.
@@ -61,6 +63,7 @@ export function PeruLocationFields({ value, onChange, places, texts, disabled = 
   const asArea = (kind: "department" | "province", code: string | null): PeruArea | null =>
     code ? { kind, code } as PeruArea : null;
   const hintId = `${id}-hint`;
+  const marked: LocationLevel | null = !invalid ? null : !department ? "department" : !province ? "province" : !district ? "district" : null;
   return <fieldset disabled={disabled} className="flex min-w-0 flex-col gap-3">
     <legend className="mb-3 font-medium">{t("peruDistrict.deliveryTitle")}</legend>
     {texts && <p id={hintId} className="text-sm text-muted-foreground">{texts.groupHint}</p>}
@@ -68,17 +71,17 @@ export function PeruLocationFields({ value, onChange, places, texts, disabled = 
     {pair(<>
       <div className="flex min-w-0 flex-col gap-1.5">
         <LocationCombobox emptyText={noResults("department")} id={`${id}-department`} label={t("peruDistrict.department")} placeholder={t("peruDistrict.selectDepartment")}
-          describedBy={texts ? hintId : undefined}
+          describedBy={texts ? hintId : undefined} invalid={marked === "department"}
           options={departmentOptions} value={department} onChange={code => { if (code === department) return; onChange(asArea("department", code), "department"); }} />
       </div>
       <div className="flex min-w-0 flex-col gap-1.5">
-        <LocationCombobox emptyText={noResults("province")} id={`${id}-province`} label={t("peruDistrict.province")} placeholder={t("peruDistrict.selectProvince")} disabled={!department}
+        <LocationCombobox emptyText={noResults("province")} id={`${id}-province`} label={t("peruDistrict.province")} placeholder={t("peruDistrict.selectProvince")} disabled={!department} invalid={marked === "province"}
           options={provinceOptions} value={province} onChange={code => { if (code === province) return; onChange(code ? asArea("province", code) : asArea("department", department), "province"); }} />
       </div>
     </>)}
     <div {...fieldPart} className="flex flex-col gap-1.5">
       <LocationCombobox emptyText={noResults("district")} id={`${id}-district`} label={t("peruDistrict.district")} placeholder={province ? t("peruDistrict.selectDistrict") : t("peruDistrict.pickParents")}
-        disabled={!province} describedBy={texts ? undefined : hintId} options={districtOptions} value={district}
+        disabled={!province} invalid={marked === "district"} describedBy={texts ? undefined : hintId} options={districtOptions} value={district}
         onChange={code => { if (code === district) return; onChange(code ? { kind: "district", code: code as PeruDistrictCode } : asArea("province", province), "district"); }}>
         {!texts && <p id={hintId} className="text-sm text-muted-foreground">{t("peruDistrict.help")}</p>}
       </LocationCombobox>
@@ -87,15 +90,17 @@ export function PeruLocationFields({ value, onChange, places, texts, disabled = 
   </fieldset>;
 }
 
-export function PeruDistrictSelect({ value, onChange, disabled = false, themed = false }: Readonly<{
+export function PeruDistrictSelect({ value, onChange, disabled = false, themed = false, invalid = false }: Readonly<{
   value: PeruDistrictCode | null; onChange: (value: PeruDistrictCode | null) => void; disabled?: boolean;
+  /** A refused save marks the first empty level. */
+  invalid?: boolean;
   /** Carries the hooks of the checkout themes; the seller views keep their own look. */
   themed?: boolean;
 }>) {
   // The chosen district comes from `value`; while it is null, the parents picked so far live here.
   const [partial, setPartial] = useState<PeruArea | null>(null);
   const area: PeruArea | null = value ? { kind: "district", code: value } : partial?.kind === "district" ? parentOf(partial) : partial;
-  return <PeruLocationFields value={area} disabled={disabled} themed={themed}
+  return <PeruLocationFields value={area} disabled={disabled} themed={themed} invalid={invalid}
     onChange={next => { setPartial(next); onChange(next?.kind === "district" ? next.code : null); }} />;
 }
 
