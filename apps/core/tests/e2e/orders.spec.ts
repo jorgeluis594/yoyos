@@ -204,7 +204,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
       payments: [], stockDeducted: false, deliveredAt: null, completedAt: null });
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(0);
     await page.goto("/es-PE/orders");
-    await browserExpect(page.getByRole("table", { name: "Órdenes" }).locator('summary[aria-label^="Estado del pago: Pago pendiente:"]')).toBeVisible();
+    await browserExpect(page.getByRole("table", { name: "Órdenes" }).getByText("Pago pendiente")).toBeVisible();
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
     await browserExpect(page.getByRole("group", { name: "Estado del pago: Pago pendiente" })).toBeVisible();
@@ -216,7 +216,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
       amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false } });
     expect(paid.status()).toBe(200);
     await page.reload();
-    await browserExpect(page.getByRole("group", { name: "Estado del pago: Pagada" })).toBeVisible();
+    await browserExpect(page.getByRole("group", { name: "Estado del pago: Pagado" })).toBeVisible();
     await browserExpect(page.getByRole("group", { name: "Estado de la entrega: Entrega pendiente" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(1);

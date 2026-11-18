@@ -395,7 +395,7 @@ const es = {
       stickyUnsaved: "Cambios sin guardar", stickySaved: "Guardado", stickyVerifying: "Verificando…",
     },
     labels: {
-      completed: "Venta completada", cancelled: "Pedido cancelado", paid: "Pagada", paymentPending: "Pago pendiente", paymentPendingBalance: "Pago pendiente: {{amount}}",
+      completed: "Venta completada", cancelled: "Pedido cancelado", paid: "Pagado", paymentPending: "Pago pendiente", paymentPartial: "Pago parcial · falta {{amount}}",
       delivered: "Entregada", shipped: "Enviada", deliveryPending: "Entrega pendiente", shippedSince: "Enviado desde",
       completedName: "Estado de la venta: {{label}}", cancelledName: "Estado del pedido: {{label}}", paymentName: "Estado del pago: {{label}}", deliveryName: "Estado de la entrega: {{label}}",
     },
@@ -861,7 +861,7 @@ const pt = {
       stickyUnsaved: "Alterações não salvas", stickySaved: "Salvo", stickyVerifying: "Verificando…",
     },
     labels: {
-      completed: "Venda concluída", cancelled: "Pedido cancelado", paid: "Paga", paymentPending: "Pagamento pendente", paymentPendingBalance: "Pagamento pendente: {{amount}}",
+      completed: "Venda concluída", cancelled: "Pedido cancelado", paid: "Pago", paymentPending: "Pagamento pendente", paymentPartial: "Pagamento parcial · faltam {{amount}}",
       delivered: "Entregue", shipped: "Enviada", deliveryPending: "Entrega pendente", shippedSince: "Enviado desde",
       completedName: "Status da venda: {{label}}", cancelledName: "Status do pedido: {{label}}", paymentName: "Status do pagamento: {{label}}", deliveryName: "Status da entrega: {{label}}",
     },
