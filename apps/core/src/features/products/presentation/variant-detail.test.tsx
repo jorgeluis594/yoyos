@@ -67,6 +67,14 @@ test("offers deleting only when nothing blocks it and otherwise says why, in the
   expect(button("Eliminar variante")).toBeDefined();
 });
 
+test("explains that the stock is changed in the variants table of the product and links there", () => {
+  mount();
+  const stock = field("Stock");
+  const help = document.getElementById(stock.getAttribute("aria-describedby") ?? "")!;
+  expect(help.textContent).toContain("El stock se cambia en la tabla de variantes del producto.");
+  expect(help.querySelector("a")?.getAttribute("href")).toMatch(/\/products\/[^/]+$/);
+});
+
 test("asks before deactivating, warns about the stock and sends the status change", () => {
   const onSubmit = vi.fn();
   mount({}, { onSubmit });
