@@ -15,10 +15,10 @@ const context = { companyId, userId: "seller" as UserId };
 const input = { orderId, paymentId: id(3) as PaymentId, amount: { amount: 10, currency: "PEN" as const },
   method: "digital_wallet" as const, deductStockIfPartial: false };
 
-function pendingOrder() {
+function pendingOrder(price = 10) {
   const built = buildPendingOrder({ number: 1001 as OrderNumber, id: orderId, companyId, sellerId: context.userId, customer: { kind: "general_public" },
     createdAt: new Date("2026-09-29T12:00:00Z"), items: [{ id: id(4) as OrderItemId, variantId: id(5) as VariantId,
-      productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 10, currency: "PEN" } }] });
+      productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: price, currency: "PEN" } }] });
   if (!built.success) throw new Error("Invalid test order");
   return built.data;
 }
@@ -91,10 +91,10 @@ test("a repeated approval publishes nothing and returns the current order", asyn
   expect(replay.saved).toEqual([]);
 });
 
-test("rejects S/ 999 on a S/ 10 order and saves nothing", async () => {
-  const f = fixture({ kind: "not_due" });
+test("rejects S/ 999 on a S/ 60 order and saves nothing", async () => {
+  const f = fixture({ kind: "not_due" }, pendingOrder(60));
   expect(await registerPayment({ ...input, amount: { amount: 999, currency: "PEN" } }, context, f.deps)).toEqual({ success: false,
-    error: { code: "PAYMENT_EXCEEDS_BALANCE", message: "Payment exceeds the pending balance", balanceDue: { amount: 10, currency: "PEN" } } });
+    error: { code: "PAYMENT_EXCEEDS_BALANCE", message: "Payment exceeds the pending balance", balanceDue: { amount: 60, currency: "PEN" } } });
   expect(f.saved).toEqual([]);
   expect(f.events).toEqual([]);
 });

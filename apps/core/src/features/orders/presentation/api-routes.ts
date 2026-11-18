@@ -166,7 +166,11 @@ orderRoutes.get("/:id/aggregate", async (request, response: Response<unknown, Pr
     const context = orderContext(response);
     // The optional link never turns a working read into a failure: a rejected or thrown read is "unknown".
     const [result, url] = await Promise.all([orders.getAggregate(parsed.data as OrderId, context),
-      Promise.resolve().then(() => orders.checkoutUrl(context.companyId, parsed.data as OrderId)).catch(() => null)]);
+      Promise.resolve().then(() => orders.checkoutUrl(context.companyId, parsed.data as OrderId)).catch((error: unknown) => {
+        log.warn({ event: "order_checkout_link_read_failed", errorCode: "CHECKOUT_LINK_READ_FAILED", err: error }, "order_checkout_link_read_failed");
+        return null;
+      })]);
+    if (url && !url.success && url.error.code !== "SUBDOMAIN_REQUIRED") log.warn({ event: "order_checkout_link_read_failed", errorCode: url.error.code }, "order_checkout_link_read_failed");
     return result.success ? sendOrder(response, result.data, { checkoutLink: checkoutLinkOf(result.data, url) }) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });

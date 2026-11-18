@@ -690,7 +690,9 @@ test("GET aggregate says which store link the order has", async () => {
   const subdomain = (await brandHost(f.companyId)).split(".")[0];
   expect((await read()).checkoutLink).toEqual({ kind: "ready", url: `${storefrontConfig.baseUrl.protocol}//${subdomain}.${storefrontConfig.baseUrl.host}/checkout/${id}` });
   vi.spyOn(orders, "checkoutUrl").mockRejectedValueOnce(new Error("store link read failed"));
+  const warn = vi.spyOn(log, "warn");
   const failed = await read();
+  expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_link_read_failed", errorCode: "CHECKOUT_LINK_READ_FAILED" }), "order_checkout_link_read_failed");
   expect(failed.number).toBeGreaterThan(0);
   expect("checkoutLink" in failed).toBe(false);
   await withTenantIsolation(f.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true, cancelledAt: new Date() } }));

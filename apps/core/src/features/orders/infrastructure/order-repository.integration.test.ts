@@ -995,6 +995,7 @@ test("concurrent delivery assignment and stock deduction consume stock once", as
       arrived(); await hold; return result;
     }));
     await protectedOrder;
+    // The two halves add up to the total: the delayed payment, not the assignment, now deducts the stock.
     const extraPayment = run(() => orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.05, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context));
     try { await waitForDeliveryLock(); } finally { release(); }
     expect(await assign).toMatchObject({ success: true, data: { order: { delivery: { method: "store", pickupPoint: { address: "Address" } }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: false } } });
