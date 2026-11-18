@@ -2,7 +2,8 @@ import { z } from "zod";
 import { walletProviderFitsMethod, walletProviderSchema, type WalletProvider } from "@shared/wallet-providers";
 import { getPeruDistrict } from "@shared/peru-geography";
 import { currencies } from "@shared/money";
-import { add, multiply, type Money } from "@shared/money";
+import { add, multiply, subtract, type Money } from "@shared/money";
+import { checkPaymentAmount } from "@shared/orders-payment";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { dispatchDateSchema, newOrderCustomerSchema, type NewOrderCustomer } from "@shared/contracts/orders";
@@ -58,6 +59,22 @@ const invalid = () => err<CartError>({ code: "INVALID_CART", message: "Invalid o
 
 export const emptyOrderDraft = (): OrderDraft => ({ kind: "empty", items: [] });
 
+/** Whether a payment, taken in order, is more than the earlier ones leave to collect (compared in cents). Core decides; this only keeps a sale that core would refuse from being saved. */
+export function paymentsOverTotal(payments: readonly DraftPayment[], total: Money): boolean {
+  let left: Money = total;
+  for (const payment of payments) {
+    const checked = checkPaymentAmount(normalizeDecimalInput(payment.amount.trim()), left);
+    if (!checked.success) {
+      if (checked.error.problem === "exceeds_balance") return true;
+      continue;
+    }
+    const next = subtract(checked.data)(left);
+    if (!next.success) return true;
+    left = next.data;
+  }
+  return false;
+}
+
 export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmission; shownTotal: Money }, CartError> {
   if (draft.kind === "empty" || new Set(draft.items.map((item) => item.variantId)).size !== draft.items.length) return invalid();
   let total: Money | null = null;
@@ -81,6 +98,7 @@ export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmissi
     total = sum.data;
   }
   if (new Set(draft.payments?.map(payment => payment.paymentId)).size !== (draft.payments?.length ?? 0)) return invalid();
+  if (total && draft.payments && paymentsOverTotal(draft.payments, total)) return invalid();
   const parsed = submissionSchema.safeParse({ id: draft.id,
     ...(draft.customer ? { customer: draft.customer } : {}),
     ...(draft.payments ? { payments: draft.payments.map(payment => ({ ...payment, amount: { amount: Number(normalizeDecimalInput(payment.amount)), currency: total?.currency } })) } : {}),

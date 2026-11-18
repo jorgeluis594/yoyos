@@ -762,3 +762,21 @@ test("a seller corrects a refused sale's missing references and payments; a repe
   expect(screen.getByText(/Se enviará sola/)).toBeTruthy();
   expect(mockCompleteOrder).not.toHaveBeenCalled();
 });
+
+test("a new-sale payment above what is left to collect shows the amount left and disables saving", async () => {
+  const { OrderPaymentCard } = jest.requireActual<typeof import("@mobile/features/orders/presentation/order-payment-card")>("@mobile/features/orders/presentation/order-payment-card");
+  const row = (n: number, amount: string) => ({ paymentId: mockId(n), amount, method: "bank_transfer" as const, deductStockIfPartial: false });
+  const screen = render(<OrderPaymentCard payments={[row(4, "40"), row(5, "20")]} total={55} totalConfirmed currency="PEN" busy={false}
+    format={amount => `S/ ${amount.toFixed(2)}`} onPaymentsChange={() => undefined} newId={() => mockId(6)} />);
+  expect(screen.getAllByText("Este pago supera lo que falta cobrar de la venta: S/ 15.00.")).toHaveLength(1);
+  expect(screen.queryByText(/Cobrado de más/)).toBeNull();
+});
+
+test("a sale refused for exceeding the total says the payments add up to more than the total", async () => {
+  mockCompleteOrder.mockResolvedValue(err({ code: "PAYMENT_EXCEEDS_BALANCE", message: "x", balanceDue: { amount: 5, currency: "PEN" } }));
+  const screen = await review();
+  payFull(screen);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  expect(await screen.findByText("Los pagos suman más que el total de la venta. Revisa los montos de los pagos.")).toBeTruthy();
+  expect(screen.queryByText(/No se pudo confirmar la venta/)).toBeNull();
+});

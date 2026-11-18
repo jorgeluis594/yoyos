@@ -64,7 +64,9 @@ export function PaymentSummary({ total, paid, balance, showPaid }: { total: stri
   </View>;
 }
 
-export function PaymentRow({ method, amount, meta, tag, onPress, accessibilityLabel, trailing }: {
+export function PaymentRow({ method, amount, meta, tag, onPress, accessibilityLabel, trailing, error }: {
+  /** Why this row cannot be saved, shown under it. */
+  error?: string;
   /** Absent while the payment has no method yet (reported by the buyer, or rejected); the tag then leads the row. */
   method?: string; amount: string; meta?: string; tag?: string; onPress?: () => void; accessibilityLabel?: string; trailing?: React.ReactNode;
 }) {
@@ -76,6 +78,7 @@ export function PaymentRow({ method, amount, meta, tag, onPress, accessibilityLa
         {method && tag ? <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>· {tag}</ThemedText> : null}
       </View>
       {meta ? <ThemedText type="small" themeColor="textSecondary">{meta}</ThemedText> : null}
+      {error ? <ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText> : null}
     </View>
     <ThemedText style={[styles.amount, styles.strong]}>{amount}</ThemedText>
     {onPress ? <SymbolView name={{ ios: "chevron.right", android: "chevron_right" }} size={18} tintColor={theme.textSecondary} /> : null}

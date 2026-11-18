@@ -45,6 +45,13 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
     if (next < totalCents) advanceIds.add(payment.paymentId);
     return next;
   }, 0);
+  // Each payment is checked against what the earlier ones leave to collect, like core does in order.
+  const overLeft = new Map<string, number>();
+  let leftCents = totalCents;
+  for (const payment of payments) {
+    const cents = amountCents(payment);
+    if (cents > leftCents) overLeft.set(payment.paymentId, leftCents); else leftCents -= cents;
+  }
   const progress = paymentProgress({ paymentStatus: balance > 0 ? "pending" : "paid", total: { amount: total ?? 0, currency: currency as Money["currency"] }, balanceDue: { amount: balance, currency: currency as Money["currency"] } });
   const open = () => setSheet(true);
 
@@ -54,9 +61,9 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
       <PaymentBadge progress={progress} format={format} />
     </View>
     {total !== null && totalConfirmed ? <PaymentSummary total={format(total)} paid={format(paid)} balance={format(balance)} showPaid={payments.length > 0} /> : null}
-    {total !== null && paidCents > totalCents ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format((paidCents - totalCents) / 100) })}</ThemedText> : null}
     {payments.map(payment => <PaymentRow key={payment.paymentId} method={paymentMethodLabel(t, payment)} amount={validAmount(payment.amount) ? format(Number(payment.amount)) : payment.amount}
       tag={advanceIds.has(payment.paymentId) ? t('advancePayment') : undefined}
+      error={total !== null && overLeft.has(payment.paymentId) ? t('newSalePaymentOver', { amount: format(overLeft.get(payment.paymentId)! / 100) }) : undefined}
       trailing={<Pressable accessibilityRole="button" accessibilityLabel={`${t('removePayment')} ${validAmount(payment.amount) ? format(Number(payment.amount)) : payment.amount}`} disabled={busy}
         onPress={() => onPaymentsChange(current => current.filter(row => row.paymentId !== payment.paymentId))} style={styles.remove}>
         <SymbolView name={{ ios: "xmark", android: "close" }} size={18} tintColor={theme.textSecondary} />

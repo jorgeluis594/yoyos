@@ -91,7 +91,12 @@ export default function OrderDetailScreen() {
   const { id, noticeAt } = useLocalSearchParams<{ id: string; noticeAt?: string }>();
   const { state } = useAccess();
   const { notice, clear } = useOrderResult();
-  const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
+  const [order, setOrderState] = useState<OrderAggregateResponse | null>(null);
+  /** A write answer carries no store link: the order keeps the last one a load carried. */
+  const setOrder = useCallback((next: React.SetStateAction<OrderAggregateResponse | null>) => setOrderState(previous => {
+    const value = typeof next === "function" ? next(previous) : next;
+    return value && !value.checkoutLink && previous?.id === value.id && previous.checkoutLink ? { ...value, checkoutLink: previous.checkoutLink } : value;
+  }), []);
   const [orderReview, setOrderReview] = useState<OrderReviewResponse | null>(null);
   // The review modal, with the link action that opened it (null from the detail).
   const [reviewFlow, setReviewFlow] = useState<Readonly<{ origin: "link" | "detail"; action: LinkActionKind | null }> | null>(null);
@@ -105,8 +110,6 @@ export default function OrderDetailScreen() {
   const [error, setError] = useState("");
   const [linkResult, setLinkResult] = useState<Readonly<{ orderId: string; link: Exclude<CheckoutLinkState, { kind: "loading" }> }> | null>(null);
   const [linkRefresh, setLinkRefresh] = useState(0);
-  // The last link state an aggregate load carried; a write answer without the field leaves it as it was.
-  const [knownLink, setKnownLink] = useState<Readonly<{ orderId: string; link: Exclude<CheckoutLinkState, { kind: "loading" | "error" }> }> | null>(null);
   const linkRequest = useRef(0);
   const checkoutGeneration = useRef(0);
   const [paymentError, setPaymentError] = useState("");
@@ -140,7 +143,7 @@ export default function OrderDetailScreen() {
   const cancellationBusy = cancellation.kind === "submitting" || cancellation.kind === "verifying";
   const cancellationBlocked = cancellationBusy || cancellation.kind === "uncertain" || detailRefreshFailed;
   // A result belongs to the order it was read for, so another order never shows this one's link while its own loads.
-  const carried = order?.checkoutLink ?? (knownLink && knownLink.orderId === order?.id ? knownLink.link : null);
+  const carried = order?.checkoutLink ?? null;
   const checkoutLink: CheckoutLinkState = carried ?? (linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" });
   const { copied, copy: copyLink, open: openLink } = useCopyLink(checkoutLink.kind === "ready" ? checkoutLink.url : null);
   const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling || savingItems;
@@ -335,8 +338,6 @@ export default function OrderDetailScreen() {
   useEffect(() => { if (paymentLine) AccessibilityInfo.announceForAccessibility(translations.t(paymentLine === "waiting" ? "paymentRecordedWaiting" : "paymentRecorded")); }, [paymentLine]);
   useEffect(() => { if (copied) AccessibilityInfo.announceForAccessibility(translations.t("checkoutCopied")); }, [copied]);
   const linkCarried = !!carried;
-  const carriedLink = order?.checkoutLink;
-  useEffect(() => { if (linkOrderId && carriedLink) setKnownLink({ orderId: linkOrderId, link: carriedLink }); }, [linkOrderId, carriedLink]);
   const saleSaved = !!order && notice?.id === order.id && notice.shownTotal.currency === order.total.currency && notice.shownTotal.amount === order.total.amount;
   useEffect(() => { if (saleSaved) AccessibilityInfo.announceForAccessibility(translations.t("saleSaved")); }, [saleSaved]);
   // Only an order that does not say whether the store has a link asks for it, and only while no load has said so.
