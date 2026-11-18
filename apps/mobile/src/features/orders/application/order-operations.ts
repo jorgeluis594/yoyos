@@ -31,6 +31,8 @@ export type OrderRequestError = Readonly<{
   variantId?: string;
   issues?: readonly OrderApiIssue[];
   currentPrice?: Money;
+  /** What the order still owes, sent with PAYMENT_EXCEEDS_BALANCE. */
+  balanceDue?: Money;
 }>;
 /** A review confirmation's own refusals, with the payload the screen needs to reload in place. */
 export type ReviewRequestError = Readonly<{
@@ -49,9 +51,11 @@ export type RejectPaymentOutcome =
   | Readonly<{ kind: "failed"; error: OrderRequestError }>;
 const unknownResult = new Set<string>(["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "INVALID_RESPONSE"] satisfies OrderRequestError["code"][]);
 /** How a failed payment confirmation reads to the seller: reviewed by somebody else, a lost answer to reload, or a plain failure. */
-export function confirmPaymentFailure(code: OrderRequestError["code"]): "already_reviewed" | "unknown" | "failed" {
-  if (code === "PAYMENT_CONFLICT" || code === "INVALID_TRANSITION") return "already_reviewed";
-  return unknownResult.has(code) ? "unknown" : "failed";
+export type PaymentFailure = "already_reviewed" | "unknown" | "failed" | Readonly<{ kind: "exceeds_balance"; balanceDue: Money | null }>;
+export function confirmPaymentFailure(error: Pick<OrderRequestError, "code" | "balanceDue">): PaymentFailure {
+  if (error.code === "PAYMENT_EXCEEDS_BALANCE") return { kind: "exceeds_balance", balanceDue: error.balanceDue ?? null };
+  if (error.code === "PAYMENT_CONFLICT" || error.code === "INVALID_TRANSITION") return "already_reviewed";
+  return unknownResult.has(error.code) ? "unknown" : "failed";
 }
 export type ConfirmOrderError = OrderRequestError | PendingOrderStoreError | CartError;
 export type ConfirmOrderOutcome =
@@ -142,7 +146,7 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
 const definitive = new Set<string>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
   "INVALID_ORDER", "CURRENCY_MISMATCH", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK",
   "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_REQUIRED", "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED",
-  "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE"] satisfies OrderRequestError["code"][]);
+  "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "PAYMENT_EXCEEDS_BALANCE"] satisfies OrderRequestError["code"][]);
 type Outcome = Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>>;
 
 export function createOrderOperations(api: Api, pendingStore: PendingStore) {
