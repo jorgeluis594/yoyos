@@ -22,6 +22,7 @@ import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettings, toDeliverySettingsResponse } from "@core/src/features/delivery-settings";
 import { parseRatedDeliverySelection, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { orders } from "@core/src/features/orders/composition";
+import { checkoutLinkOf } from "@core/src/features/orders/application/checkout-url";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
 import { toOrderReviewJson } from "@core/src/features/orders/presentation/order-review-json";
 import { orderDetailLoaderSchema, orderAggregateSchema, registerPaymentSchema } from "@shared/contracts/orders";
@@ -100,10 +101,15 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
 /** The link is built here from the company's current subdomain, so the page needs no request of its own to show it. A cancelled order has none. */
 async function orderLink(order: OrderAggregate, companyId: CompanyId, appearancePath: string): Promise<OrderLink> {
   if (order.cancelled || !order.checkoutEnabledAt) return { kind: "unavailable" };
-  const url = await orders.checkoutUrl(companyId, order.id);
-  if (url.success) return { kind: "ready", url: url.data };
-  if (url.error.code === "SUBDOMAIN_REQUIRED") return { kind: "subdomain_required", appearancePath };
-  log.error({ event: "order_checkout_link_unavailable", companyId, orderNumber: order.number, errorCode: url.error.code }, "Unable to build the order link");
+  const url = await orders.checkoutUrl(companyId, order.id).catch((cause: unknown) => {
+    log.error({ event: "order_checkout_link_unavailable", companyId, orderNumber: order.number, errorCode: "INTERNAL_ERROR", err: cause }, "Unable to build the order link");
+    return null;
+  });
+  // Which order shows which link lives in `checkoutLinkOf`, shared with GET /aggregate; «unknown» is this card's «unavailable».
+  const state = checkoutLinkOf(order, url);
+  if (state.kind === "ready") return state;
+  if (state.kind === "subdomain_required") return { kind: "subdomain_required", appearancePath };
+  if (url !== null && !url.success) log.error({ event: "order_checkout_link_unavailable", companyId, orderNumber: order.number, errorCode: url.error.code }, "Unable to build the order link");
   return { kind: "unavailable" };
 }
 

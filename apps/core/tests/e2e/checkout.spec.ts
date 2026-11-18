@@ -221,7 +221,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     });
     // Without a subdomain the card guides to the store link instead of showing one.
     await page.goto(`/es-PE/orders/${orderId}`);
-    await browserExpect(page.getByText("Elige el link de tu tienda para compartir este pedido.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Para compartir este pedido, elige primero el link de tu tienda en Apariencia de la tienda.", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("textbox", { name: "Enlace del pedido", exact: true })).toHaveCount(0);
     await page.getByRole("link", { name: "Ir a Apariencia de la tienda", exact: true }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/settings\/store-appearance#catalog-publication$/);

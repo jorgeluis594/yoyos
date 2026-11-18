@@ -319,3 +319,12 @@ test("a report on a paid order cannot be approved, says to reject a repeated rec
   act(() => buttonNamed("Rechazar")!.click());
   expect(dialogText()).toContain("Rechazar");
 });
+
+test("when core still refuses the amount the dialog shows the balance core sent", async () => {
+  const action = vi.fn(() => ({ url: null, success: false, error: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(25) }));
+  await mountWithAction(<OrderPaymentsPanel {...savedProps(order60())} />, action);
+  act(() => buttonNamed("Agregar Yape")!.click());
+  await act(async () => dialogButton("Confirmar pago")!.click());
+  await vi.waitFor(() => expect(dialogText()).toContain("Supera el saldo pendiente de S/ 25.00"));
+  expect(document.body.querySelector("[role=dialog] [role=alert]")).not.toBeNull();
+});

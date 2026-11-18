@@ -173,7 +173,7 @@ const es = {
     title: "Enlace del pedido", confirmed: "Confirmado por el comprador", pending: "Pendiente de confirmación", cancelled: "Pedido cancelado",
     label: "Enlace del pedido", copy: "Copiar enlace", open: "Abrir enlace en una pestaña nueva", copied: "Enlace copiado",
     help: "Comparte este enlace con el comprador para que confirme y pague.",
-    subdomainRequired: "Elige el link de tu tienda para compartir este pedido.", goToAppearance: "Ir a Apariencia de la tienda",
+    subdomainRequired: "Para compartir este pedido, elige primero el link de tu tienda en Apariencia de la tienda.", goToAppearance: "Ir a Apariencia de la tienda",
     unavailable: "No se pudo obtener el enlace. Inténtalo de nuevo.", retry: "Reintentar",
   },
   orderReview: {
@@ -639,7 +639,7 @@ const pt = {
     title: "Link do pedido", confirmed: "Confirmado pelo comprador", pending: "Aguardando confirmação", cancelled: "Pedido cancelado",
     label: "Link do pedido", copy: "Copiar link", open: "Abrir link em uma nova aba", copied: "Link copiado",
     help: "Compartilhe este link com o comprador para que ele confirme e pague.",
-    subdomainRequired: "Escolha o link da sua loja para compartilhar este pedido.", goToAppearance: "Ir para Aparência da loja",
+    subdomainRequired: "Para compartilhar este pedido, escolha primeiro o link da sua loja em Aparência da loja.", goToAppearance: "Ir para Aparência da loja",
     unavailable: "Não foi possível obter o link. Tente novamente.", retry: "Tentar novamente",
   },
   orderReview: {

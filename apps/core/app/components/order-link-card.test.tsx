@@ -80,9 +80,10 @@ test("both icon buttons have no visible text", async () => {
   expect(openLink()?.textContent).toBe("");
 });
 
-test("without a subdomain it guides to Apariencia de la tienda and shows no input or icons", async () => {
+test("without a store link the card says what is missing and where in one sentence, shows no input or icons and no confirmation state", async () => {
   await mount({ state: "pending", link: { kind: "subdomain_required", appearancePath: "/es-PE/settings/store-appearance#catalog-publication" } });
-  expect(container.textContent).toContain("Elige el link de tu tienda para compartir este pedido.");
+  expect(container.textContent).toContain("Para compartir este pedido, elige primero el link de tu tienda en Apariencia de la tienda.");
+  expect(container.textContent).not.toContain("Pendiente de confirmación");
   const go = [...container.querySelectorAll("a")].find(link => link.textContent === "Ir a Apariencia de la tienda");
   expect(go?.getAttribute("href")).toBe("/es-PE/settings/store-appearance#catalog-publication");
   expect(input()).toBeNull();
