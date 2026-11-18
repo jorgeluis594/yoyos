@@ -24,10 +24,12 @@ export type ProductFormField = Exclude<keyof ProductFormValues, "hidden"> | "for
 export { formEdges } from "./form-edges";
 
 export function ProductForm({
-  title, headerAction, values, setValue, setHidden, currency, current, draft, errorCount, photos, errors, disabled, onSave, onClose, onReviewCatalog, onReload, onEditOptions, onOpenVariants, saving, conflict, uncertain, changed,
+  title, headerAction, notice, values, setValue, setHidden, currency, current, draft, errorCount, photos, errors, disabled, onSave, onClose, onReviewCatalog, onReload, onEditOptions, onOpenVariants, saving, conflict, uncertain, changed,
 }: {
   title: string;
   headerAction?: ReactNode;
+  /** A confirmation of the last save, shown above the form. */
+  notice?: ReactNode;
   values: ProductFormValues;
   setValue: (field: Exclude<keyof ProductFormValues, "hidden">, value: string) => void;
   setHidden: (hidden: boolean) => void;
@@ -80,6 +82,7 @@ export function ProductForm({
       <Button onPress={onSave} loading={saving} disabled={disabled}>{t('save')}</Button>
     </ProductTopBar>
     <ScrollView ref={page} style={styles.scroll} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+      {notice}
       {errors.form ? <View ref={message} accessible><ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{errors.form}</ThemedText></View> : null}
       <View style={styles.toggle}>
         <ThemedText type="small">{t('hideProduct')}</ThemedText>

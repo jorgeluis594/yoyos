@@ -165,7 +165,7 @@ const es = {
     viewerPrevious: "Foto anterior", viewerNext: "Foto siguiente", viewerLoadFailed: "No se pudo cargar la foto.",
   },
   products: {
-    title: "Productos", new: "Nuevo producto", newDescription: "Completa los datos para agregarlo a tu empresa.", name: "Nombre", multipleVariants: "Varias variantes", noSku: "Sin SKU", salePrice: "Precio de venta", purchasePrice: "Precio de compra", from: "Desde ", stock: "Stock", searchLabel: "Buscar por nombre o SKU", search: "Buscar", caption: "Productos del catálogo", emptySearch: "No se encontraron productos para esta búsqueda.", empty: "Aún no hay productos en el catálogo. ", createFirst: "Crea el primero", pages: "Páginas de productos", page: "Página {{page}}", invalidSearch: "Búsqueda no válida", loadError: "No se pudo cargar el catálogo", invalidSearchDescription: "Revisa los criterios e inténtalo de nuevo.", retry: "Reintentar", backCatalog: "Volver al catálogo", backProducts: "Volver a productos", saved: "Producto guardado correctamente.", hideProduct: "Ocultar producto", hiddenBadge: "Oculto", catalogEmptied: "Tu catálogo publicado se quedó sin productos visibles. Tus clientes verán la tienda vacía.", saveChanges: "Guardar cambios", variants: "Variantes", variant: "Variante {{number}}", noPrice: "Sin precio", missing: "Producto no encontrado", loadProductError: "No se pudo cargar el producto", missingDescription: "No hay un producto disponible en esta dirección.", backHome: "Volver al inicio",
+    title: "Productos", new: "Nuevo producto", newDescription: "Completa los datos para agregarlo a tu empresa.", name: "Nombre", multipleVariants: "Varias variantes", noSku: "Sin SKU", salePrice: "Precio de venta", purchasePrice: "Precio de compra", from: "Desde ", stock: "Stock", searchLabel: "Buscar por nombre o SKU", search: "Buscar", caption: "Productos del catálogo", emptySearch: "No se encontraron productos para esta búsqueda.", empty: "Aún no hay productos en el catálogo. ", createFirst: "Crea el primero", pages: "Páginas de productos", page: "Página {{page}}", invalidSearch: "Búsqueda no válida", loadError: "No se pudo cargar el catálogo", invalidSearchDescription: "Revisa los criterios e inténtalo de nuevo.", retry: "Reintentar", backCatalog: "Volver al catálogo", backProducts: "Volver a productos", createAnother: "Crear otro producto", saved: "Producto guardado correctamente.", hideProduct: "Ocultar producto", hiddenBadge: "Oculto", catalogEmptied: "Tu catálogo publicado se quedó sin productos visibles. Tus clientes verán la tienda vacía.", saveChanges: "Guardar cambios", variants: "Variantes", variant: "Variante {{number}}", noPrice: "Sin precio", missing: "Producto no encontrado", loadProductError: "No se pudo cargar el producto", missingDescription: "No hay un producto disponible en esta dirección.", backHome: "Volver al inicio",
     readonlyVariants: "Puedes editar los datos generales y la foto. Las variantes son de solo lectura.", data: "Datos del producto", description: "Descripción", priceVariant: "Precio y variante", initialStock: "Stock inicial", saving: "Guardando…", save: "Guardar producto", cancel: "Cancelar",
   },
   orderDetail: { mentionedPrice_one: "El cliente mencionó {{amount}} por unidad", mentionedPrice_other: "El cliente mencionó {{amount}} por {{count}}" },
@@ -332,6 +332,8 @@ const es = {
     optionInvalid: "Revisa esta opción.", valueInvalid: "Revisa este valor.",
     deletedBlocked: "No se puede eliminar lo marcado: alguna variante ahora tiene pedidos o stock. Deshaz la eliminación y vuelve a guardar.",
     saveChanges: "Guardar cambios", noActiveList: "Sin variantes activas",
+    finishOption: "Pulsa «Listo» en la opción para aplicar tus cambios antes de guardar el producto.",
+    finishNewOption: "Pulsa «Listo» para aplicar la opción o «Eliminar» para descartarla antes de guardar el producto.",
   },
   variantDetail: {
     loading: "Cargando variante…", loadError: "No se pudo cargar la variante. Revisa tu conexión e inténtalo otra vez.", retry: "Reintentar",
@@ -339,7 +341,7 @@ const es = {
     subtitle: "Variante de {{name}}", options: "Opciones", changeCombination: "Cambiar combinación", price: "Precio", inventory: "Inventario",
     salePrice: "Precio de venta ({{currency}})", purchasePrice: "Precio de compra ({{currency}}) (opcional)", stock: "Stock", sku: "SKU (opcional)",
     qrTitle: "QR de la variante", qrHelp: "Es fijo: no cambia aunque edites el precio, el SKU o el nombre del valor.", qrAlt: "QR de {{label}}", print: "Imprimir",
-    siblings: "Variantes de {{name}}", siblingStock: "Stock {{count}}", siblingInactive: "Desactivada",
+    siblings: "Variantes de {{name}}", siblingStock: "Stock {{count}}", stockHelp: "El stock se cambia en la tabla de variantes del producto.", stockHelpLink: "Ir al producto", siblingInactive: "Desactivada",
     save: "Guardar cambios", saving: "Guardando…", cancel: "Cancelar", deactivate: "Desactivar variante", deactivating: "Desactivando…",
     activate: "Activar variante", activating: "Activando…", delete: "Eliminar variante", deleting: "Eliminando…",
     inactiveNotice: "Variante desactivada. No aparece en tu tienda ni al crear pedidos.",
@@ -631,7 +633,7 @@ const pt = {
     added_one: "{{count}} foto adicionada.", added_other: "{{count}} fotos adicionadas.", uploadFailed: "A foto {{position}} não foi enviada: {{reason}}.",
   },
   products: {
-    title: "Produtos", new: "Novo produto", newDescription: "Preencha os dados para adicioná-lo à sua empresa.", name: "Nome", multipleVariants: "Várias variantes", noSku: "Sem SKU", salePrice: "Preço de venda", purchasePrice: "Preço de compra", from: "A partir de ", stock: "Estoque", searchLabel: "Buscar por nome ou SKU", search: "Buscar", caption: "Produtos do catálogo", emptySearch: "Nenhum produto encontrado para esta busca.", empty: "Ainda não há produtos no catálogo. ", createFirst: "Crie o primeiro", pages: "Páginas de produtos", page: "Página {{page}}", invalidSearch: "Busca inválida", loadError: "Não foi possível carregar o catálogo", invalidSearchDescription: "Confira os critérios e tente novamente.", retry: "Tentar novamente", backCatalog: "Voltar ao catálogo", backProducts: "Voltar aos produtos", saved: "Produto salvo com sucesso.", hideProduct: "Ocultar produto", hiddenBadge: "Oculto", catalogEmptied: "Seu catálogo publicado ficou sem produtos visíveis. Seus clientes verão a loja vazia.", saveChanges: "Salvar alterações", variants: "Variantes", variant: "Variante {{number}}", noPrice: "Sem preço", missing: "Produto não encontrado", loadProductError: "Não foi possível carregar o produto", missingDescription: "Não há um produto disponível neste endereço.", backHome: "Voltar ao início",
+    title: "Produtos", new: "Novo produto", newDescription: "Preencha os dados para adicioná-lo à sua empresa.", name: "Nome", multipleVariants: "Várias variantes", noSku: "Sem SKU", salePrice: "Preço de venda", purchasePrice: "Preço de compra", from: "A partir de ", stock: "Estoque", searchLabel: "Buscar por nome ou SKU", search: "Buscar", caption: "Produtos do catálogo", emptySearch: "Nenhum produto encontrado para esta busca.", empty: "Ainda não há produtos no catálogo. ", createFirst: "Crie o primeiro", pages: "Páginas de produtos", page: "Página {{page}}", invalidSearch: "Busca inválida", loadError: "Não foi possível carregar o catálogo", invalidSearchDescription: "Confira os critérios e tente novamente.", retry: "Tentar novamente", backCatalog: "Voltar ao catálogo", backProducts: "Voltar aos produtos", createAnother: "Criar outro produto", saved: "Produto salvo com sucesso.", hideProduct: "Ocultar produto", hiddenBadge: "Oculto", catalogEmptied: "Seu catálogo publicado ficou sem produtos visíveis. Seus clientes verão a loja vazia.", saveChanges: "Salvar alterações", variants: "Variantes", variant: "Variante {{number}}", noPrice: "Sem preço", missing: "Produto não encontrado", loadProductError: "Não foi possível carregar o produto", missingDescription: "Não há um produto disponível neste endereço.", backHome: "Voltar ao início",
     readonlyVariants: "Você pode editar os dados gerais e a foto. As variantes são somente leitura.", data: "Dados do produto", description: "Descrição", priceVariant: "Preço e variante", initialStock: "Estoque inicial", saving: "Salvando…", save: "Salvar produto", cancel: "Cancelar",
   },
   orderDetail: { mentionedPrice_one: "O cliente mencionou {{amount}} por unidade", mentionedPrice_other: "O cliente mencionou {{amount}} por {{count}}" },
@@ -798,6 +800,8 @@ const pt = {
     optionInvalid: "Revise esta opção.", valueInvalid: "Revise este valor.",
     deletedBlocked: "Não é possível excluir o que foi marcado: alguma variante agora tem pedidos ou estoque. Desfaça a exclusão e salve novamente.",
     saveChanges: "Salvar alterações", noActiveList: "Sem variantes ativas",
+    finishOption: "Toque em «Pronto» na opção para aplicar suas alterações antes de salvar o produto.",
+    finishNewOption: "Toque em «Pronto» para aplicar a opção ou em «Excluir» para descartá-la antes de salvar o produto.",
   },
   variantDetail: {
     loading: "Carregando variante…", loadError: "Não foi possível carregar a variante. Verifique sua conexão e tente novamente.", retry: "Tentar novamente",
@@ -805,7 +809,7 @@ const pt = {
     subtitle: "Variante de {{name}}", options: "Opções", changeCombination: "Alterar combinação", price: "Preço", inventory: "Estoque",
     salePrice: "Preço de venda ({{currency}})", purchasePrice: "Preço de compra ({{currency}}) (opcional)", stock: "Estoque", sku: "SKU (opcional)",
     qrTitle: "QR da variante", qrHelp: "É fixo: não muda mesmo que você edite o preço, o SKU ou o nome do valor.", qrAlt: "QR de {{label}}", print: "Imprimir",
-    siblings: "Variantes de {{name}}", siblingStock: "Estoque {{count}}", siblingInactive: "Desativada",
+    siblings: "Variantes de {{name}}", siblingStock: "Estoque {{count}}", stockHelp: "O estoque é alterado na tabela de variantes do produto.", stockHelpLink: "Ir ao produto", siblingInactive: "Desativada",
     save: "Salvar alterações", saving: "Salvando…", cancel: "Cancelar", deactivate: "Desativar variante", deactivating: "Desativando…",
     activate: "Ativar variante", activating: "Ativando…", delete: "Excluir variante", deleting: "Excluindo…",
     inactiveNotice: "Variante desativada. Não aparece na sua loja nem ao criar pedidos.",

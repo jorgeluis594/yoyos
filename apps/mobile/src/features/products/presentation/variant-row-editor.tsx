@@ -19,6 +19,7 @@ import type { Product, VariantId } from "../domain/product";
 import { uncertainCodes } from "./product-form-state";
 import { ProductPrintSheet, useStartProductPrint } from "./product-print-sheet";
 import { useProductEditor } from "./product-editor-state";
+import { InlineNotice } from "./inline-notice";
 import { VariantQr } from "./variant-qr";
 import { variantIssueText } from "./variant-row-issues";
 import { checkVariantForm, type FieldErrors, type VariantForm } from "./variant-fields";
@@ -81,6 +82,8 @@ export function VariantRowEditor({ product, row, form, onChange, typed, pendingE
   const [busy, setBusy] = useState<Busy>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  /** Prices the seller has left once: only then does a wrong one show, so typing «12.» is not flagged. */
+  const [left, setLeft] = useState<Readonly<Partial<Record<"salePrice" | "purchasePrice", boolean>>>>({});
   const [blockedDelete, setBlockedDelete] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -99,6 +102,14 @@ export function VariantRowEditor({ product, row, form, onChange, typed, pendingE
     onChange({ ...form, [field]: value });
     setFieldErrors((current) => ({ ...current, [field]: undefined }));
   };
+  const typedErrors = checkVariantForm(form, "invalid", t).errors;
+  const priceBlocked = !!(typedErrors.salePrice || typedErrors.purchasePrice);
+  const shownErrors: FieldErrors = {
+    ...fieldErrors,
+    ...(left.salePrice && typedErrors.salePrice ? { salePrice: typedErrors.salePrice } : {}),
+    ...(left.purchasePrice && typedErrors.purchasePrice ? { purchasePrice: typedErrors.purchasePrice } : {}),
+  };
+  const confirmed = notice !== null && !notice.error && !differs;
 
   const deleteReason = row.hasOrders ? t("deleteBlockedOrders")
     : row.original.stock > 0 ? t("deleteBlockedStock", { count: row.original.stock })
@@ -184,10 +195,12 @@ export function VariantRowEditor({ product, row, form, onChange, typed, pendingE
   return <View style={[styles.editor, { borderTopColor: theme.border }]}>
     {inactive ? <View style={[styles.notice, { backgroundColor: theme.warningSurface }]}><ThemedText type="small" style={{ color: theme.warning }}>{t("variantInactiveNotice")}</ThemedText></View> : null}
     {rowError ? <ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{rowError}</ThemedText> : null}
-    {notice ? <ThemedText type="small" accessibilityRole="alert" accessibilityLiveRegion="polite" style={notice.error ? { color: theme.error } : undefined}>{notice.text}</ThemedText> : null}
-    <VariantFields form={form} errors={fieldErrors} working={working} firstField={firstField} onEdit={edit} />
-    <Button onPress={save} disabled={working || !differs}>{busy === "save" ? t("variantSaving") : t("saveVariant")}</Button>
-    <Button variant="secondary" onPress={onCancel} disabled={working}>{t("cancel")}</Button>
+    {notice ? notice.error
+      ? <ThemedText type="small" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ color: theme.error }}>{notice.text}</ThemedText>
+      : confirmed ? <InlineNotice tone="success">{notice.text}</InlineNotice> : null : null}
+    <VariantFields form={form} errors={shownErrors} working={working} firstField={firstField} onEdit={edit} onLeave={(field) => setLeft((current) => ({ ...current, [field]: true }))} />
+    <Button onPress={save} disabled={working || !differs || priceBlocked}>{busy === "save" ? t("variantSaving") : t("saveVariant")}</Button>
+    <Button variant="secondary" onPress={onCancel} disabled={working}>{confirmed ? t("closeVariantEditor") : t("cancel")}</Button>
     <View style={styles.qr}>
       <VariantQr value={product.variants.find((candidate) => candidate.id === row.id)?.qrCode ?? row.id} label={t("variantQrHeading")} />
       <View style={styles.qrText}>
@@ -197,27 +210,31 @@ export function VariantRowEditor({ product, row, form, onChange, typed, pendingE
     </View>
     {inactive
       ? <Button variant="secondary" onPress={() => changeStatus("active")} disabled={working}>{busy === "activate" ? t("activatingVariant") : t("activateVariant")}</Button>
-      : <Button variant="destructive" onPress={confirmDeactivate} disabled={working}>{busy === "deactivate" ? t("deactivatingVariant") : t("deactivateVariant")}</Button>}
+      : <Button variant="secondary" onPress={confirmDeactivate} disabled={working}>{busy === "deactivate" ? t("deactivatingVariant") : t("deactivateVariant")}</Button>}
     {reason ? <ThemedText type="small" themeColor="textSecondary" style={styles.reason}>{reason}</ThemedText>
       : <Button variant="destructive" onPress={confirmDelete} disabled={working}>{busy === "delete" ? t("deletingVariant") : t("deleteVariant")}</Button>}
     {printing ? <ProductPrintSheet visible product={product} initialVariantId={variantId} unsavedChanges={typed || pendingEdits} onClose={() => setPrinting(false)} onPrint={printVariant} /> : null}
   </View>;
 }
 
-type FieldsProps = Readonly<{ form: VariantForm; errors: FieldErrors; working: boolean; firstField: RefObject<View | null>; onEdit: (field: keyof VariantForm, value: string) => void }>;
+type FieldsProps = Readonly<{
+  form: VariantForm; errors: FieldErrors; working: boolean; firstField: RefObject<View | null>; onEdit: (field: keyof VariantForm, value: string) => void;
+  /** The seller left a price field. */
+  onLeave?: (field: "salePrice" | "purchasePrice") => void;
+}>;
 
 /** The four fields of a variant row, the same in a saved row and a «Nueva» one. */
-function VariantFields({ form, errors, working, firstField, onEdit }: FieldsProps) {
+function VariantFields({ form, errors, working, firstField, onEdit, onLeave }: FieldsProps) {
   const { t } = useTranslation();
   return <>
     <Field required invalid={!!errors.salePrice} disabled={working}>
       <FieldLabel>{t("salePrice")}</FieldLabel>
-      <View ref={firstField} accessible={false}><Input value={form.salePrice} onChangeText={(value) => onEdit("salePrice", value)} keyboardType="decimal-pad" placeholder="0.00" accessibilityLabel={t("salePrice")} /></View>
+      <View ref={firstField} accessible={false}><Input value={form.salePrice} onChangeText={(value) => onEdit("salePrice", value)} onBlur={() => onLeave?.("salePrice")} keyboardType="decimal-pad" placeholder="0.00" accessibilityLabel={t("salePrice")} /></View>
       {errors.salePrice ? <FieldError>{errors.salePrice}</FieldError> : null}
     </Field>
     <Field invalid={!!errors.purchasePrice} disabled={working}>
       <FieldLabel>{t("purchasePrice")}</FieldLabel>
-      <Input value={form.purchasePrice} onChangeText={(value) => onEdit("purchasePrice", value)} keyboardType="decimal-pad" placeholder="0.00" accessibilityLabel={t("purchasePrice")} />
+      <Input value={form.purchasePrice} onChangeText={(value) => onEdit("purchasePrice", value)} onBlur={() => onLeave?.("purchasePrice")} keyboardType="decimal-pad" placeholder="0.00" accessibilityLabel={t("purchasePrice")} />
       {errors.purchasePrice ? <FieldError>{errors.purchasePrice}</FieldError> : null}
     </Field>
     <Field invalid={!!errors.stock} disabled={working}>

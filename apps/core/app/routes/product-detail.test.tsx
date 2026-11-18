@@ -27,8 +27,8 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 
-async function open(loaded: { hidden: boolean; saved: boolean; catalogEmptied: boolean }, action?: (request: Request) => Promise<null>) {
-  const data = { product: product(loaded.hidden), catalog: "/es-PE/products", saved: loaded.saved, catalogEmptied: loaded.catalogEmptied, variantDeleted: false };
+async function open(loaded: { hidden: boolean; saved: boolean; catalogEmptied: boolean; created?: boolean }, action?: (request: Request) => Promise<null>) {
+  const data = { product: product(loaded.hidden), catalog: "/es-PE/products", saved: loaded.saved, created: loaded.created ?? false, catalogEmptied: loaded.catalogEmptied, variantDeleted: false };
   const router = createMemoryRouter([{ path: "/es-PE/products/:productId", element: <ProductDetail />, loader: () => data, action: ({ request }) => action ? action(request) : null }], { initialEntries: [`/es-PE/products/${id(50)}`] });
   await act(async () => { root.render(<I18nextProvider i18n={i18n}><RouterProvider router={router} /></I18nextProvider>); });
   return router;
@@ -40,6 +40,17 @@ test("the saved message adds the last-visible notice after Producto guardado cor
   await open({ hidden: true, saved: true, catalogEmptied: true });
   expect(status()).toBe("Producto guardado correctamente. Tu catálogo publicado se quedó sin productos visibles. Tus clientes verán la tienda vacía.");
   expect(hideSwitch().getAttribute("aria-checked")).toBe("true");
+});
+
+const createAnother = () => [...container.querySelectorAll("a")].find((link) => link.textContent === "Crear otro producto");
+
+test("after creating a product the saved message offers Crear otro producto, and a plain save does not", async () => {
+  await open({ hidden: false, saved: true, catalogEmptied: false, created: true });
+  expect(createAnother()?.getAttribute("href")).toBe("/es-PE/products/new");
+  act(() => root.unmount()); root = createRoot(container);
+  await open({ hidden: false, saved: true, catalogEmptied: false });
+  expect(container.querySelector('[role="status"]')).not.toBeNull();
+  expect(createAnother()).toBeUndefined();
 });
 
 async function saveBody(toggle: boolean) {

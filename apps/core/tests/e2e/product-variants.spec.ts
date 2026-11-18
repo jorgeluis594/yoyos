@@ -61,7 +61,8 @@ test("creates Polo básico with Talla and Color, removes S / Azul and saves five
     await browserExpect(page.getByLabel("Stock", { exact: true })).toHaveValue("20");
 
     await page.getByRole("button", { name: "Guardar producto" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+(\?saved=1)?$/);
+    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+\?saved=1&created=1$/);
+    await browserExpect(page.getByRole("link", { name: "Crear otro producto" })).toBeVisible();
     await browserExpect(page.getByRole("heading", { name: "Polo básico" })).toBeVisible();
     await browserExpect(rowLabels(page)).toHaveCount(5);
     await browserExpect(rowLabels(page).filter({ hasText: "S / Azul" })).toHaveCount(0);

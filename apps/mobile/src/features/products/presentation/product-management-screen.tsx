@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 // Preserve native Pressable style callbacks outside NativeWind interop.
 import { useEffect, useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -16,6 +16,7 @@ import { useAccess } from "@/features/users/presentation/access-provider";
 import type { Product, ProductId, VariantId } from "../domain/product";
 import { editorDraftOf } from "../domain/product-editor";
 import { formEdges, ProductForm } from "./product-form";
+import { InlineNotice } from "./inline-notice";
 import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
 import { ProductPrintSheet } from "@mobile/features/products/presentation/product-print-sheet";
 import type { CopyCount } from "@mobile/features/printing/composition";
@@ -35,7 +36,7 @@ import translations from '@mobile/i18n';
 import tokens from "../../../../../../docs/design-tokens.json";
 
 export default function ProductManagementScreen() {
-  const { productId } = useLocalSearchParams<{ productId: string }>();
+  const { productId, created } = useLocalSearchParams<{ productId: string; created?: string }>();
   const router = useRouter();
   const { t } = useTranslation();
   const theme = useTheme();
@@ -53,6 +54,8 @@ export default function ProductManagementScreen() {
   const [changed, setChanged] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [printing, setPrinting] = useState(false);
+  /** The save that just succeeded, or the creation that opened this screen; it goes away with the next edit. */
+  const [saved, setSaved] = useState<{ catalogEmptied: boolean } | null>(created === "1" ? { catalogEmptied: false } : null);
   const { discardVersion } = useProductDraft();
   const discardVersionRef = useRef(discardVersion);
   const requestKey = `${productId}:${reloadKey}`;
@@ -67,6 +70,12 @@ export default function ProductManagementScreen() {
   );
   const setDirty = useProductNavigationGuard(dirty);
 
+  // The first edit after a save ends its confirmation for good; going clean again (typing back, discarding) does not bring it back.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the notice follows the form turning dirty.
+    if (dirty) setSaved(null);
+  }, [dirty]);
+
   useEffect(() => {
     if (discardVersionRef.current === discardVersion) return;
     discardVersionRef.current = discardVersion;
@@ -75,6 +84,7 @@ export default function ProductManagementScreen() {
     photos.reset(product?.photos ?? []);
     setErrors({});
     setChanged(false);
+    setSaved(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discardVersion, product, editor]);
 
@@ -92,6 +102,7 @@ export default function ProductManagementScreen() {
   useEffect(() => {
     if (reloadRequests.current === editor.reloadRequests) return;
     reloadRequests.current = editor.reloadRequests;
+    setSaved(null);
     setReloadKey((value) => value + 1);
   }, [editor.reloadRequests]);
 
@@ -195,7 +206,7 @@ export default function ProductManagementScreen() {
     setUncertain(false);
     setChanged(false);
     setDirty(false);
-    Alert.alert(t('savedChanges'), result.data.catalogEmptied ? `${t('productUpdated')}\n\n${t('catalogEmptiedNotice')}` : t('productUpdated'));
+    setSaved({ catalogEmptied: result.data.catalogEmptied });
   };
   const reload = () => {
     const run = async () => {
@@ -214,6 +225,7 @@ export default function ProductManagementScreen() {
       setUncertain(false);
       setChanged(false);
       setDirty(false);
+      setSaved(null);
     };
     if (!dirty) { void run(); return; }
     showConfirmation({ title: t('discardChanges'), description: t('discardDescription'), confirmLabel: t('discard'), cancelLabel: t('keepEditing'), destructive: true, onConfirm: () => void run() });
@@ -231,6 +243,10 @@ export default function ProductManagementScreen() {
         onPress={() => setPrinting(true)} style={({ pressed }) => [styles.printAction, { backgroundColor: pressed ? theme.accent : "transparent", opacity: saving || uncertain ? 0.5 : 1 }]}>
         <SymbolView name={{ ios: "printer", android: "print" }} size={24} tintColor={theme.text} />
       </Pressable> : undefined}
+      notice={saved && !dirty ? <>
+        <InlineNotice tone="success">{t('productSaved')}</InlineNotice>
+        {saved.catalogEmptied ? <InlineNotice tone="warning">{t('catalogEmptiedNotice')}</InlineNotice> : null}
+      </> : undefined}
       values={values}
       setValue={setValue}
       setHidden={setHidden}
