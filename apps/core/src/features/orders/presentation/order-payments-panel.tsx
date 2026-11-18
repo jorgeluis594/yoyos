@@ -217,6 +217,8 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
   const canAdd = !order.cancelled && hasProducts && order.balanceDue.amount > 0;
   // A report on an order with nothing left to collect cannot be approved, only rejected: the row says so.
   const paidAlready = order.balanceDue.amount === 0;
+  // A dialog closed without deciding returns focus to the button that opened it; a decided one leaves it to the row focus above.
+  const returnFocus = (event: Event) => { event.preventDefault(); if (!decided.current) opener.current?.focus(); };
   const open = (kind: PaymentDialogKind, paymentId: string, element: HTMLElement, choice?: OfferedChoice) => {
     opener.current = element; decided.current = false; setSaved(null); setDismissedVoid(voidResult); setDialog({ kind, paymentId, choice });
   };
@@ -226,7 +228,7 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
     const row = document.getElementById(paymentRowId(pendingFocus.current));
     if (!row) return;
     row.focus(); pendingFocus.current = null;
-  }, [dialog, order.payments]);
+  }, [dialog, voiding, order.payments]);
   const dialogPayment = dialog ? order.payments.find(payment => payment.id === dialog.paymentId) ?? null : null;
   const rowBlocked = (paymentId: string) => !idle || (uncertain !== null && uncertain.paymentId === paymentId && uncertain.order === order);
   return <Card id="order-payments" role="region" aria-labelledby="order-payments-title" tabIndex={-1} className="min-w-0 outline-none">
@@ -261,11 +263,11 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {actions.reject && <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" aria-label={name("reject")} disabled={blocked}
                 onClick={event => open("reject", payment.id, event.currentTarget)}>{t("orderView.payments.reject")}</Button>}
-              {actions.approve && <Button type="button" className="min-h-touch md:min-h-control" aria-label={name("approve")} disabled={blocked || paidAlready}
-                aria-disabled={blockedNote ? true : undefined} aria-describedby={paidAlready ? paidNoteId : blockedNote ? approveNoteId : undefined}
-                onClick={event => { if (!blockedNote) open("approve", payment.id, event.currentTarget); }}>{t("orderView.payments.approve")}</Button>}
+              {actions.approve && <Button type="button" className="min-h-touch md:min-h-control" aria-label={name("approve")} disabled={blocked}
+                aria-disabled={blockedNote || paidAlready ? true : undefined} aria-describedby={paidAlready ? paidNoteId : blockedNote ? approveNoteId : undefined}
+                onClick={event => { if (!blockedNote && !paidAlready) open("approve", payment.id, event.currentTarget); }}>{t("orderView.payments.approve")}</Button>}
               {actions.void && <Button type="button" variant="outline" className="min-h-touch md:min-h-control" aria-label={name("void")} disabled={!idle}
-                onClick={() => { setDismissedVoid(voidResult); setVoiding(payment); }}>{t("orderView.payments.void")}</Button>}
+                onClick={event => { opener.current = event.currentTarget; decided.current = false; setDismissedVoid(voidResult); setVoiding(payment); }}>{t("orderView.payments.void")}</Button>}
             </div>
           </li>;
         })}</ul>}
@@ -275,13 +277,13 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
         onPick={(choice, element) => open("register", manualPaymentId, element, choice)} />}
     </CardContent>
     {voiding && voiding.amount && <VoidPaymentDialog amount={voiding.amount} orderNumber={order.number} buyerName={order.buyer?.name?.trim() || null}
-      onKeep={() => setVoiding(null)}
-      onVoid={() => { if (!idle) return; setVoiding(null); submit({ operation: "void", paymentId: voiding.id }, { method: "post" }); }} />}
+      onKeep={() => setVoiding(null)} onCloseAutoFocus={returnFocus}
+      onVoid={() => { if (!idle) return; decided.current = true; pendingFocus.current = voiding.id; setVoiding(null); submit({ operation: "void", paymentId: voiding.id }, { method: "post" }); }} />}
     {dialog && <PaymentDialog key={`${dialog.kind}-${dialog.paymentId}`} kind={dialog.kind} paymentId={dialog.paymentId} payment={dialogPayment} order={order}
       receiptUrl={receiptUrls[dialog.paymentId] ?? null} format={format} options={paymentOptions} initialChoice={dialog.choice} approveBlockedNote={blockedNote ?? undefined}
       onClose={() => setDialog(null)} onSubmitted={paymentId => { submitted.current = { paymentId, order }; }}
       onUncertain={paymentId => setUncertain(submitted.current?.paymentId === paymentId ? submitted.current : null)}
       onDone={(paymentId, result) => { decided.current = true; pendingFocus.current = paymentId; setDialog(null); setSaved(result.recorded && result.order ? paymentRecordedKey(result.order) : "orders.paymentSaved"); }}
-      onCloseAutoFocus={event => { event.preventDefault(); if (!decided.current) opener.current?.focus(); }} />}
+      onCloseAutoFocus={returnFocus} />}
   </Card>;
 }

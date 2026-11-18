@@ -76,8 +76,8 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
               <p className="text-sm font-medium tabular-nums">{t("orders.orderPendingBalance", { amount: format.amount(order.balanceDue) })}</p>
               <div className="flex gap-2">
                 <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" onClick={() => { clearFailure(); setStep("reject"); }}>{t("orders.reject")}</Button>
-                <Button type="button" className="min-h-touch md:min-h-control" disabled={paidAlready} aria-disabled={approveBlockedNote ? true : undefined} aria-describedby={approveBlockedNote || paidAlready ? approveNoteId : undefined}
-                  onClick={() => { if (approveBlockedNote) return; clearFailure(); setStep("approve"); }}>{t("orders.approve")}</Button></div>
+                <Button type="button" className="min-h-touch md:min-h-control" aria-disabled={approveBlockedNote || paidAlready ? true : undefined} aria-describedby={approveBlockedNote || paidAlready ? approveNoteId : undefined}
+                  onClick={() => { if (approveBlockedNote || paidAlready) return; clearFailure(); setStep("approve"); }}>{t("orders.approve")}</Button></div>
               {(approveBlockedNote || paidAlready) && <p id={approveNoteId} className="basis-full text-sm text-muted-foreground">{paidAlready ? t("orders.paymentPaidAlready") : approveBlockedNote}</p>}</div>
             : <p className="text-sm font-medium">{t(`orders.${state}`)}</p>}
           {failure && !explainedInline && <Alert variant="destructive"><AlertDescription role="alert">{paymentErrorText(t, i18n.language, failure, failureBalance)}</AlertDescription></Alert>}

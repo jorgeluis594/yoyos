@@ -20,7 +20,7 @@ export function PaymentFields({ value, onChange, options, showStockBox = true, a
   const id = useId();
   const methods = options.choices.map(item => ({ value: item, label: offeredChoiceName(item, options, { wallet: t("orders.wallet"), bankTransfer: t("orders.bankTransfer") }) }));
   return <>
-    <Field className="min-w-0"><FieldLabel htmlFor={`${id}-amount`}>{t("orders.paymentAmount")}</FieldLabel><Input id={`${id}-amount`} name="amount" className="h-control" type="text" inputMode="decimal" autoComplete="off" value={value.amount} onChange={event => onChange({ ...value, amount: event.target.value })} autoFocus={autoFocusAmount}
+    <Field className="min-w-0"><FieldLabel htmlFor={`${id}-amount`}>{t("orders.paymentAmount")}</FieldLabel><Input id={`${id}-amount`} name="amount" className="h-control" type="text" inputMode="decimal" autoComplete="off" value={value.amount} onChange={event => onChange({ ...value, amount: event.target.value.replace(/,/g, ".") })} autoFocus={autoFocusAmount}
       aria-invalid={error !== null || invalid} aria-describedby={error ? `${id}-amount-error` : undefined} required />
       {error && <p id={`${id}-amount-error`} role="alert" className="text-sm text-destructive">{error}</p>}</Field>
     <Field className="min-w-0"><FieldLabel htmlFor={`${id}-method`}>{t("orders.paymentMethod")}</FieldLabel>

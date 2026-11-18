@@ -6,16 +6,16 @@ import type { Money } from "@shared/money";
 
 /**
  * «¿Anular el pago de S/ 20.00?»: voiding a payment never happens by accident. It names the amount, the order and the buyer when there is one;
- * **Mantener pago** (or closing) leaves the payment confirmed.
+ * **Mantener pago** (or closing) leaves the payment confirmed and focus returns to **Anular pago** (`onCloseAutoFocus`, as in the payment dialog).
  */
-export function VoidPaymentDialog({ amount, orderNumber, buyerName, onVoid, onKeep }: Readonly<{
-  amount: Money; orderNumber: number; buyerName: string | null; onVoid: () => void; onKeep: () => void;
+export function VoidPaymentDialog({ amount, orderNumber, buyerName, onVoid, onKeep, onCloseAutoFocus }: Readonly<{
+  amount: Money; orderNumber: number; buyerName: string | null; onVoid: () => void; onKeep: () => void; onCloseAutoFocus: (event: Event) => void;
 }>) {
   const { t, i18n } = useTranslation();
   const formatted = formatCurrency(amount.amount, amount.currency, i18n.language);
   const description = buyerName ? t("orders.voidDescriptionBuyer", { number: orderNumber, buyer: buyerName }) : t("orders.voidDescription", { number: orderNumber });
   return <Dialog open onOpenChange={open => { if (!open) onKeep(); }}>
-    <DialogContent>
+    <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
       <DialogHeader><DialogTitle>{t("orders.voidTitle", { amount: formatted })}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>
       <DialogFooter>
         <Button type="button" variant="outline" className="min-h-touch md:min-h-control" onClick={onKeep}>{t("orders.voidKeep")}</Button>

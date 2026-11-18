@@ -300,20 +300,39 @@ test("the void confirmation of an order without buyer names only the order", asy
   expect(dialogText()).not.toMatch(/Pedido #1001 ·/);
 });
 
-test("cancelling the void confirmation leaves the payment confirmed", async () => {
+test("cancelling the void confirmation leaves the payment confirmed and returns focus to Anular pago", async () => {
   const action = vi.fn(() => ({ url: null, success: true, error: false }));
   await mountWithAction(<OrderPaymentsPanel {...savedProps(order60({ buyer, paidAmount: money(20), balanceDue: money(40), payments: [{ ...confirmed, amount: money(20) }] }))} />, action);
-  act(() => buttonNamed("Anular pago")!.click());
-  await act(async () => dialogButton("Mantener pago")!.click());
-  expect(document.body.querySelector("[role=dialog]")).toBeNull();
+  for (const close of ["Mantener pago", "Escape"]) {
+    const opener = buttonNamed("Anular pago")!;
+    opener.focus();
+    act(() => opener.click());
+    if (close === "Escape") await act(async () => { document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    else await act(async () => dialogButton(close)!.click());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+    expect(document.body.querySelector("[role=dialog]"), close).toBeNull();
+    expect(document.activeElement, close).toBe(buttonNamed("Anular pago"));
+  }
   expect(action).not.toHaveBeenCalled();
   expect(container.textContent).toContain("Confirmado");
-  expect(buttonNamed("Anular pago")).toBeDefined();
+});
+
+test("confirming the void moves focus to the payment row", async () => {
+  const action = vi.fn(() => ({ url: null, success: true, error: false }));
+  await mountWithAction(<OrderPaymentsPanel {...savedProps(order60({ buyer, paidAmount: money(20), balanceDue: money(40), payments: [{ ...confirmed, id: "p-20", amount: money(20) }] }))} />, action);
+  act(() => buttonNamed("Anular pago")!.click());
+  await act(async () => dialogButton("Anular pago")!.click());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  expect(document.activeElement?.id).toBe("payment-row-p-20");
 });
 
 test("a report on a paid order cannot be approved, says to reject a repeated receipt, and can still be rejected", async () => {
   await mount(<OrderPaymentsPanel {...savedProps(order60({ paidAmount: money(60), balanceDue: money(0), payments: [{ ...confirmed, amount: money(60) }, reported] }))} />);
-  expect(buttonNamed("Aprobar")!.disabled).toBe(true);
+  // aria-disabled, not disabled: a keyboard user can reach the button and hear why.
+  expect(buttonNamed("Aprobar")!.getAttribute("aria-disabled")).toBe("true");
+  expect(buttonNamed("Aprobar")!.disabled).toBe(false);
+  act(() => buttonNamed("Aprobar")!.click());
+  expect(document.body.querySelector("[role=dialog]")).toBeNull();
   expect(buttonNamed("Rechazar")!.disabled).toBe(false);
   expect(plain(container.textContent)).toContain("Este pedido ya está pagado. Si el comprobante repite un pago que ya registraste, recházalo: el motivo que escribas lo verá el comprador.");
   act(() => buttonNamed("Rechazar")!.click());
@@ -359,4 +378,13 @@ test("the refusal of an amount above the balance is said once when the field alr
   await act(async () => container.querySelector<HTMLButtonElement>("[data-testid=reload]")!.click());
   const text = dialogText();
   expect(text.match(/Supera el saldo pendiente de S\/ 25\.00/g)).toHaveLength(1);
+});
+
+test("a comma decimal is typed as a dot and accepted", async () => {
+  await mount(<OrderPaymentsPanel {...savedProps(order60())} />);
+  act(() => buttonNamed("Agregar Yape")!.click());
+  type(dialogAmount(), "60,00");
+  expect(dialogAmount().value).toBe("60.00");
+  expect(dialogText()).not.toContain("Escribe un importe");
+  expect(dialogButton("Confirmar pago")!.disabled).toBe(false);
 });
