@@ -433,4 +433,29 @@ describe("hide product", () => {
     fireEvent.changeText(screen.getByLabelText("Nombre *"), "Camisa nueva");
     expect(screen.queryByText("Producto guardado.")).toBeNull();
   });
+  test("the saved confirmation does not come back when the form turns clean again without a save", async () => {
+    mockLoadProduct.mockResolvedValue(ok(product));
+    mockSaveProduct.mockResolvedValue(savedWith(true, false));
+    renderScreen();
+    fireEvent(await screen.findByLabelText("Ocultar producto"), "valueChange", true);
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(screen.getByText("Producto guardado.")).toBeTruthy();
+    const original = screen.getByLabelText("Nombre *").props.value;
+    fireEvent.changeText(screen.getByLabelText("Nombre *"), "Camisa nueva");
+    fireEvent.changeText(screen.getByLabelText("Nombre *"), original);
+    expect(screen.queryByText("Producto guardado.")).toBeNull();
+  });
+});
+
+test("a published variant answer keeps a pending product rename and the editor draft", async () => {
+  mockLoadProduct.mockResolvedValue(ok(product));
+  let editor!: ReturnType<typeof useProductEditor>;
+  function Capture() { editor = useProductEditor(); return null; }
+  render(<ProductEditorProvider><ProductManagementScreen /><Capture /></ProductEditorProvider>);
+  const name = await screen.findByLabelText("Nombre *");
+  fireEvent.changeText(name, "Camisa editada");
+  const draft = editor.draft;
+  act(() => editor.publish({ ...product, structureVersion: 2 } as never));
+  expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa editada");
+  expect(editor.draft).toBe(draft);
 });

@@ -197,7 +197,7 @@ export function VariantRowEditor({ product, row, form, onChange, typed, pendingE
     {rowError ? <ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{rowError}</ThemedText> : null}
     {notice ? notice.error
       ? <ThemedText type="small" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ color: theme.error }}>{notice.text}</ThemedText>
-      : <InlineNotice tone="success">{notice.text}</InlineNotice> : null}
+      : confirmed ? <InlineNotice tone="success">{notice.text}</InlineNotice> : null : null}
     <VariantFields form={form} errors={shownErrors} working={working} firstField={firstField} onEdit={edit} onLeave={(field) => setLeft((current) => ({ ...current, [field]: true }))} />
     <Button onPress={save} disabled={working || !differs || priceBlocked}>{busy === "save" ? t("variantSaving") : t("saveVariant")}</Button>
     <Button variant="secondary" onPress={onCancel} disabled={working}>{confirmed ? t("closeVariantEditor") : t("cancel")}</Button>

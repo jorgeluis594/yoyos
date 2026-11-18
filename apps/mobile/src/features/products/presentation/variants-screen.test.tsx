@@ -535,6 +535,18 @@ test("after Guardar variante the confirmation reads as success and the editor of
   expect(screen.getByRole("button", { name: "Editar S / Negro" }).props.accessibilityState.expanded).toBe(false);
 });
 
+test("Variante guardada disappears while the fields differ from the saved values", async () => {
+  const draft = savedProduct();
+  mockUpdate.mockResolvedValue(answered(draft, 0, { stock: 7 }));
+  renderSaved(draft);
+  open("S / Negro");
+  typeStock("7");
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Guardar variante" })));
+  expect(await screen.findByText("Variante guardada.")).toBeTruthy();
+  typeStock("8");
+  expect(screen.queryByText("Variante guardada.")).toBeNull();
+});
+
 test("the bulk actions bar also shows while a row is expanded and chips select variants", () => {
   renderSaved();
   open("S / Negro");

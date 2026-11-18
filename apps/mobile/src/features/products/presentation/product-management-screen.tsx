@@ -70,6 +70,12 @@ export default function ProductManagementScreen() {
   );
   const setDirty = useProductNavigationGuard(dirty);
 
+  // The first edit after a save ends its confirmation for good; going clean again (typing back, discarding) does not bring it back.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the notice follows the form turning dirty.
+    if (dirty) setSaved(null);
+  }, [dirty]);
+
   useEffect(() => {
     if (discardVersionRef.current === discardVersion) return;
     discardVersionRef.current = discardVersion;
@@ -78,6 +84,7 @@ export default function ProductManagementScreen() {
     photos.reset(product?.photos ?? []);
     setErrors({});
     setChanged(false);
+    setSaved(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discardVersion, product, editor]);
 
@@ -95,6 +102,7 @@ export default function ProductManagementScreen() {
   useEffect(() => {
     if (reloadRequests.current === editor.reloadRequests) return;
     reloadRequests.current = editor.reloadRequests;
+    setSaved(null);
     setReloadKey((value) => value + 1);
   }, [editor.reloadRequests]);
 
@@ -217,6 +225,7 @@ export default function ProductManagementScreen() {
       setUncertain(false);
       setChanged(false);
       setDirty(false);
+      setSaved(null);
     };
     if (!dirty) { void run(); return; }
     showConfirmation({ title: t('discardChanges'), description: t('discardDescription'), confirmLabel: t('discard'), cancelLabel: t('keepEditing'), destructive: true, onConfirm: () => void run() });
