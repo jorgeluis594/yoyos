@@ -27,7 +27,7 @@ export const emptyProductFormValues: ProductFormValues = { name: "", description
 export type ProductFormSubmission = Readonly<{ values: ProductFormValues; photos: PhotosToSave; draft: EditorDraft; hidden: boolean }>;
 
 const noFeedback: SaveFeedback = { errors: {}, issues: [] };
-const noTargets: FeedbackTargets = { rows: {}, options: {}, values: {}, blockedValues: new Set() };
+const noTargets: FeedbackTargets = { rows: {}, cells: {}, options: {}, values: {}, blockedValues: new Set() };
 const noPhotos: readonly SavedPhoto[] = [];
 const emptyDraft = createDraft({ sku: null, salePrice: 0, purchasePrice: null, stock: 0 });
 const amount = (text: string): number | null => text.trim() === "" ? null : Number(text);
@@ -144,7 +144,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
       <ProductPhotosField photos={photos} error={errors.photos ?? (photosUnusable ? t("productPhotos.unusableField") : undefined)} />
       {readOnlyStock ? <Field>
         <FieldLabel htmlFor="initialStock">{t("products.stock")}</FieldLabel>
-        <Input id="initialStock" name="initialStock" value={stockTotal(draft)} readOnly aria-readonly="true" aria-describedby={withOptions ? "stock-help" : undefined} className="bg-muted text-muted-foreground" />
+        <Input id="initialStock" name="initialStock" value={stockTotal(draft) ?? "—"} readOnly aria-readonly="true" aria-describedby={withOptions ? "stock-help" : undefined} className="bg-muted text-muted-foreground" />
         {withOptions && <p id="stock-help" className="text-sm text-muted-foreground">{saved ? t("productEditor.stockSumActive") : t("productEditor.stockSum")}</p>}
       </Field> : <Field data-invalid={Boolean(errors.initialStock)}>
         <FieldLabel htmlFor="initialStock">{saved ? t("products.stock") : t("products.initialStock")}</FieldLabel>

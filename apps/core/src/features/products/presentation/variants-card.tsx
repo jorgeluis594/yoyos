@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Trash2 } from "lucide-react";
 import { Link } from "react-router";
@@ -45,6 +45,7 @@ const tagVariant = { new: "info", inactive: "secondary", removed: "warning", del
 export function VariantsCard({ draft, setDraft, variantHref, currency, originalNames, targets, commitOption, onClearOptions, onEditingChange }: Props) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState<OptionBuffer | null>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
   const isEditing = editing !== null;
   useEffect(() => { onEditingChange?.(isEditing); }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
   const [notices, setNotices] = useState<Readonly<Record<string, string>>>({});
@@ -57,6 +58,15 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
   const [version, setVersion] = useState(0);
   const [uncreatedOpen, setUncreatedOpen] = useState(false);
   const [uncreatedLimit, setUncreatedLimit] = useState(50);
+
+  // After a rejected save the first failing row takes the focus, so the general notice leads to it instead of staying at the foot of the form.
+  useEffect(() => {
+    const row = tableRef.current?.querySelector<HTMLElement>("tr[data-row-error]");
+    const field = row?.querySelector<HTMLElement>("[aria-invalid=true]") ?? row?.querySelector<HTMLElement>("input, a, button");
+    if (!row || !field) return;
+    field.focus({ preventScroll: true });
+    row.scrollIntoView?.({ block: "center" });
+  }, [targets.rows]);
 
   const optionIds = draft.options.map((option) => option.id);
   const reorder = useReorder(optionIds, (id, to) => setDraft((current) => moveOption(current, id, to)));
@@ -149,28 +159,32 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
     const { row, label, removal } = view;
     const active = removal === null && row.status === "active";
     const error = targets.rows[row.ref];
+    const cells = targets.cells[row.ref];
     const unsaved = row.id === null;
-    return <TableRow key={row.ref} data-removal={removal ?? undefined}>
-      <TableCell className="w-10"><Checkbox aria-label={t("productEditor.selectRow", { label })} disabled={!active} checked={active && selected.includes(row.ref)}
+    const priceId = `price-error-${row.ref}`, stockId = `stock-error-${row.ref}`;
+    return <TableRow key={row.ref} data-removal={removal ?? undefined} data-row-error={error ? "" : undefined}>
+      <TableCell className="px-1"><Checkbox aria-label={t("productEditor.selectRow", { label })} disabled={!active} checked={active && selected.includes(row.ref)}
         onCheckedChange={(checked) => setSelected((current) => checked ? [...current, row.ref] : current.filter((ref) => ref !== row.ref))} /></TableCell>
-      <TableCell className="min-w-40">
+      <TableCell className="whitespace-normal break-words">
         <div className="flex flex-wrap items-center gap-2">
           {unsaved && removal === null
-            ? <Button type="button" variant="link" className="h-auto p-0" onClick={() => setRowRef(row.ref)}>{label}<span className="sr-only"> · {t("productEditor.openRow", { label })}</span></Button>
+            ? <Button type="button" variant="link" className="h-auto whitespace-normal p-0 text-left" onClick={() => setRowRef(row.ref)}>{label}<span className="sr-only"> · {t("productEditor.openRow", { label })}</span></Button>
             : row.id !== null && removal === null && variantHref ? <Link to={variantHref(row.id)} className="underline-offset-4 hover:underline">{label}</Link>
             : <span className={removal ? "line-through" : undefined}>{label}</span>}
           {rowTag(view)}
           {removal === "self" && <Button type="button" variant="link" size="sm" onClick={() => edit((current) => undoRemoveRow(current, row.ref))}>{t("productEditor.undo")}</Button>}
         </div>
-        {error && <FieldError>{error}</FieldError>}
+        {error && !cells && <FieldError>{error}</FieldError>}
       </TableCell>
-      <TableCell className="w-32">{active
-        ? <Input key={`${row.ref}:${version}`} type="number" inputMode="decimal" step="0.01" min="0.01" defaultValue={row.salePrice.toFixed(2)} aria-label={t("productEditor.salePriceOf", { label })} aria-invalid={Boolean(error) || undefined} onChange={(event) => input(row.ref, "salePrice", event.target.value)} />
-        : <span>{row.salePrice.toFixed(2)}</span>}</TableCell>
-      <TableCell className="w-24">{active
-        ? <Input key={`${row.ref}:${version}`} type="number" inputMode="numeric" step="1" min="0" defaultValue={row.stock} aria-label={t("productEditor.stockOf", { label })} onChange={(event) => input(row.ref, "stock", event.target.value)} />
-        : <span>{row.stock}</span>}</TableCell>
-      <TableCell className="w-10">{unsaved && removal === null &&
+      <TableCell className="whitespace-normal px-1 align-top">{active
+        ? <Input key={`${row.ref}:${version}`} type="number" inputMode="decimal" step="0.01" min="0.01" defaultValue={row.salePrice.toFixed(2)} className="px-2" aria-label={t("productEditor.salePriceOf", { label })} aria-invalid={Boolean(cells?.salePrice) || undefined} aria-describedby={cells?.salePrice ? priceId : undefined} onChange={(event) => input(row.ref, "salePrice", event.target.value)} />
+        : <span>{row.salePrice.toFixed(2)}</span>}
+        {cells?.salePrice && <FieldError id={priceId} className="text-xs [overflow-wrap:anywhere]">{cells.salePrice}</FieldError>}</TableCell>
+      <TableCell className="whitespace-normal px-1 align-top">{active
+        ? <Input key={`${row.ref}:${version}`} type="number" inputMode="numeric" step="1" min="0" defaultValue={row.stock} className="px-2" aria-label={t("productEditor.stockOf", { label })} aria-invalid={Boolean(cells?.stock) || undefined} aria-describedby={cells?.stock ? stockId : undefined} onChange={(event) => input(row.ref, "stock", event.target.value)} />
+        : <span>{row.stock}</span>}
+        {cells?.stock && <FieldError id={stockId} className="text-xs [overflow-wrap:anywhere]">{cells.stock}</FieldError>}</TableCell>
+      <TableCell className="px-1">{unsaved && removal === null &&
         <Button type="button" variant="ghost" size="icon" aria-label={t("productEditor.removeRow", { label })} onClick={() => edit((current) => { const next = removeRow(current, row.ref); return next.success ? next.data : current; })}><Trash2 aria-hidden="true" /></Button>}</TableCell>
     </TableRow>;
   };
@@ -229,17 +243,17 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
             {newSelected > 0 && <Button type="button" size="sm" variant="outline" onClick={removeSelected}>{t("productEditor.remove")}</Button>}
             <Button type="button" size="sm" variant="ghost" onClick={() => setSelected([])}>{t("productEditor.clearSelection")}</Button>
           </div>}
-          <div className="overflow-x-auto">
-            <Table>
+          <div ref={tableRef}>
+            <Table className="table-fixed">
               <TableHeader><TableRow>
-                <TableHead className="w-10" />
+                <TableHead className="w-9 px-1" />
                 <TableHead>{t("productEditor.colVariant")}</TableHead>
-                <TableHead>{t("productEditor.colSalePrice")} ({currency})</TableHead>
-                <TableHead>{t("productEditor.colStock")}</TableHead>
-                <TableHead className="w-10" />
+                <TableHead className="w-24 whitespace-normal px-1 sm:w-32">{t("productEditor.colSalePrice")} ({currency})</TableHead>
+                <TableHead className="w-20 whitespace-normal px-1 sm:w-24">{t("productEditor.colStock")}</TableHead>
+                <TableHead className="w-9 px-1" />
               </TableRow></TableHeader>
               <TableBody>{visible.map(tableRow)}</TableBody>
-              <TableFooter><TableRow><TableCell /><TableCell>{t("productEditor.stockTotal")}</TableCell><TableCell /><TableCell>{stockTotal(draft)}</TableCell><TableCell /></TableRow></TableFooter>
+              <TableFooter><TableRow><TableCell /><TableCell>{t("productEditor.stockTotal")}</TableCell><TableCell /><TableCell className="px-1">{stockTotal(draft) ?? "—"}</TableCell><TableCell /></TableRow></TableFooter>
             </Table>
           </div>
           {uncreated > 0 && <div className="grid gap-2 text-sm">

@@ -328,3 +328,44 @@ test("leaving the empty option name shows its error without pressing Listo", () 
   expect(container.textContent).toContain("Escribe el nombre de la opción.");
   expect(container.textContent).not.toContain("Agrega al menos un valor.");
 });
+
+const variantIssue = (variantId: string, field: string, reason: string, message: string) => ({ scope: "variant" as const, variantId, field, reason, message });
+const cellOf = (input: HTMLInputElement) => input.closest("td")!;
+
+test("a rejected stock marks the stock field of that variant, never its price, and the message sits in the stock cell", () => {
+  mount({ draft: draftFromProduct(product(false)), feedback: { errors: {}, issues: [variantIssue(id(60), "stock", "INVALID_STOCK", "Stock no válido")] } });
+  const stock = byLabel("Stock de Negro");
+  expect(stock.getAttribute("aria-invalid")).toBe("true");
+  expect(byLabel("Precio de venta de Negro").getAttribute("aria-invalid")).toBeNull();
+  expect(cellOf(stock).textContent).toContain("Stock no válido");
+  expect(cellOf(byLabel("Precio de venta de Negro")).textContent).not.toContain("Stock no válido");
+  expect(byLabel("Stock de Azul").getAttribute("aria-invalid")).toBeNull();
+});
+
+test("a rejected price marks the price field and its message sits in the price cell", () => {
+  mount({ draft: draftFromProduct(product(false)), feedback: { errors: {}, issues: [variantIssue(id(61), "salePrice", "INVALID_PRICE", "Precio no válido")] } });
+  expect(byLabel("Precio de venta de Azul").getAttribute("aria-invalid")).toBe("true");
+  expect(byLabel("Stock de Azul").getAttribute("aria-invalid")).toBeNull();
+  expect(cellOf(byLabel("Precio de venta de Azul")).textContent).toContain("Precio no válido");
+});
+
+test("a row error moves focus to the failing field, so the general notice leads to the row", () => {
+  mount({ draft: draftFromProduct(product(false)), feedback: { errors: {}, issues: [variantIssue(id(61), "stock", "INVALID_STOCK", "Stock no válido")] } });
+  expect(container.textContent).toContain("Revisa 1 variante marcada.");
+  expect(document.activeElement).toBe(byLabel("Stock de Azul"));
+});
+
+test("Stock total adds only valid stocks: an invalid one hides the figure until it is fixed", () => {
+  mount({ draft: draftFromProduct(product(true)) });
+  const total = () => container.querySelector("tfoot")!.textContent;
+  expect(total()).toContain("3");
+  type(byLabel("Stock de Negro"), "-3");
+  expect(total()).not.toContain("0");
+  expect(total()).toContain("—");
+  expect((container.querySelector("input[aria-readonly=true]") as HTMLInputElement).value).toBe("—");
+  type(byLabel("Stock de Negro"), "2.5");
+  expect(total()).toContain("—");
+  type(byLabel("Stock de Negro"), "4");
+  expect(total()).toContain("7");
+  expect(total()).not.toContain("—");
+});
