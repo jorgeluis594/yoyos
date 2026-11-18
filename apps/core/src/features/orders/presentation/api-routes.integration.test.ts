@@ -1,5 +1,6 @@
 import { requestDeliveryQuotation } from "@core/src/features/delivery-settings/infrastructure/quotation-api";
 import { applicationEventBus } from "@core/src/composition/event-bus";
+import { orders } from "@core/src/features/orders/composition";
 import { createCancellationOperations } from "@mobile/features/orders/application/cancel-order";
 import { loader as checkoutLoader, action as confirmCheckoutAction } from "@core/app/routes/checkout";
 import { RouterContextProvider, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
@@ -630,6 +631,67 @@ test("checkout-link HTTP requires the seller company and returns a stable UUID U
   expect(await stored()).toEqual(created);
   await withTenantIsolation(owner.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true, cancelledAt: new Date() } }));
   expect((await call(path, owner.cookie, {})).status).toBe(409);
+});
+
+const money = (amount: number) => ({ amount, currency: "PEN" });
+const pay = (cookie: string, orderId: string, amount: number, paymentId = randomUUID()) => call(`/api/orders/${orderId}/payments`, cookie,
+  { paymentId, amount: money(amount), method: "digital_wallet", deductStockIfPartial: false });
+const paymentRows = (companyId: string, orderId: string) => withTenantIsolation(companyId, async () => await prisma.payment.count({ where: { orderId } }));
+
+test("payment HTTP rejects an amount above the pending balance and accepts the exact one and its replay", async () => {
+  const f = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders", f.cookie, { id, items: [{ variantId: f.variantId, quantity: 6 }] })).status).toBe(201);
+  const rejected = await pay(f.cookie, id, 999);
+  expect(rejected.status).toBe(409);
+  expect(await rejected.json()).toEqual({ code: "PAYMENT_EXCEEDS_BALANCE", error: "Payment exceeds the pending balance", balanceDue: money(60) });
+  expect(await paymentRows(f.companyId, id)).toBe(0);
+  const paymentId = randomUUID();
+  expect((await pay(f.cookie, id, 60, paymentId)).status).toBe(200);
+  expect((await pay(f.cookie, id, 60, paymentId)).status).toBe(200);
+  expect(await paymentRows(f.companyId, id)).toBe(1);
+});
+
+test("two payments at once on one order: the second is rejected with the remaining balance", async () => {
+  const f = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders", f.cookie, { id, items: [{ variantId: f.variantId, quantity: 6 }] })).status).toBe(201);
+  const responses = await Promise.all([pay(f.cookie, id, 40), pay(f.cookie, id, 40)]);
+  expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+  const rejected = responses.find((response) => response.status === 409)!;
+  expect(await rejected.json()).toMatchObject({ code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(20) });
+  expect(await paymentRows(f.companyId, id)).toBe(1);
+});
+
+test("a rejected new sale logs payment_exceeds_balance without amounts", async () => {
+  const f = await fixture("PE");
+  const info = vi.spyOn(log, "info");
+  const id = randomUUID();
+  const paymentId = randomUUID();
+  const response = await call("/api/orders", f.cookie, { id, items: [{ variantId: f.variantId, quantity: 1 }],
+    payments: [{ paymentId, amount: money(999), method: "digital_wallet", deductStockIfPartial: false }] });
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "PAYMENT_EXCEEDS_BALANCE" });
+  expect(await withTenantIsolation(f.companyId, async () => await prisma.order.count({ where: { id } }))).toBe(0);
+  const entry = info.mock.calls.map(([fields]) => fields).find((fields) => (fields as { event?: string }).event === "payment_exceeds_balance");
+  expect(entry).toEqual({ event: "payment_exceeds_balance", operation: "create_order", paymentId, source: "manual", userId: f.userId, errorCode: "PAYMENT_EXCEEDS_BALANCE" });
+  expect(JSON.stringify(entry)).not.toContain("999");
+});
+
+test("GET aggregate says which store link the order has", async () => {
+  const f = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders", f.cookie, { id, items: [{ variantId: f.variantId, quantity: 1 }] })).status).toBe(201);
+  const read = async () => orderAggregateSchema.parse(await (await call(`/api/orders/${id}/aggregate`, f.cookie)).json());
+  expect((await read()).checkoutLink).toEqual({ kind: "subdomain_required" });
+  const subdomain = (await brandHost(f.companyId)).split(".")[0];
+  expect((await read()).checkoutLink).toEqual({ kind: "ready", url: `${storefrontConfig.baseUrl.protocol}//${subdomain}.${storefrontConfig.baseUrl.host}/checkout/${id}` });
+  vi.spyOn(orders, "checkoutUrl").mockRejectedValueOnce(new Error("store link read failed"));
+  const failed = await read();
+  expect(failed.number).toBeGreaterThan(0);
+  expect("checkoutLink" in failed).toBe(false);
+  await withTenantIsolation(f.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true, cancelledAt: new Date() } }));
+  expect("checkoutLink" in await read()).toBe(false);
 });
 
 test("complete creation HTTP preserves optional payment IDs and supports pending and paid orders", async () => {

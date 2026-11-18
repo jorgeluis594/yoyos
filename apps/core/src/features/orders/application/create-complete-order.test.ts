@@ -121,3 +121,12 @@ test("ignores the old deferral option", async () => {
   expect(result.success).toBe(true);
   expect(f.registerPayment).toHaveBeenCalledWith(expect.not.objectContaining({ deferStockDeduction: expect.anything() }), context);
 });
+
+test("refuses a new sale whose initial payments exceed the total and creates nothing", async () => {
+  const f = fixture();
+  f.registerPayment.mockResolvedValueOnce({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", message: "Payment exceeds the pending balance", balanceDue: payment.amount } });
+  const failing = { ...f.deps, transaction: async <T>(_companyId: CompanyId, work: () => Promise<T>) => { const result = await work(); return result; } };
+  const result = await createCompleteOrder({ ...input, payments: [{ ...payment, amount: { amount: 999, currency: "PEN" } }] }, context, failing);
+  expect(result).toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE" } });
+  expect(f.deliver).not.toHaveBeenCalled();
+});
