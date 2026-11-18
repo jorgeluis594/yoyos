@@ -7,8 +7,8 @@ const publicBase = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test
 const file = (name: string, buffer = png) => ({ name, mimeType: "image/png", buffer });
 
 const texts = {
-  es: { path: "/es-PE/products/new", chips: ["Subiendo…", "No se subió", "Se quitará"], remove: "Quitar la foto 1 de 4" },
-  pt: { path: "/pt-BR/products/new", chips: ["Enviando…", "Não enviada", "Será removida"], remove: "Remover a foto 1 de 4" },
+  es: { path: "/es-PE/products/new", chips: ["Subiendo…", "No se subió", "Se quitará"], remove: "Quitar la foto 1 de 4", another: "Crear otro producto" },
+  pt: { path: "/pt-BR/products/new", chips: ["Enviando…", "Não enviada", "Será removida"], remove: "Remover a foto 1 de 4", another: "Criar outro produto" },
 } as const;
 
 for (const language of ["es", "pt"] as const) {
@@ -120,7 +120,8 @@ for (const language of ["es", "pt"] as const) {
       await browserExpect(page.locator("[data-photo] button[data-action=remove]")).toHaveCount(4);
       const before = await boxHeight(page);
       await page.locator("form button[type=submit]").click();
-      await browserExpect(page).toHaveURL(/\/products\/[0-9a-f-]+(\?saved=1)?$/);
+      await browserExpect(page).toHaveURL(/\/products\/[0-9a-f-]+\?saved=1&created=1$/);
+      await browserExpect(page.getByRole("link", { name: texts[language].another })).toBeVisible();
       await browserExpect(page.locator("[data-photo]")).toHaveCount(4);
       browserExpect(await boxHeight(page)).toBe(before);
       for (const n of [1, 2, 3]) {
