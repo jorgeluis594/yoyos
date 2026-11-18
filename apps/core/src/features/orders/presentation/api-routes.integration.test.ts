@@ -50,6 +50,8 @@ function hostContext(companyId: string) {
   return context;
 }
 const subdomains = new Map<string, string>();
+/** GET aggregate alone carries the store link; the mutation answers do not, so comparisons drop it. */
+function withoutLink<T extends object>(order: T): Omit<T, "checkoutLink"> { const { checkoutLink: _link, ...rest } = order as T & { checkoutLink?: unknown }; return rest; }
 
 /** The brand host of `companyId`, created on first use: the buyer APIs answer on the store's own origin only. */
 async function brandHost(companyId: string) {
@@ -176,10 +178,10 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
   const first = assigned.data;
   expect(first).toMatchObject({ delivery: { method: "store", pickupPoint: store.pickupPoint,
     recordedBy: { kind: "seller", userId: seller.userId } }, total: { amount: 20 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 } });
-  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
+  expect(withoutLink(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(first);
   const nextStore = { ...store, pickupPoint: { ...store.pickupPoint, address: "Dirección nueva" } };
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, agency: { enabled: false }, home: { enabled: false }, store: nextStore }, "PUT")).status).toBe(200);
-  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
+  expect(withoutLink(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(first);
   expect((await call(`/api/orders/${orderId}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 20, currency: "PEN" },
     method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
   await systemPrisma.user.update({ where: { id: second.userId }, data: { companyId: seller.companyId } });
@@ -527,11 +529,11 @@ test("home HTTP uses persisted enablement, requires district and replaces store 
   expect(assigned).toMatchObject({ delivery: { method: "home", recipient, destination: { address: "Street 123", district: "MIRAFLORES", districtCode: "040110", instructions: null },
     recordedBy: { kind: "seller", userId: seller.userId } }, deliveryCost: { amount: 6 }, deliveryCharge: { amount: 6 }, total: { amount: 16 } });
   expect(assigned.delivery).not.toHaveProperty("pickupPoint");
-  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(assigned);
+  expect(withoutLink(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(assigned);
   expect((await call("/api/delivery-settings", seller.cookie, { ...settings, expectedVersion: 2, agency: { enabled: false }, home: { enabled: false } }, "PUT")).status).toBe(200);
   const blocked = await call(`/api/orders/${orderId}/delivery`, seller.cookie, home, "PUT");
   expect(blocked.status).toBe(422); expect(await blocked.json()).toMatchObject({ code: "RATE_UNAVAILABLE" });
-  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(assigned);
+  expect(withoutLink(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(assigned);
   expect(await (await call("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 3, agency: { enabled: false }, couriers: [], home: { enabled: false }, store });
 });
 
@@ -584,7 +586,8 @@ test("rated agency adapters preserve snapshots and reject unavailable, unassocia
   expect(summary).toHaveBeenCalledWith(expect.objectContaining({ event: "order_delivery_saved", deliveryMethod: "agency", courierId: courier.id, transactionOutcome: "committed" }), "Order delivery saved");
   // The snapshot does not depend on later catalog or configuration changes.
   await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = false WHERE id = $1', [associated]));
-  expect(await mobile.getAggregate(orderId)).toEqual(saved);
+  const read = await mobile.getAggregate(orderId);
+  expect(read.success ? { ...read, data: withoutLink(read.data) } : read).toEqual(saved);
   expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
   expect(rejection).toHaveBeenCalledWith(expect.objectContaining({ event: "order_delivery_rejected", errorCode: "RATE_UNAVAILABLE", agencyId: associated }), "Order delivery rejected");
   await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = true WHERE id = $1', [associated]));
@@ -713,7 +716,7 @@ test("complete creation HTTP preserves optional payment IDs and supports pending
     const duplicate = await call("/api/orders", f.cookie, input);
     expect(duplicate.status).toBe(409);
     expect(await duplicate.json()).toMatchObject({ code: "ORDER_ALREADY_EXISTS" });
-    expect(orderAggregateSchema.parse(await (await call(`/api/orders/${id}/aggregate`, f.cookie)).json())).toEqual(order);
+    expect(withoutLink(orderAggregateSchema.parse(await (await call(`/api/orders/${id}/aggregate`, f.cookie)).json()))).toEqual(order);
   }
 });
 
@@ -887,7 +890,7 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   const reviewedPrice = await call(path, seller.cookie, { ...input, expectedPrice: { amount: 7, currency: "PEN" } }, "PUT");
   expect(reviewedPrice.status).toBe(409);
   expect(await reviewedPrice.json()).toEqual({ code: "TOTAL_CHANGED", error: "Review delivery price", currentPrice: home.price });
-  expect(orderAggregateSchema.parse(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(before);
+  expect(withoutLink(orderAggregateSchema.parse(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()))).toEqual(before);
   const store = await call(path, seller.cookie, { delivery: { method: "store", recipient }, expectedPrice: { amount: 0, currency: "PEN" } }, "PUT");
   expect(store.status).toBe(200);
   expect(await store.json()).toMatchObject({ total: { amount: 10 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 },
