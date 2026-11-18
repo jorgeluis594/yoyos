@@ -55,8 +55,8 @@ test("creating a hidden product opens its page with the switch on and no last-vi
   await vi.waitFor(() => expect(router.state.location.pathname).toBe(`/es-PE/products/${createdId}`));
 
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ hidden: true }));
-  expect(router.state.location.search).toBe("?saved=1");
-  expect(container.querySelector('[role="status"]')?.textContent).toBe("Producto guardado correctamente.");
+  expect(router.state.location.search).toBe("?saved=1&created=1");
+  expect(container.querySelector('[role="status"]')?.textContent).toBe("Producto guardado correctamente.Crear otro producto");
   expect(container.textContent).not.toContain("sin productos visibles");
   expect(container.querySelector('button[role="switch"]')!.getAttribute("aria-checked")).toBe("true");
 });

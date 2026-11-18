@@ -369,3 +369,16 @@ test("Stock total adds only valid stocks: an invalid one hides the figure until 
   expect(total()).toContain("7");
   expect(total()).not.toContain("—");
 });
+
+test("the stock field lives with the prices in the product data, not under the photos", () => {
+  mount();
+  const stock = byLabel("Stock inicial");
+  expect(stock.closest("section")?.getAttribute("aria-labelledby")).toBe("product-data-heading");
+  expect(container.querySelector("aside")?.contains(stock)).toBe(false);
+});
+
+test("the stock total of a product with options also lives in the product data", () => {
+  mount({ draft: draftFromProduct(product(false)) });
+  const total = container.querySelector<HTMLInputElement>("input[aria-readonly=true]")!;
+  expect(total.closest("section")?.getAttribute("aria-labelledby")).toBe("product-data-heading");
+});

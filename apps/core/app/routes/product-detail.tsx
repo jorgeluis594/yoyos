@@ -38,6 +38,7 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
       product: detail.product,
       catalog: companyPath(new URL(request.url).pathname, company.country, "/products"),
       saved: new URL(request.url).searchParams.get("saved") === "1",
+      created: new URL(request.url).searchParams.get("created") === "1",
       catalogEmptied: new URL(request.url).searchParams.get("catalogEmptied") === "1",
       variantDeleted: new URL(request.url).searchParams.get("variantDeleted") === "1",
     };
@@ -84,7 +85,7 @@ export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { ac
 
 export default function ProductDetail() {
   const { t } = useTranslation();
-  const { product, catalog, saved, catalogEmptied, variantDeleted } = useLoaderData<typeof loader>();
+  const { product, catalog, saved, created, catalogEmptied, variantDeleted } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof clientAction>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -120,7 +121,8 @@ export default function ProductDetail() {
       </PageHeader.Heading>
       <PageHeader.Actions><Button asChild variant="outline"><Link to={catalog}>{t("products.backProducts")}</Link></Button></PageHeader.Actions>
     </PageHeader>
-    {saved && <Alert variant="success" className="mt-5"><AlertDescription>{t("products.saved")}{catalogEmptied && <> {t("products.catalogEmptied")}</>}</AlertDescription></Alert>}
+    {saved && <Alert variant="success" className="mt-5"><AlertDescription className="flex flex-wrap items-center gap-x-4 gap-y-2"><span>{t("products.saved")}{catalogEmptied && <> {t("products.catalogEmptied")}</>}</span>
+      {created && <Button asChild variant="outline" size="sm"><Link to={`${catalog}/new`}>{t("products.createAnother")}</Link></Button>}</AlertDescription></Alert>}
     {variantDeleted && <Alert variant="success" className="mt-5"><AlertDescription>{t("variantDetail.variantDeleted")}</AlertDescription></Alert>}
     <ProductForm key={`${product.updatedAt}:${product.structureVersion}:${reloads}`} currency={product.currency} cancelTo={catalog} feedback={feedback} pending={pending} values={values}
       draft={draftFromProduct(product)} hidden={product.hidden} originalNames={originalNames} variantHref={(variantId) => `${catalog}/${product.id}/variants/${variantId}`} submitLabel={t("products.saveChanges")} photos={product.photos} onSave={save} onReload={reload} />

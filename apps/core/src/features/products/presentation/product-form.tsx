@@ -80,7 +80,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
   const ready = useClientReady();
   const withOptions = hasOptions(draft);
   const saved = draft.saved;
-  const fields: readonly (keyof ProductFormValues)[] = withOptions ? ["name", "description"] : ["name", "description", "sku", "salePrice", "purchasePrice"];
+  const fields: readonly (keyof ProductFormValues)[] = withOptions ? ["name", "description"] : ["name", "description", "sku", "salePrice", "purchasePrice", "initialStock"];
   const dirty = draftSnapshot([values, draft, "keep", hidden]) !== opened || photos.dirty;
   const guard = useDiscardGuard(dirty);
 
@@ -124,7 +124,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
       <section aria-labelledby="product-data-heading" className="grid gap-4 sm:grid-cols-2">
         <h2 id="product-data-heading" className="text-base font-semibold sm:col-span-2">{t("products.data")}</h2>
       {fields.map((key) => {
-        const label = { name: t("products.name"), description: t("products.description"), sku: "SKU", salePrice: `${t("products.salePrice")} (${currency})`, purchasePrice: `${t("products.purchasePrice")} (${currency})`, initialStock: t("products.initialStock") }[key];
+        const label = { name: t("products.name"), description: t("products.description"), sku: "SKU", salePrice: `${t("products.salePrice")} (${currency})`, purchasePrice: `${t("products.purchasePrice")} (${currency})`, initialStock: saved ? t("products.stock") : t("products.initialStock") }[key];
         const wide = key === "name" || key === "description";
         return <Fragment key={key}>
           {key === "sku" && saved && <h2 className="pt-2 text-base font-semibold sm:col-span-2">{t("products.priceVariant")}</h2>}
@@ -136,21 +136,17 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
           </Field>
         </Fragment>;
       })}
+      {readOnlyStock && <Field>
+        <FieldLabel htmlFor="initialStock">{t("products.stock")}</FieldLabel>
+        <Input id="initialStock" name="initialStock" value={stockTotal(draft) ?? "—"} readOnly aria-readonly="true" aria-describedby="stock-help" className="bg-muted text-muted-foreground" />
+        <p id="stock-help" className="text-sm text-muted-foreground">{saved ? t("productEditor.stockSumActive") : t("productEditor.stockSum")}</p>
+      </Field>}
       </section>
       <VariantsCard draft={draft} setDraft={setDraft} variantHref={variantHref} currency={currency} originalNames={originalNames} targets={targets} commitOption={commitOption} onEditingChange={setEditingOption}
         onClearOptions={() => setDraft((current) => clearOptions(current))} />
       </div>
       <aside className="grid gap-5 lg:col-start-2 lg:row-start-2">
       <ProductPhotosField photos={photos} error={errors.photos ?? (photosUnusable ? t("productPhotos.unusableField") : undefined)} />
-      {readOnlyStock ? <Field>
-        <FieldLabel htmlFor="initialStock">{t("products.stock")}</FieldLabel>
-        <Input id="initialStock" name="initialStock" value={stockTotal(draft) ?? "—"} readOnly aria-readonly="true" aria-describedby={withOptions ? "stock-help" : undefined} className="bg-muted text-muted-foreground" />
-        {withOptions && <p id="stock-help" className="text-sm text-muted-foreground">{saved ? t("productEditor.stockSumActive") : t("productEditor.stockSum")}</p>}
-      </Field> : <Field data-invalid={Boolean(errors.initialStock)}>
-        <FieldLabel htmlFor="initialStock">{saved ? t("products.stock") : t("products.initialStock")}</FieldLabel>
-        <Input id="initialStock" name="initialStock" aria-invalid={Boolean(errors.initialStock) || undefined} aria-describedby={errors.initialStock ? "initialStock-error" : undefined} value={values.initialStock} onChange={(event) => setValues({ ...values, initialStock: event.target.value })} type="number" inputMode="numeric" step="1" min="0" />
-        {errors.initialStock && <FieldError id="initialStock-error">{errors.initialStock}</FieldError>}
-      </Field>}
       </aside>
     </div>
     {reviewed > 0 && <Alert variant="destructive"><AlertDescription>{t("productEditor.reviewVariants", { count: reviewed })}</AlertDescription></Alert>}

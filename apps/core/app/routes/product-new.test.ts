@@ -33,7 +33,7 @@ test("keeps Portuguese in the product redirect", async () => {
   const request = new Request("http://localhost/pt-BR/products/new", { method: "POST", body: JSON.stringify(valid) });
   const response = await action({ request, context } as ActionFunctionArgs);
   expect(response).toBeInstanceOf(Response);
-  expect((response as Response).headers.get("Location")).toBe("/pt-BR/products/00000000-0000-4000-8000-000000000002?saved=1");
+  expect((response as Response).headers.get("Location")).toBe("/pt-BR/products/00000000-0000-4000-8000-000000000002?saved=1&created=1");
 });
 
 test("returns Portuguese validation errors for Portuguese routes", async () => {
@@ -67,5 +67,5 @@ test("creating a hidden product stores it hidden and redirects to its page with 
   const request = new Request("http://localhost/es-PE/products/new", { method: "POST", body: JSON.stringify({ ...valid, hidden: true }) });
   const response = await action({ request, context } as ActionFunctionArgs) as Response;
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ hidden: true }));
-  expect(response.headers.get("Location")).toMatch(/\/es-PE\/products\/[0-9a-f-]+\?saved=1$/);
+  expect(response.headers.get("Location")).toMatch(/\/es-PE\/products\/[0-9a-f-]+\?saved=1&created=1$/);
 });
