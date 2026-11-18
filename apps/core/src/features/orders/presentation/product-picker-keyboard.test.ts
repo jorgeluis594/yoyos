@@ -41,8 +41,25 @@ describe("pickerKey", () => {
     expect(pickerKey("Enter", { product: 2, chip: 1 }, rows)).toEqual({ highlight: { product: 2, chip: 1 }, add: { product: 2, variant: 1 }, preventDefault: true });
   });
 
-  test("does nothing on Enter while nothing is highlighted", () => {
+  test("Enter adds the highlighted result", () => {
+    expect(pickerKey("Enter", { product: 1, chip: null }, rows).add).toEqual({ product: 1, variant: 0 });
+  });
+
+  test("Enter without a highlight adds the only result", () => {
+    expect(pickerKey("Enter", null, [single])).toEqual({ highlight: { product: 0, chip: null }, add: { product: 0, variant: 0 }, preventDefault: true });
+  });
+
+  test("Enter without a highlight does nothing when there are several results", () => {
     expect(pickerKey("Enter", null, rows)).toEqual({ highlight: null, add: null, preventDefault: true });
+  });
+
+  test("Enter without a highlight on the only product with options highlights its first option", () => {
+    expect(pickerKey("Enter", null, [sizes])).toEqual({ highlight: { product: 0, chip: 0 }, add: null, preventDefault: true });
+  });
+
+  test("a second Enter adds the highlighted option", () => {
+    const first = pickerKey("Enter", null, [sizes]);
+    expect(pickerKey("Enter", first.highlight, [sizes]).add).toEqual({ product: 0, variant: 0 });
   });
 
   test("ignores every key when there are no results", () => {

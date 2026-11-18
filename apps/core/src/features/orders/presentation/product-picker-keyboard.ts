@@ -8,7 +8,9 @@ export const isPickerKey = (key: string): key is PickerKey => ["ArrowUp", "Arrow
 
 export function pickerKey(key: PickerKey, highlight: PickerHighlight, rows: readonly PickerRow[]): PickerKeyOutcome {
   const keep = (preventDefault: boolean): PickerKeyOutcome => ({ highlight, add: null, preventDefault });
-  if (key === "Enter" && (!highlight || rows.length === 0)) return keep(true);
+  if (key === "Enter" && rows.length === 0) return keep(true);
+  // Enter with nothing highlighted acts on the only result, as if the arrow had highlighted it first; with several it does nothing.
+  if (key === "Enter" && !highlight) return rows.length === 1 ? pickerKey(key, { product: 0, chip: null }, rows) : keep(true);
   if (rows.length === 0) return keep(false);
   if (!highlight) {
     if (key === "ArrowDown") return { highlight: { product: 0, chip: null }, add: null, preventDefault: true };
