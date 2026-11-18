@@ -65,7 +65,7 @@ test("save waits for confirmed creation, then opens the persisted product withou
   fireEvent.press(screen.getByRole("button", { name: "Guardar" }));
   expect(mockReplace).not.toHaveBeenCalled();
   await act(async () => confirm(ok(productId)));
-  expect(mockReplace).toHaveBeenCalledWith({ pathname: "/products/[productId]", params: { productId } });
+  expect(mockReplace).toHaveBeenCalledWith({ pathname: "/products/[productId]", params: { productId, created: "1" } });
   expect(mockStartAttempt).not.toHaveBeenCalled();
 });
 

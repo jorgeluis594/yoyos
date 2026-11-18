@@ -45,7 +45,7 @@ test("header Listo is disabled while an option has errors or the limit is exceed
   expect(screen.getByText(/Máximo 100 variantes/)).toBeTruthy();
   expect(screen.getByText(/Con estos valores serían 120 combinaciones \(5 tallas × 6 colores × 4 mangas\)\. Quita algún valor para continuar\./)).toBeTruthy();
   expect(header().props.accessibilityState.disabled).toBe(true);
-  expect(screen.getAllByRole("button", { name: "Listo" })[1].props.accessibilityState.disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Confirmar" }).props.accessibilityState.disabled).toBe(true);
 });
 
 test("a duplicated value is flagged next to its field and blocks Listo", () => {
@@ -138,4 +138,23 @@ test("a collapsed card lists the same rejection of two values without repeating 
     expect(screen.getAllByText(reason)).toHaveLength(2);
     expect(error.mock.calls.filter((call) => String(call[0]).includes("same key"))).toEqual([]);
   } finally { error.mockRestore(); }
+});
+
+test("only one Listo is on screen while an option is being edited or added", () => {
+  renderOptions(tallaColor());
+  fireEvent.press(screen.getByRole("button", { name: "Editar Talla" }));
+  expect(screen.getAllByRole("button", { name: "Listo" })).toHaveLength(1);
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar otra opción" }));
+  expect(screen.getAllByRole("button", { name: "Listo" })).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "Confirmar" })).toBeTruthy();
+});
+
+test("the option and value fields say what goes in them", () => {
+  const empty = render(<ProductEditorProvider><Seed draft={createDraft(base)}><OptionsScreen /></Seed></ProductEditorProvider>);
+  expect(screen.getByPlaceholderText("Ej. Talla o Color")).toBeTruthy();
+  expect(screen.getByPlaceholderText("Ej. S, M o Negro")).toBeTruthy();
+  fireEvent.changeText(screen.getByPlaceholderText("Ej. S, M o Negro"), "S");
+  expect(screen.getByPlaceholderText("Agregar otro valor")).toBeTruthy();
+  empty.unmount();
 });
