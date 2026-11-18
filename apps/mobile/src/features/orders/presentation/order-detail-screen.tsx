@@ -216,6 +216,8 @@ export default function OrderDetailScreen() {
       setPaymentError(failure === "already_reviewed" ? t("paymentAlreadyReviewed") : failure === "unknown" ? t("paymentUnknownResult")
         : failure === "failed" ? t("paymentSaveError")
         : t("paymentExceedsBalanceServer", { amount: format(failure.balanceDue ?? order.balanceDue) }));
+      // The order is reloaded below: closing the register sheet keeps it from offering «Registrar S/ 0.00».
+      if (typeof failure === "object" && source === "manual") setEditor(null);
       if (failure !== "failed") { const refreshed = await orders.loadOrderAggregate(order.id); if (refreshed.success) setOrder(refreshed.data); }
     }
     setSavingPayment(null);
@@ -339,7 +341,8 @@ export default function OrderDetailScreen() {
   useEffect(() => { if (copied) AccessibilityInfo.announceForAccessibility(translations.t("checkoutCopied")); }, [copied]);
   const linkCarried = !!carried;
   const saleSaved = !!order && notice?.id === order.id && notice.shownTotal.currency === order.total.currency && notice.shownTotal.amount === order.total.amount;
-  useEffect(() => { if (saleSaved) AccessibilityInfo.announceForAccessibility(translations.t("saleSaved")); }, [saleSaved]);
+  // The live region speaks on Android; iOS needs the announcement, so each platform says it once.
+  useEffect(() => { if (saleSaved && Platform.OS === "ios") AccessibilityInfo.announceForAccessibility(translations.t("saleSaved")); }, [saleSaved]);
   // Only an order that does not say whether the store has a link asks for it, and only while no load has said so.
   useEffect(() => {
     if (!linkOrderId || linkCancelled || linkCarried) return;
@@ -743,7 +746,7 @@ export default function OrderDetailScreen() {
             {review && rejection ? <RejectionForm busy={writeBusy} reason={rejection.reason}
               onChange={reason => setRejection({ reason })} onBack={() => { setRejection(null); setPaymentError(""); }}
               onConfirm={() => void rejectReport(review.paymentId, rejection.reason)} /> : null}
-            {review && !rejection ? <PaymentEditor key={review.paymentId} order={order} busy={writeBusy}
+            {review && !rejection ? <PaymentEditor key={review.paymentId} order={order} busy={writeBusy} format={format}
               onConfirm={(amount, method, deduct) => void confirmPayment(review.paymentId, "buyer_report", amount, method, deduct)} /> : null}
             {review && !rejection ? <Button variant="secondary" disabled={writeBusy} onPress={() => { setPaymentError(""); setRejection({ reason: "" }); }}>{t('rejectPayment')}</Button> : null}
             {paymentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
@@ -827,22 +830,21 @@ const styles = StyleSheet.create({
   item: { gap: 4, paddingVertical: 12 },
 });
 
-function PaymentEditor({ order, busy, onConfirm }: { order: OrderAggregateResponse; busy: boolean;
+function PaymentEditor({ order, busy, format, onConfirm }: { order: OrderAggregateResponse; busy: boolean; format: (value: { amount: number; currency: string }) => string;
   onConfirm: (amount: string, method: PaymentMethodAndProvider, deductStockIfPartial: boolean) => void }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const balance = order.balanceDue.amount;
   const [value, setValue] = useState<PaymentFieldsValue>({ amount: balance > 0 ? balance.toFixed(2) : "", ...paymentFromChoice(defaultPaymentChoice), deductStockIfPartial: false });
   const typed = Number(normalizeDecimalInput(value.amount));
   const showStock = offersPartialStockDeduction(order, value.amount.trim() && Number.isFinite(typed) ? { amount: typed, currency: order.total.currency } : null);
   const paid = balance <= 0;
   const problem = paid ? null : paymentAmountProblem(value.amount, balance, order.total.currency);
-  const amountError = paymentAmountMessage(t, problem, money(balance, order.total.currency, i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE'));
+  const amountError = paymentAmountMessage(t, problem, format(order.balanceDue));
   return <View style={styles.section}>
-    {paid ? <ThemedText accessibilityRole="alert">{t('paymentZeroBalance')}</ThemedText> : <>
-      <PaymentFields value={value} onChange={setValue} currency={order.total.currency} busy={busy} showStockOption={showStock} amountError={amountError} />
-      <Button disabled={busy || problem !== null} loading={busy} accessibilityHint={amountError || undefined}
-        onPress={() => onConfirm(value.amount, paymentFromChoice(choiceOfPayment(value) ?? defaultPaymentChoice), showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button></>}
-    {paid ? <Button disabled onPress={() => undefined}>{t("confirmPayment")}</Button> : null}
+    {paid ? <ThemedText accessibilityRole="alert">{t('paymentZeroBalance')}</ThemedText>
+      : <PaymentFields value={value} onChange={setValue} currency={order.total.currency} busy={busy} showStockOption={showStock} amountError={amountError} />}
+    <Button disabled={busy || paid || problem !== null} loading={busy} accessibilityHint={amountError || undefined}
+      onPress={() => onConfirm(value.amount, paymentFromChoice(choiceOfPayment(value) ?? defaultPaymentChoice), showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
   </View>;
 }
 

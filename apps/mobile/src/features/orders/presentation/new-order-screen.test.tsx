@@ -436,12 +436,14 @@ test("one save retains editable payments and delivery on rejection and prevents 
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  advance(screen, "5");
-  advance(screen, "5");
   fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Av. Lima 123");
   selectDistrict(screen);
   await screen.findByTestId("delivery-rate");
+  // The buyer's payment includes the shipping, and the rate is not chosen yet: the total is not final, so nothing is refused.
+  advance(screen, "5");
+  advance(screen, "13");
+  expect(screen.queryByText(/Este pago supera/)).toBeNull();
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
@@ -451,7 +453,7 @@ test("one save retains editable payments and delivery on rejection and prevents 
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
   await waitFor(() => expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled());
   expect(mockCompleteOrder.mock.calls[0][0]).toMatchObject({ id: mockId(3), payments: [
-    { paymentId: mockId(4), amount: "5" }, { paymentId: mockId(5), amount: "5" }],
+    { paymentId: mockId(4), amount: "5" }, { paymentId: mockId(5), amount: "13" }],
     ratedDelivery: { expectedPrice: firstRate.price, delivery: { method: "home", rateId: firstRate.id,
       destination: { address: "Av. Lima 123", districtCode: "150122" }, recipient: { name: "Ana", phone: "+51999001" } } }, deliverImmediately: true });
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Av. Lima 123");
@@ -779,4 +781,18 @@ test("a sale refused for exceeding the total says the payments add up to more th
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   expect(await screen.findByText("Los pagos suman más que el total de la venta. Revisa los montos de los pagos.")).toBeTruthy();
   expect(screen.queryByText(/No se pudo confirmar la venta/)).toBeNull();
+});
+
+test("a sale paid in full with shipping keeps the initial paid and estimated balance rows", async () => {
+  const screen = await review();
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
+  fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Av. Lima 123");
+  selectDistrict(screen);
+  await screen.findByTestId("delivery-rate");
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
+  advance(screen, "5");
+  advance(screen, "13");
+  expect(screen.getByText("Pagos ingresados")).toBeTruthy();
+  expect(screen.getByText("Saldo referencial")).toBeTruthy();
+  expect(screen.getAllByText(/S\/\s*18\.00/).length).toBeGreaterThan(0);
 });

@@ -146,7 +146,7 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
 const definitive = new Set<string>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
   "INVALID_ORDER", "CURRENCY_MISMATCH", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK",
   "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_REQUIRED", "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED",
-  "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE"] satisfies OrderRequestError["code"][]);
+  "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "PAYMENT_EXCEEDS_BALANCE"] satisfies OrderRequestError["code"][]);
 type Outcome = Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>>;
 
 export function createOrderOperations(api: Api, pendingStore: PendingStore) {

@@ -1454,6 +1454,8 @@ test("an over-balance rejection shows the pending balance", async () => {
   fireEvent.press(await screen.findByRole("button", { name: "Registrar pago" }));
   fireEvent.press(screen.getByRole("button", { name: /^Registrar S/ }));
   expect(await screen.findByText("El pago supera el saldo pendiente de S/ 40.00. Se actualizó el pedido.")).toBeTruthy();
+  // The sheet closes, so it cannot offer to register the balance that no longer exists.
+  expect(screen.queryByRole("radio", { name: /Pago completo/ })).toBeNull();
 });
 
 const reportOn = (balance: number) => { const reportId = "00000000-0000-4000-8000-000000000099";

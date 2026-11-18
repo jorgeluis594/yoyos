@@ -27,9 +27,10 @@ export function paymentAmountMessage(t: (key: string, options?: Record<string, s
     : problem === "zero" ? t('paymentAmountZero') : t('paymentOverBalance', { amount: balance });
 }
 /** The problem of a typed amount against the balance, or null when it is valid. */
-export function paymentAmountProblem(typed: string, balance: number, currency: string): PaymentAmountProblem | null {
+export function paymentAmountProblem(typed: string, balance: number, currency: string, capAtBalance = true): PaymentAmountProblem | null {
   const checked = checkPaymentAmount(normalizeDecimalInput(typed), { amount: balance, currency: currency as Money["currency"] });
-  return checked.success ? null : checked.error.problem;
+  if (checked.success) return null;
+  return checked.error.problem === "exceeds_balance" && !capAtBalance ? null : checked.error.problem;
 }
 
 export function StatusPill({ label, tone, symbol }: { label: string; tone: PillTone; symbol?: { ios: string; android: string } }) {
@@ -94,6 +95,8 @@ type StockOffer = Readonly<{ offered: boolean; reason: string | null }>;
 type SheetProps = {
   visible: boolean;
   balance: number;
+  /** False while the sale total is not final (shipping not chosen yet): an amount above the balance is then accepted. */
+  capAtBalance?: boolean;
   currency: string;
   format: (amount: number) => string;
   busy: boolean;
@@ -126,7 +129,7 @@ export function PaymentRegisterSheet({ visible, onClose, ...body }: SheetProps) 
   </Modal>;
 }
 
-function SheetBody({ balance, currency, format, busy, error, stockOffer, onSubmit }: Omit<SheetProps, "visible" | "onClose">) {
+function SheetBody({ balance, capAtBalance = true, currency, format, busy, error, stockOffer, onSubmit }: Omit<SheetProps, "visible" | "onClose">) {
   const { t } = useTranslation();
   const theme = useTheme();
   const [mode, setMode] = useState<"full" | "other">("full");
@@ -138,7 +141,7 @@ function SheetBody({ balance, currency, format, busy, error, stockOffer, onSubmi
   const offer = mode === "other" ? stockOffer(amount) : { offered: false, reason: null };
   const choiceLabel = (value: PaymentChoice) => paymentMethodLabel(t, paymentFromChoice(value));
   const label = mode === "full" ? format(balance) : amount !== null && amount > 0 ? format(amount) : "";
-  const problem = mode === "other" ? paymentAmountProblem(other, balance, currency) : null;
+  const problem = mode === "other" ? paymentAmountProblem(other, balance, currency, capAtBalance) : null;
   const amountError = paymentAmountMessage(t, problem, format(balance));
   return <>
     <View accessibilityRole="radiogroup" style={styles.gap12}>
