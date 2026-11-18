@@ -263,7 +263,7 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {actions.reject && <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" aria-label={name("reject")} disabled={blocked}
                 onClick={event => open("reject", payment.id, event.currentTarget)}>{t("orderView.payments.reject")}</Button>}
-              {actions.approve && <Button type="button" className="min-h-touch md:min-h-control" aria-label={name("approve")} disabled={blocked}
+              {actions.approve && <Button type="button" className="min-h-touch md:min-h-control aria-disabled:cursor-not-allowed aria-disabled:opacity-50" aria-label={name("approve")} disabled={blocked}
                 aria-disabled={blockedNote || paidAlready ? true : undefined} aria-describedby={paidAlready ? paidNoteId : blockedNote ? approveNoteId : undefined}
                 onClick={event => { if (!blockedNote && !paidAlready) open("approve", payment.id, event.currentTarget); }}>{t("orderView.payments.approve")}</Button>}
               {actions.void && <Button type="button" variant="outline" className="min-h-touch md:min-h-control" aria-label={name("void")} disabled={!idle}
