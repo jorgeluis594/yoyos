@@ -525,7 +525,8 @@ test("price conflict preserves creation fields and requires explicit selection o
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   let finishSettings: ((result: ReturnType<typeof ok<DeliverySettingsResponse>>) => void) | undefined;
   mockSettingsGet.mockImplementationOnce(() => new Promise(resolve => { finishSettings = resolve; }));
-  mockQuotation.mockResolvedValue(ok({ ...quotation, rates: [{ ...firstRate, id: mockId(35), price: { amount: 10, currency: "PEN" } }] }));
+  // Two rates: a single one would be selected without a click.
+  mockQuotation.mockResolvedValue(ok({ ...quotation, rates: [{ ...firstRate, id: mockId(35), price: { amount: 10, currency: "PEN" } }, { ...firstRate, id: mockId(36), price: { amount: 11, currency: "PEN" } }] }));
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await screen.findByText(/La tarifa cambió/);
   expect(screen.queryByTestId("delivery-rate")).toBeNull();
@@ -633,7 +634,7 @@ test("reselecting the same district generates new options and cannot revive an e
   expect(screen.queryByTestId("delivery-rate")).toBeNull();
   expect(screen.queryByText("Total")).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
-  await act(async () => { finish?.(ok({ ...quotation, rates: [{ ...firstRate, id: mockId(39) }] })); });
+  await act(async () => { finish?.(ok({ ...quotation, rates: [{ ...firstRate, id: mockId(39) }, { ...firstRate, id: mockId(40) }] })); });
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();

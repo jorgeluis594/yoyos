@@ -8,6 +8,7 @@ import { Alert, BackHandler, KeyboardAvoidingView, Modal, Platform, Pressable, S
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import type { ListOrderAggregatesResponse } from "@shared/contracts/orders";
+import { paymentProgress } from "@shared/orders-payment";
 import { orders } from "@mobile/features/orders/composition";
 import { deliverySettings } from "@mobile/features/delivery-settings/composition";
 import { ThemedText } from "@mobile/components/themed-text";
@@ -233,6 +234,7 @@ export default function OrderHistoryScreen() {
           description={error || (!loading ? t('ordersEmptyHint') : undefined)} onRetry={error ? () => void reload(companyId, criteria) : undefined} />}
         renderItem={({ item }) => {
           const selected = selection.orders.has(item.id);
+          const progress = paymentProgress(item);
           return <Pressable accessibilityRole="button" accessibilityState={{ selected }} accessibilityHint={t('orderListSelectHint')}
             accessibilityActions={[{ name: "select", label: t('orderListSelect', { number: item.number }) }]} onAccessibilityAction={() => selection.toggle(item)}
             onPress={() => selection.count ? selection.toggle(item) : router.push(`/orders/${item.id}`)} onLongPress={() => { if (!selected) selection.toggle(item); }}
@@ -247,8 +249,8 @@ export default function OrderHistoryScreen() {
               <ThemedText type="small" style={{ color: item.status === "completed" ? theme.success : theme.textSecondary }}>{t(item.status === "completed" ? 'orderListCompleted' : 'orderListCancelled')}</ThemedText>
             </View> : <View style={styles.badges}>
               <View style={styles.statusLine}>
-                <SymbolView name={{ ios: item.paymentStatus === "paid" ? "checkmark.circle.fill" : "clock", android: item.paymentStatus === "paid" ? "check_circle" : "schedule" }} size={16} tintColor={item.paymentStatus === "paid" ? theme.success : theme.warning} />
-                <ThemedText type="small" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ flexShrink: 1, color: item.paymentStatus === "paid" ? theme.success : theme.warning }}>{t(item.paymentStatus === "paid" ? 'orderListPaid' : 'orderListPaymentPending')}</ThemedText>
+                <SymbolView name={{ ios: progress.kind === "paid" ? "checkmark.circle.fill" : "clock", android: progress.kind === "paid" ? "check_circle" : "schedule" }} size={16} tintColor={progress.kind === "paid" ? theme.success : theme.warning} />
+                <ThemedText type="small" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ flexShrink: 1, color: progress.kind === "paid" ? theme.success : theme.warning }}>{progress.kind === "paid" ? t('orderListPaid') : progress.kind === "partial" ? t('paymentPartialLeft', { amount: money(progress.balanceDue.amount, progress.balanceDue.currency, locale) }) : t('orderListPaymentPending')}</ThemedText>
               </View>
               <View style={styles.statusLine}>
                 <SymbolView name={{ ios: "shippingbox", android: "local_shipping" }} size={16} tintColor={theme.textSecondary} />

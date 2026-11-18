@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
@@ -42,6 +42,12 @@ export function DeliveryFields({ value, onChange, settings, busy, language, rate
   const enabled = !!method && settings[method].enabled;
   const formatPrice = (amount: number, currency: string) => new Intl.NumberFormat(i18n.language === "pt-BR" ? "pt-BR" : "es-PE", { style: "currency", currency }).format(amount);
   const point = settings.store.pickupPoint;
+  // One rate for the district leaves nothing to choose: it is selected (with its only agency, as when it is chosen by hand).
+  const onlyRate = rates.length === 1 && !quoting ? rates[0] : null;
+  useEffect(() => {
+    if (!onlyRate || (method !== "home" && method !== "agency") || rateId === onlyRate.id) return;
+    onChange({ ...value, rateId: onlyRate.id, agencyId: "agencies" in onlyRate && onlyRate.agencies.length === 1 ? onlyRate.agencies[0].id : "", price: onlyRate.price });
+  }, [onlyRate, method, rateId, value, onChange]);
   return <>
         <Field disabled={busy}><FieldLabel>{t("orderDeliveryMethod")}</FieldLabel><OptionSelector testID="delivery-method" value={enabled ? method : null}
           onValueChange={next => { if (next === "store" || next === "home" || next === "agency") onChange({ ...value, method: next, phone: next === "store" ? phone : savedPhoneForForm(phone), rateId: "", agencyId: "", price: null }); }} options={[
