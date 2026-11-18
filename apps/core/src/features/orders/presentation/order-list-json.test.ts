@@ -58,3 +58,11 @@ test("the web loader item schema requires the dispatch fields", () => {
   expect(parse({}).success).toBe(false);
   expect(parse({ deliveryMethod: "store", district: null }).success).toBe(false);
 });
+
+test("list summary carries the balance due", () => {
+  const paid = order(snapshots.home);
+  const partial = { ...paid, payments: [{ id: id(30), orderId: paid.id, status: "confirmed", amount: { amount: 4, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false,
+    data: { confirmedAt: new Date("2026-09-28T13:00:00Z"), confirmedBy: { kind: "seller", userId: "seller" }, evidence: { kind: "manual" } } }] } as unknown as OrderAggregate;
+  const json = toOrderAggregateListJson({ items: [order(snapshots.home), partial], page: 1, pageSize: 20, total: 2 });
+  expect(json.items.map((item) => item.balanceDue)).toEqual([{ amount: 10, currency: "PEN" }, { amount: 6, currency: "PEN" }]);
+});

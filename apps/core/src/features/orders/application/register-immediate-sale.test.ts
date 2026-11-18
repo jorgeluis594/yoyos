@@ -27,7 +27,7 @@ function fixture(outcome: DeductionOutcome) {
   return { deps, events };
 }
 
-test("delivers an immediate sale whose stock was deducted", async () => {
+test("an immediate sale still pays exactly its total and delivers it with its stock deducted", async () => {
   const f = fixture({ kind: "deducted", stock: new Map(), deductedAt: new Date("2026-09-30T12:00:00Z") });
   expect(await registerImmediateSale(input, context, f.deps)).toMatchObject({ success: true, data: { deliveryStatus: "delivered", stockDeducted: true } });
   expect(f.events).toEqual([{ companyId: context.companyId, orderId: input.id, paymentId: id(6) }]);

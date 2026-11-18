@@ -56,8 +56,8 @@ export function toOrderAggregateJson(order: OrderAggregate, stockDue: StockDue |
 export function toOrderAggregateListJson(page: AggregatePage & Readonly<{ toReview?: ReadonlySet<string> }>) {
   const { toReview = new Set<string>(), ...rest } = page;
   return listOrderAggregatesResponseSchema.parse({ ...rest, items: page.items.map((item) => {
-    const { number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total, delivery } = toOrderAggregateJson(item, null);
-    return orderAggregateSummarySchema.parse({ number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total,
+    const { number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total, balanceDue, delivery } = toOrderAggregateJson(item, null);
+    return orderAggregateSummarySchema.parse({ number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total, balanceDue,
       courier: delivery?.method === "agency" ? delivery.courier : null, toReview: toReview.has(id) });
   }) });
 }

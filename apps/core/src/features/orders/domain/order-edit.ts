@@ -43,7 +43,7 @@ export type ItemsPlan = Readonly<{ lookup: readonly VariantId[] }>;
 export type VariantNotFound = Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: VariantId }>;
 export type CustomerRequired = Readonly<{ code: "CUSTOMER_REQUIRED"; message: string }>;
 
-const failure = (code: OrderDomainError["code"], message: string) => err({ code, message });
+const failure = (code: Exclude<OrderDomainError, { code: "PAYMENT_EXCEEDS_BALANCE" }>["code"], message: string) => err({ code, message });
 
 /** The stored `variantId → quantity` map must equal the requested one, so a request that repeats a variant is never applied. */
 function isItemsApplied(order: OrderAggregate, lines: readonly OrderLineRequest[]): boolean {
