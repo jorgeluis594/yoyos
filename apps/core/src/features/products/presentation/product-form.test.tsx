@@ -267,3 +267,125 @@ test("the switch is disabled while saving", () => {
   expect(hideSwitch().disabled).toBe(true);
   expect(hideSwitch().getAttribute("aria-checked")).toBe("true");
 });
+
+const pressEnter = (element: Element) => {
+  const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+  act(() => { element.dispatchEvent(event); });
+  return event;
+};
+const saveButton = () => button("Guardar producto")!;
+
+test("Enter in a value field only adds the value: it is prevented and never saves the product", () => {
+  const saves: ProductFormSubmission[] = [];
+  mount({ onSave: (submission) => saves.push(submission) });
+  type(byLabel("Nombre"), "Polo");
+  type(byLabel("Precio de venta (PEN) *"), "10");
+  click(button("Agregar opciones como talla o color"));
+  type(byLabel("Nombre de la opción"), "Talla");
+  type(byLabel("Agregar otro valor"), "S");
+  const first = container.querySelector<HTMLInputElement>("fieldset input")!;
+  expect(pressEnter(first).defaultPrevented).toBe(true);
+  expect(pressEnter(byLabel("Agregar otro valor")).defaultPrevented).toBe(true);
+  expect(pressEnter(byLabel("Nombre de la opción")).defaultPrevented).toBe(true);
+  expect(saves).toHaveLength(0);
+  expect(valueInputs()).toEqual(["S", ""]);
+});
+
+test("Guardar is disabled while an option is being edited and the reason is visible until Listo", () => {
+  mount();
+  type(byLabel("Nombre"), "Polo");
+  type(byLabel("Precio de venta (PEN) *"), "10");
+  expect(saveButton().disabled).toBe(false);
+  click(button("Agregar opciones como talla o color"));
+  type(byLabel("Nombre de la opción"), "Talla");
+  type(byLabel("Agregar otro valor"), "S");
+  expect(saveButton().disabled).toBe(true);
+  expect(saveButton().getAttribute("aria-describedby")).toBe("save-blocked");
+  expect(container.querySelector("#save-blocked")?.textContent).toBe("Pulsa «Listo» para aplicar la opción o «Eliminar» para descartarla antes de guardar el producto.");
+  click(button("Listo"));
+  expect(saveButton().disabled).toBe(false);
+  expect(container.querySelector("#save-blocked")).toBeNull();
+});
+
+test("a new option opens without errors; they appear on leaving the name or on the first Listo", () => {
+  mount();
+  click(button("Agregar opciones como talla o color"));
+  expect(container.textContent).not.toContain("Escribe el nombre de la opción.");
+  expect(container.textContent).not.toContain("Agrega al menos un valor.");
+  expect(button("Listo").disabled).toBe(false);
+  click(button("Listo"));
+  expect(container.textContent).toContain("Escribe el nombre de la opción.");
+  expect(container.textContent).toContain("Agrega al menos un valor.");
+});
+
+test("leaving the empty option name shows its error without pressing Listo", () => {
+  mount();
+  click(button("Agregar opciones como talla o color"));
+  const name = byLabel("Nombre de la opción");
+  act(() => name.focus());
+  expect(container.textContent).not.toContain("Escribe el nombre de la opción.");
+  act(() => { name.blur(); name.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+  expect(container.textContent).toContain("Escribe el nombre de la opción.");
+  expect(container.textContent).not.toContain("Agrega al menos un valor.");
+});
+
+const variantIssue = (variantId: string, field: string, reason: string, message: string) => ({ scope: "variant" as const, variantId, field, reason, message });
+const cellOf = (input: HTMLInputElement) => input.closest("td")!;
+
+test("a rejected stock marks the stock field of that variant, never its price, and the message sits in the stock cell", () => {
+  mount({ draft: draftFromProduct(product(false)), feedback: { errors: {}, issues: [variantIssue(id(60), "stock", "INVALID_STOCK", "Stock no válido")] } });
+  const stock = byLabel("Stock de Negro");
+  expect(stock.getAttribute("aria-invalid")).toBe("true");
+  expect(byLabel("Precio de venta de Negro").getAttribute("aria-invalid")).toBeNull();
+  expect(cellOf(stock).textContent).toContain("Stock no válido");
+  expect(cellOf(byLabel("Precio de venta de Negro")).textContent).not.toContain("Stock no válido");
+  expect(byLabel("Stock de Azul").getAttribute("aria-invalid")).toBeNull();
+});
+
+test("a rejected price marks the price field and its message sits in the price cell", () => {
+  mount({ draft: draftFromProduct(product(false)), feedback: { errors: {}, issues: [variantIssue(id(61), "salePrice", "INVALID_PRICE", "Precio no válido")] } });
+  expect(byLabel("Precio de venta de Azul").getAttribute("aria-invalid")).toBe("true");
+  expect(byLabel("Stock de Azul").getAttribute("aria-invalid")).toBeNull();
+  expect(cellOf(byLabel("Precio de venta de Azul")).textContent).toContain("Precio no válido");
+});
+
+test("a row error moves focus to the failing field, so the general notice leads to the row", () => {
+  mount({ draft: draftFromProduct(product(false)), feedback: { errors: {}, issues: [variantIssue(id(61), "stock", "INVALID_STOCK", "Stock no válido")] } });
+  expect(container.textContent).toContain("Revisa 1 variante marcada.");
+  expect(document.activeElement).toBe(byLabel("Stock de Azul"));
+});
+
+test("Stock total adds only valid stocks: an invalid one hides the figure until it is fixed", () => {
+  mount({ draft: draftFromProduct(product(true)) });
+  const total = () => container.querySelector("tfoot")!.textContent;
+  expect(total()).toContain("3");
+  type(byLabel("Stock de Negro"), "-3");
+  expect(total()).not.toContain("0");
+  expect(total()).toContain("—");
+  expect((container.querySelector("input[aria-readonly=true]") as HTMLInputElement).value).toBe("—");
+  type(byLabel("Stock de Negro"), "2.5");
+  expect(total()).toContain("—");
+  type(byLabel("Stock de Negro"), "4");
+  expect(total()).toContain("7");
+  expect(total()).not.toContain("—");
+});
+
+test("the stock field lives with the prices in the product data, not under the photos", () => {
+  mount();
+  const stock = byLabel("Stock inicial");
+  expect(stock.closest("section")?.getAttribute("aria-labelledby")).toBe("product-data-heading");
+  expect(container.querySelector("aside")?.contains(stock)).toBe(false);
+});
+
+test("the stock total of a product with options also lives in the product data", () => {
+  mount({ draft: draftFromProduct(product(false)) });
+  const total = container.querySelector<HTMLInputElement>("input[aria-readonly=true]")!;
+  expect(total.closest("section")?.getAttribute("aria-labelledby")).toBe("product-data-heading");
+});
+
+test("editing a saved option keeps the Listo-only reason under the disabled Guardar", () => {
+  mount({ draft: draftFromProduct(product(false)) });
+  click(button("Editar Color"));
+  expect(saveButton().disabled).toBe(true);
+  expect(container.querySelector("#save-blocked")?.textContent).toBe("Pulsa «Listo» en la opción para aplicar tus cambios antes de guardar el producto.");
+});

@@ -75,3 +75,9 @@ test("a save with too many photos names the field and a rejected photo leaves th
   expect(feedback.errors).toEqual({});
   expect(feedback.issues).toEqual([{ scope: "photo", field: "photoIds", reason: "PHOTO_NOT_FOUND", message: "No pudimos usar esta foto. Quítala o súbela de nuevo.", index: 1 }]);
 });
+
+test("a variant price issue names the purchase price, and only the sale price gets the short text", () => {
+  const issue = (field: "salePrice" | "purchasePrice") => ({ code: "VALIDATION_ERROR" as const, message: "x", issues: [{ scope: "variant" as const, variantId: "v1", field, reason: "INVALID_PRICE" as const, minimum: 0, maximum: 10, message: "x" }] as const });
+  expect(feedbackIssues(issue("salePrice"))[0].message).toBe("Precio no válido");
+  expect(feedbackIssues(issue("purchasePrice"))[0].message).toContain("precio de compra");
+});
