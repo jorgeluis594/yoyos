@@ -22,6 +22,9 @@ const order = (): OrderAggregate => ({
 const payment = (n: number, amount: number): ConfirmedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
   status: "confirmed", amount: money(amount), method: "digital_wallet", deductStockIfPartial: false,
   data: { confirmedAt: paymentAt, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
+/** The order of `order()` repriced to `amount` (single line), with the given payments. */
+const worth = (amount: number, payments: OrderAggregate["payments"] = []): OrderAggregate => ({ ...order(), itemsTotal: money(amount), total: money(amount), payments,
+  items: [{ ...order().items[0]!, unitPrice: money(amount), subtotal: money(amount) }] });
 const pricing = { quotationId: id(20), rateId: id(21), optionId: id(22), settingsVersion: 1 } as DeliveryPricing;
 const catalogAgency = { id: id(9), name: "Branch", address: "Av. Test 123", location: { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" } } as unknown as Extract<DeliverySnapshot, { method: "agency" }>["agency"];
 const limaDistrict = { country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima" } as unknown as PeruDeliveryDistrict;
@@ -94,7 +97,7 @@ describe("order payment and lifecycle", () => {
       status: "paid", paidAmount: money(10), balanceDue: money(0), overpaidAmount: money(0) } });
     expect(orderStateMachine.getLifecycle(paid.data)).toEqual({ success: true, data: { status: "active", completedAt: null } });
     // The excess only arises when an edit lowers the total below what was already received.
-    const lowered = { ...paid.data, itemsTotal: money(9.75), total: money(9.75), items: [{ ...paid.data.items[0]!, unitPrice: money(9.75), subtotal: money(9.75) }] };
+    const lowered = worth(9.75, paid.data.payments);
     expect(orderStateMachine.getPaymentSummary(lowered)).toMatchObject({ success: true, data: {
       status: "paid", paidAmount: money(10), balanceDue: money(0), overpaidAmount: money(0.25) } });
     expect(initial.payments).toEqual([]);
@@ -119,7 +122,7 @@ describe("order payment and lifecycle", () => {
   });
 
   test("rejects accumulated payments outside the supported range", () => {
-    const enormous = { ...order(), itemsTotal: money(9_999_999_999_999.99), total: money(9_999_999_999_999.99), payments: [payment(5, 9_999_999_999_999.99)] };
+    const enormous = worth(9_999_999_999_999.99, [payment(5, 9_999_999_999_999.99)]);
     expect(orderStateMachine.registerPayment(enormous, payment(6, 0.01))).toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE" } });
   });
 
@@ -131,8 +134,7 @@ describe("order payment and lifecycle", () => {
     const withPayments = (...payments: OrderAggregate["payments"]): OrderAggregate => ({ ...order(), payments });
 
     test("rejects a payment above the pending balance with the balance in the error", () => {
-      const result = orderStateMachine.registerPayment({ ...order(), total: money(60), itemsTotal: money(60),
-        items: [{ ...order().items[0]!, unitPrice: money(60), subtotal: money(60) }], payments: [payment(5, 20)] }, payment(6, 999));
+      const result = orderStateMachine.registerPayment(worth(60, [payment(5, 20)]), payment(6, 999));
       expect(result).toEqual({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", message: "Payment exceeds the pending balance", balanceDue: money(40) } });
       expect(orderStateMachine.registerPayment(order(), payment(5, 10.01))).toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(10) } });
     });
@@ -140,7 +142,7 @@ describe("order payment and lifecycle", () => {
     test("accepts a payment equal to the pending balance", () => {
       const partial = withPayments(payment(5, 4));
       expect(orderStateMachine.registerPayment(partial, payment(6, 6))).toMatchObject({ success: true });
-      const cents = { ...order(), total: money(0.3), itemsTotal: money(0.3), items: [{ ...order().items[0]!, unitPrice: money(0.3), subtotal: money(0.3) }], payments: [payment(5, 0.1)] };
+      const cents = worth(0.3, [payment(5, 0.1)]);
       expect(orderStateMachine.registerPayment(cents, payment(6, 0.2))).toMatchObject({ success: true });
     });
 

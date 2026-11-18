@@ -10,6 +10,7 @@ import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOr
 import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import { checkoutLinkOf, type CheckoutLinkState } from "@core/src/features/orders/application/checkout-url";
 import { parseScheduledDispatchFilter } from "@core/src/features/orders/application/list-order-aggregates";
 import type { DispatchDate } from "@shared/dispatch-date";
 import type { Money } from "@shared/money";
@@ -36,7 +37,7 @@ function queryFrom(request: Request, response: Response): Record<string, string>
   return query;
 }
 
-function operationError(response: Response, error: { code: string; variantId?: string; item?: number; currentPrice?: Money }) {
+function operationError(response: Response, error: { code: string; variantId?: string; item?: number; currentPrice?: Money; balanceDue?: Money }) {
   const issues = error.variantId || error.item !== undefined ? [{ field: "items", reason: error.code,
     ...(error.variantId ? { variantId: error.variantId } : {}), ...(error.item !== undefined ? { index: error.item } : {}) }] : undefined;
   switch (error.code) {
@@ -61,6 +62,7 @@ function operationError(response: Response, error: { code: string; variantId?: s
     case "INVALID_DISTRICT": return apiError(response, 422, "INVALID_DISTRICT", "Select a valid district");
     case "INVALID_DELIVERY_RATE": return apiError(response, 422, "INVALID_DELIVERY_RATE", "Invalid delivery rate");
     case "TOTAL_CHANGED": return response.status(409).json(orderApiErrorSchema.parse({ code: "TOTAL_CHANGED", error: "Review delivery price", currentPrice: error.currentPrice }));
+    case "PAYMENT_EXCEEDS_BALANCE": return response.status(409).json(orderApiErrorSchema.parse({ code: "PAYMENT_EXCEEDS_BALANCE", error: "Payment exceeds the pending balance", balanceDue: error.balanceDue }));
     case "SERVICE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
     case "INTERNAL_ERROR": return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
     case "INVALID_STORED_DATA": return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
@@ -77,10 +79,11 @@ function unexpected(response: Response, error: unknown, context?: Readonly<{ ope
 }
 
 /** Answers an order with its `stockDue`: only due orders cost a stock read. */
-async function sendOrder(response: Response, order: OrderAggregate, options: Readonly<{ status?: number; parse?: (json: ReturnType<typeof toOrderAggregateJson>) => unknown }> = {}) {
+async function sendOrder(response: Response, order: OrderAggregate, options: Readonly<{ status?: number; parse?: (json: ReturnType<typeof toOrderAggregateJson>) => unknown; checkoutLink?: CheckoutLinkState }> = {}) {
   const described = await orders.describeStockDue([order]);
   if (!described.success) return operationError(response, described.error);
-  const json = toOrderAggregateJson(order, described.data.get(order.id) ?? null);
+  const link = options.checkoutLink;
+  const json = { ...toOrderAggregateJson(order, described.data.get(order.id) ?? null), ...(link && link.kind !== "unknown" ? { checkoutLink: link } : {}) };
   return response.status(options.status ?? 200).json(options.parse ? options.parse(json) : json);
 }
 
@@ -160,8 +163,11 @@ orderRoutes.get("/:id/aggregate", async (request, response: Response<unknown, Pr
   const parsed = orderId(request.params.id);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
   try {
-    const result = await orders.getAggregate(parsed.data as OrderId, orderContext(response));
-    return result.success ? sendOrder(response, result.data) : operationError(response, result.error);
+    const context = orderContext(response);
+    // The optional link never turns a working read into a failure: a rejected or thrown read is "unknown".
+    const [result, url] = await Promise.all([orders.getAggregate(parsed.data as OrderId, context),
+      Promise.resolve().then(() => orders.checkoutUrl(context.companyId, parsed.data as OrderId)).catch(() => null)]);
+    return result.success ? sendOrder(response, result.data, { checkoutLink: checkoutLinkOf(result.data, url) }) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 
