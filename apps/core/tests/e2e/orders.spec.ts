@@ -77,7 +77,8 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page.getByRole("alert")).toContainText("No hay stock suficiente");
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(1);
     await page.getByLabel(/^Cantidad: Cuaderno POS/).fill("1");
-    await page.getByLabel("Importe recibido").fill("0.30");
+    // The payment cannot exceed the total the screen shows (0.29); the server's price moved meanwhile, so the saved total is 0.30.
+    await page.getByLabel("Importe recibido").fill("0.29");
     await withTenantIsolation(tenantId, async () => await prisma.productVariant.update({ where: { id: stock.variantId }, data: { salePrice: 0.3 } }));
     await browserExpect(orderTotal(page)).toHaveText(formatCurrency(0.29, "PEN", "es"));
     await page.getByRole("button", { name: "Guardar venta" }).click();
@@ -320,7 +321,7 @@ test("new order saves partial payments, paid pending delivery and configured del
         balanceDue: { amount: scenario === "partial" ? 9.2 : scenario === "no-stock" ? 10 : 0 } });
       if (scenario === "delivery") expect(order).toMatchObject({ total: { amount: 14 }, deliveryCharge: { amount: 4 },
         payments: expect.arrayContaining([expect.objectContaining({ amount: { amount: 10, currency: "PEN" } }), expect.objectContaining({ amount: { amount: 4, currency: "PEN" } })]),
-        delivery: { recipient: { name: "Ana", phone: "999001" }, destination: { address: "Av. Lima 123", district: "MIRAFLORES", districtCode: "040110", instructions: "Puerta 2" } } });
+        delivery: { recipient: { name: "Ana", phone: "+51999001" }, destination: { address: "Av. Lima 123", district: "MIRAFLORES", districtCode: "040110", instructions: "Puerta 2" } } });
       if (scenario === "no-stock") expect(await withTenantIsolation(companyId, async () => await prisma.productStock.findFirst())).toMatchObject({ quantity: 0n });
     }
   } finally {

@@ -152,7 +152,7 @@ test("raises a quantity on a saved order, saves, and shows the new balance with 
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("heading", { name: /^Pedido #\d+$/ })).toBeVisible();
     await browserExpect(page.getByText("Detalles internos")).toHaveCount(0);
-    await browserExpect(page.getByText("Pago parcial · falta S/ 148.00")).toBeVisible();
+    await browserExpect(page.locator("#order-payments").getByText("Pago parcial · falta S/ 148.00")).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
     await browserExpect(page.getByRole("button", { name: "Descartar cambios" }).first()).toBeDisabled();
 
@@ -169,7 +169,7 @@ test("raises a quantity on a saved order, saves, and shows the new balance with 
 
     await browserExpect(page.getByText("Cambios guardados.")).toBeVisible();
     await browserExpect(page.getByRole("heading", { name: /^Pedido #\d+$/ })).toBeFocused();
-    await browserExpect(page.getByText("Pago parcial · falta S/ 268.00")).toBeVisible();
+    await browserExpect(page.locator("#order-payments").getByText("Pago parcial · falta S/ 268.00")).toBeVisible();
     await browserExpect(orderTotal(page)).toHaveText("S/ 418.00");
     await browserExpect(page.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
     const saved = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
