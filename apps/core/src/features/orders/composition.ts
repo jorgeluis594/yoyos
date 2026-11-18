@@ -387,13 +387,22 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
   return result;
 }
 
+/** The rule's rejection is a business outcome, logged without amounts or balances. */
+function logExceededBalance<T, E extends AppError>(result: Result<T, E>, operation: "confirm" | "create_order",
+  input: Readonly<{ paymentId: PaymentId; source?: "manual" | "buyer_report" }>, access: Readonly<{ userId: UserId }>): Result<T, E> {
+  if (!result.success && result.error.code === "PAYMENT_EXCEEDS_BALANCE") log.info({ event: "payment_exceeds_balance", operation, paymentId: input.paymentId,
+    source: input.source ?? "manual", userId: access.userId, errorCode: result.error.code }, "payment_exceeds_balance");
+  return result;
+}
+
 export function createConfiguredOrder(input: CreateCompleteOrderInput, context: OrderAccess) {
   return createCompleteOrder(input, context, {
     transaction: producerTransaction,
     create: orders.create,
     setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access),
-    registerPayment: (payment, access) => registerPayment(payment, access, { transaction: paymentTransaction,
+    registerPayment: async (payment, access) => logExceededBalance(await registerPayment(payment, access, { transaction: paymentTransaction,
       findOrderForUpdate, savePayment, updatePayment, saveCompletion, settleUnreviewedChanges, publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock: () => new Date() }),
+      "create_order", payment, access),
     ship: orders.ship,
     deliver: orders.deliver,
   });
@@ -864,7 +873,8 @@ export const orders = {
       if (applied) log.info({ event: "payment_confirmed", paymentId: input.paymentId, actorKind: "seller", userId: context.userId,
         source: input.source ?? "manual", stockStatus, transactionOutcome: "committed" }, "payment_confirmed");
       else log.debug({ event: "payment_operation_replayed", operation: "confirm", paymentId: input.paymentId }, "payment_operation_replayed");
-    } else if (result.error.code === "PAYMENT_CONFLICT") log.debug({ event: "payment_operation_conflict", operation: "confirm",
+    } else if (result.error.code === "PAYMENT_EXCEEDS_BALANCE") logExceededBalance(result, "confirm", input, context);
+    else if (result.error.code === "PAYMENT_CONFLICT") log.debug({ event: "payment_operation_conflict", operation: "confirm",
       paymentId: input.paymentId, errorCode: result.error.code }, "payment_operation_conflict");
     return result;
   },

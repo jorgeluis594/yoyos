@@ -85,12 +85,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
     flexWrap: 'wrap',
     gap: Spacing.two,
     maxWidth: MaxContentWidth,
   },
   brandText: {
     marginRight: 'auto',
+    flexShrink: 0,
   },
   pressed: {
     opacity: 0.7,

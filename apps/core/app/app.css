@@ -72,11 +72,6 @@
 /* Same width as the table's own container: where it reflows to cards the header checkbox is hidden, so this one takes over. */
 .order-list-section { container-type: inline-size; }
 .order-list-select-page { display: none; }
-.order-state-indicator summary { width: 2.5rem; height: 1rem; }
-.order-state-indicator summary::-webkit-details-marker { display: none; }
-@media (max-width: 48rem) {
-  .order-state-indicator summary { width: var(--touch-target-min-size); height: 1.5rem; }
-}
 
 @container (width < 48rem) {
   .order-list-select-page { display: flex; }

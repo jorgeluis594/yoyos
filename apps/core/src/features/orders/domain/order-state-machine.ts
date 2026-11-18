@@ -73,7 +73,10 @@ export type OrderLifecycle =
   | Readonly<{ status: "active"; completedAt: null }>
   | Readonly<{ status: "cancelled"; completedAt: null }>
   | Readonly<{ status: "completed"; completedAt: Date }>;
-export type OrderDomainError = Readonly<{ code: "INVALID_ORDER" | "INVALID_PAYMENT" | "CURRENCY_MISMATCH" | "PAYMENT_CONFLICT" | "INVALID_TRANSITION" | "DELIVERY_LOCKED" | "PAYMENT_REQUIRED" | "STOCK_NOT_DEDUCTED" | "ORDER_CANCELLED"; message: string }>;
+export type OrderDomainError =
+  | Readonly<{ code: "INVALID_ORDER" | "INVALID_PAYMENT" | "CURRENCY_MISMATCH" | "PAYMENT_CONFLICT" | "INVALID_TRANSITION" | "DELIVERY_LOCKED" | "PAYMENT_REQUIRED" | "STOCK_NOT_DEDUCTED" | "ORDER_CANCELLED"; message: string }>
+  /** Money above the pending balance is settled with the buyer outside Yoyos; the client needs the balance to say how much is left. */
+  | Readonly<{ code: "PAYMENT_EXCEEDS_BALANCE"; message: string; balanceDue: Money }>;
 export type ResolvedDelivery = Readonly<{ delivery: DeliverySnapshot; cost: Money }>;
 export type SetDeliveryChange = Readonly<{ resolved: ResolvedDelivery }>;
 export type StockDeductionPlan =
@@ -191,7 +194,7 @@ export function parseDeliverySnapshot(value: unknown): Result<DeliverySnapshot, 
 }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const validDate = (date: Date) => date instanceof Date && Number.isFinite(date.getTime());
-const failure = <Code extends OrderDomainError["code"]>(code: Code, message: string): Result<never, Readonly<{ code: Code; message: string }>> => err({ code, message });
+const failure = <Code extends Exclude<OrderDomainError, { code: "PAYMENT_EXCEEDS_BALANCE" }>["code"]>(code: Code, message: string): Result<never, Readonly<{ code: Code; message: string }>> => err({ code, message });
 const validMoney = (value: Money, positive: boolean) => isCurrency(value?.currency) && moneyAmount.safeParse(value?.amount).success && (!positive || value.amount > 0);
 
 export function validateDeliveryCost(cost: Money, currency: Currency): Result<Money, OrderDomainError> {
@@ -354,6 +357,11 @@ function registerPayment(order: OrderAggregate, payment: ConfirmedPayment): Resu
   if (existing?.status === "rejected") return failure("PAYMENT_CONFLICT", "Rejected payment cannot be confirmed");
   if (existing && (payment.data.evidence.kind !== "buyer_report" || payment.data.evidence.report.receiptImageId !== existing.data.receiptImageId))
     return failure("PAYMENT_CONFLICT", "Payment report differs");
+  const before = paymentSummary(order);
+  if (!before.success) return before;
+  const exceeds = compare(before.data.balanceDue)(payment.amount);
+  if (!exceeds.success) return failure("INVALID_PAYMENT", "Invalid payment comparison");
+  if (exceeds.data > 0) return err({ code: "PAYMENT_EXCEEDS_BALANCE", message: "Payment exceeds the pending balance", balanceDue: before.data.balanceDue });
   const next = { ...order, payments: existing ? order.payments.map((item) => item.id === payment.id ? payment : item) : [...order.payments, payment] };
   const summary = paymentSummary(next);
   if (!summary.success) return summary;

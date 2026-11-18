@@ -1,5 +1,6 @@
 import { requestDeliveryQuotation } from "@core/src/features/delivery-settings/infrastructure/quotation-api";
 import { applicationEventBus } from "@core/src/composition/event-bus";
+import { orders } from "@core/src/features/orders/composition";
 import { createCancellationOperations } from "@mobile/features/orders/application/cancel-order";
 import { loader as checkoutLoader, action as confirmCheckoutAction } from "@core/app/routes/checkout";
 import { RouterContextProvider, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
@@ -49,6 +50,8 @@ function hostContext(companyId: string) {
   return context;
 }
 const subdomains = new Map<string, string>();
+/** GET aggregate alone carries the store link; the mutation answers do not, so comparisons drop it. */
+function withoutLink<T extends object>(order: T): Omit<T, "checkoutLink"> { const rest = { ...order } as T & { checkoutLink?: unknown }; delete rest.checkoutLink; return rest; }
 
 /** The brand host of `companyId`, created on first use: the buyer APIs answer on the store's own origin only. */
 async function brandHost(companyId: string) {
@@ -175,10 +178,10 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
   const first = assigned.data;
   expect(first).toMatchObject({ delivery: { method: "store", pickupPoint: store.pickupPoint,
     recordedBy: { kind: "seller", userId: seller.userId } }, total: { amount: 20 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 } });
-  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
+  expect(withoutLink(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(first);
   const nextStore = { ...store, pickupPoint: { ...store.pickupPoint, address: "Dirección nueva" } };
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, agency: { enabled: false }, home: { enabled: false }, store: nextStore }, "PUT")).status).toBe(200);
-  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
+  expect(withoutLink(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(first);
   expect((await call(`/api/orders/${orderId}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 20, currency: "PEN" },
     method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
   await systemPrisma.user.update({ where: { id: second.userId }, data: { companyId: seller.companyId } });
@@ -526,11 +529,11 @@ test("home HTTP uses persisted enablement, requires district and replaces store 
   expect(assigned).toMatchObject({ delivery: { method: "home", recipient, destination: { address: "Street 123", district: "MIRAFLORES", districtCode: "040110", instructions: null },
     recordedBy: { kind: "seller", userId: seller.userId } }, deliveryCost: { amount: 6 }, deliveryCharge: { amount: 6 }, total: { amount: 16 } });
   expect(assigned.delivery).not.toHaveProperty("pickupPoint");
-  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(assigned);
+  expect(withoutLink(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(assigned);
   expect((await call("/api/delivery-settings", seller.cookie, { ...settings, expectedVersion: 2, agency: { enabled: false }, home: { enabled: false } }, "PUT")).status).toBe(200);
   const blocked = await call(`/api/orders/${orderId}/delivery`, seller.cookie, home, "PUT");
   expect(blocked.status).toBe(422); expect(await blocked.json()).toMatchObject({ code: "RATE_UNAVAILABLE" });
-  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(assigned);
+  expect(withoutLink(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(assigned);
   expect(await (await call("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 3, agency: { enabled: false }, couriers: [], home: { enabled: false }, store });
 });
 
@@ -583,7 +586,8 @@ test("rated agency adapters preserve snapshots and reject unavailable, unassocia
   expect(summary).toHaveBeenCalledWith(expect.objectContaining({ event: "order_delivery_saved", deliveryMethod: "agency", courierId: courier.id, transactionOutcome: "committed" }), "Order delivery saved");
   // The snapshot does not depend on later catalog or configuration changes.
   await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = false WHERE id = $1', [associated]));
-  expect(await mobile.getAggregate(orderId)).toEqual(saved);
+  const read = await mobile.getAggregate(orderId);
+  expect(read.success ? { ...read, data: withoutLink(read.data) } : read).toEqual(saved);
   expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
   expect(rejection).toHaveBeenCalledWith(expect.objectContaining({ event: "order_delivery_rejected", errorCode: "RATE_UNAVAILABLE", agencyId: associated }), "Order delivery rejected");
   await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = true WHERE id = $1', [associated]));
@@ -632,6 +636,69 @@ test("checkout-link HTTP requires the seller company and returns a stable UUID U
   expect((await call(path, owner.cookie, {})).status).toBe(409);
 });
 
+const money = (amount: number) => ({ amount, currency: "PEN" });
+const pay = (cookie: string, orderId: string, amount: number, paymentId = randomUUID()) => call(`/api/orders/${orderId}/payments`, cookie,
+  { paymentId, amount: money(amount), method: "digital_wallet", deductStockIfPartial: false });
+const paymentRows = (companyId: string, orderId: string) => withTenantIsolation(companyId, async () => await prisma.payment.count({ where: { orderId } }));
+
+test("payment HTTP rejects an amount above the pending balance and accepts the exact one and its replay", async () => {
+  const f = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders", f.cookie, { id, items: [{ variantId: f.variantId, quantity: 6 }] })).status).toBe(201);
+  const rejected = await pay(f.cookie, id, 999);
+  expect(rejected.status).toBe(409);
+  expect(await rejected.json()).toEqual({ code: "PAYMENT_EXCEEDS_BALANCE", error: "Payment exceeds the pending balance", balanceDue: money(60) });
+  expect(await paymentRows(f.companyId, id)).toBe(0);
+  const paymentId = randomUUID();
+  expect((await pay(f.cookie, id, 60, paymentId)).status).toBe(200);
+  expect((await pay(f.cookie, id, 60, paymentId)).status).toBe(200);
+  expect(await paymentRows(f.companyId, id)).toBe(1);
+});
+
+test("two payments at once on one order: the second is rejected with the remaining balance", async () => {
+  const f = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders", f.cookie, { id, items: [{ variantId: f.variantId, quantity: 6 }] })).status).toBe(201);
+  const responses = await Promise.all([pay(f.cookie, id, 40), pay(f.cookie, id, 40)]);
+  expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+  const rejected = responses.find((response) => response.status === 409)!;
+  expect(await rejected.json()).toMatchObject({ code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(20) });
+  expect(await paymentRows(f.companyId, id)).toBe(1);
+});
+
+test("a rejected new sale logs payment_exceeds_balance without amounts", async () => {
+  const f = await fixture("PE");
+  const info = vi.spyOn(log, "info");
+  const id = randomUUID();
+  const paymentId = randomUUID();
+  const response = await call("/api/orders", f.cookie, { id, items: [{ variantId: f.variantId, quantity: 1 }],
+    payments: [{ paymentId, amount: money(999), method: "digital_wallet", deductStockIfPartial: false }] });
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "PAYMENT_EXCEEDS_BALANCE" });
+  expect(await withTenantIsolation(f.companyId, async () => await prisma.order.count({ where: { id } }))).toBe(0);
+  const entry = info.mock.calls.map(([fields]) => fields).find((fields) => (fields as { event?: string }).event === "payment_exceeds_balance");
+  expect(entry).toEqual({ event: "payment_exceeds_balance", operation: "create_order", paymentId, source: "manual", userId: f.userId, errorCode: "PAYMENT_EXCEEDS_BALANCE" });
+  expect(JSON.stringify(entry)).not.toContain("999");
+});
+
+test("GET aggregate says which store link the order has", async () => {
+  const f = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders", f.cookie, { id, items: [{ variantId: f.variantId, quantity: 1 }] })).status).toBe(201);
+  const read = async () => orderAggregateSchema.parse(await (await call(`/api/orders/${id}/aggregate`, f.cookie)).json());
+  expect((await read()).checkoutLink).toEqual({ kind: "subdomain_required" });
+  const subdomain = (await brandHost(f.companyId)).split(".")[0];
+  expect((await read()).checkoutLink).toEqual({ kind: "ready", url: `${storefrontConfig.baseUrl.protocol}//${subdomain}.${storefrontConfig.baseUrl.host}/checkout/${id}` });
+  vi.spyOn(orders, "checkoutUrl").mockRejectedValueOnce(new Error("store link read failed"));
+  const warn = vi.spyOn(log, "warn");
+  const failed = await read();
+  expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_link_read_failed", errorCode: "CHECKOUT_LINK_READ_FAILED" }), "order_checkout_link_read_failed");
+  expect(failed.number).toBeGreaterThan(0);
+  expect("checkoutLink" in failed).toBe(false);
+  await withTenantIsolation(f.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true, cancelledAt: new Date() } }));
+  expect("checkoutLink" in await read()).toBe(false);
+});
+
 test("complete creation HTTP preserves optional payment IDs and supports pending and paid orders", async () => {
   const f = await fixture("PE");
   for (const amount of [null, 5, 10]) {
@@ -651,7 +718,7 @@ test("complete creation HTTP preserves optional payment IDs and supports pending
     const duplicate = await call("/api/orders", f.cookie, input);
     expect(duplicate.status).toBe(409);
     expect(await duplicate.json()).toMatchObject({ code: "ORDER_ALREADY_EXISTS" });
-    expect(orderAggregateSchema.parse(await (await call(`/api/orders/${id}/aggregate`, f.cookie)).json())).toEqual(order);
+    expect(withoutLink(orderAggregateSchema.parse(await (await call(`/api/orders/${id}/aggregate`, f.cookie)).json()))).toEqual(order);
   }
 });
 
@@ -825,7 +892,7 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   const reviewedPrice = await call(path, seller.cookie, { ...input, expectedPrice: { amount: 7, currency: "PEN" } }, "PUT");
   expect(reviewedPrice.status).toBe(409);
   expect(await reviewedPrice.json()).toEqual({ code: "TOTAL_CHANGED", error: "Review delivery price", currentPrice: home.price });
-  expect(orderAggregateSchema.parse(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(before);
+  expect(withoutLink(orderAggregateSchema.parse(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()))).toEqual(before);
   const store = await call(path, seller.cookie, { delivery: { method: "store", recipient }, expectedPrice: { amount: 0, currency: "PEN" } }, "PUT");
   expect(store.status).toBe(200);
   expect(await store.json()).toMatchObject({ total: { amount: 10 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 },

@@ -41,6 +41,12 @@ export function QuotedPlaceFields({ method, place, settings, disabled, invalid, 
   // A new quotation carries new rate ids: a rate chosen from an older one is no longer valid, so it is cleared instead of sent stale.
   const staleRate = current?.quotation != null && place.rateId !== "" && !rates.some(item => item.id === place.rateId);
   useEffect(() => { if (staleRate) onChange({ ...place, rateId: "", agencyId: "", ratePrice: null }); }, [staleRate, place, onChange]);
+  // The only rate offered for the method is the one to take: the seller is not asked to click a choice of one.
+  const onlyRate = rates.length === 1 ? rates[0] : null;
+  useEffect(() => {
+    if (!onlyRate || place.rateId !== "") return;
+    onChange({ ...place, rateId: onlyRate.id, ratePrice: onlyRate.price, agencyId: onlyRate.method === "agency" && onlyRate.agencies.length === 1 ? onlyRate.agencies[0].id : "" });
+  }, [onlyRate, place, onChange]);
   useEffect(() => {
     if (current || !quotes || !place.districtCode) return;
     const controller = new AbortController();
@@ -58,7 +64,7 @@ export function QuotedPlaceFields({ method, place, settings, disabled, invalid, 
   if (method === "store") return pickup ? <p>{pickup.name} · {pickup.address}{pickup.instructions && <> · {pickup.instructions}</>}</p> : null;
   return <FieldSet disabled={disabled || !ready} className="flex min-w-0 flex-col gap-4">
     <Field data-invalid={invalid.has("districtCode")}><div id={`${idPrefix}-districtCode`} tabIndex={-1} className="min-w-0 outline-none">
-      <PeruDistrictSelect value={place.districtCode ? getPeruDistrict(place.districtCode)?.code ?? null : null} disabled={disabled}
+      <PeruDistrictSelect value={place.districtCode ? getPeruDistrict(place.districtCode)?.code ?? null : null} disabled={disabled} invalid={invalid.has("districtCode")}
         onChange={code => onChange({ ...place, districtCode: code, rateId: "", agencyId: "", ratePrice: null })} /></div></Field>
     {quotes && !current && <Alert><AlertDescription>{t("orderDelivery.quoting")}</AlertDescription></Alert>}
     {current && !current.quotation && <Alert variant="destructive"><AlertDescription>{t("orderDelivery.quoteError")}</AlertDescription>

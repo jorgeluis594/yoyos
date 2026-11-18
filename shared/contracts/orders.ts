@@ -131,7 +131,9 @@ export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.da
     unitPrice: moneySchema, subtotal: moneySchema, mentionedPrice: mentionedPriceSchema.nullable() })).min(1), payments: z.array(paymentSchema),
   itemsTotal: moneySchema, deliveryCost: moneySchema, deliveryCharge: moneySchema, total: moneySchema,
   /** The items revision, the base a mobile edit sends back. */
-  revisions: z.strictObject({ items: orderRevisionSchema }) });
+  revisions: z.strictObject({ items: orderRevisionSchema }),
+  /** Only sent by GET /api/orders/:id/aggregate. Missing means unknown, never "no link": the client falls back to POST /checkout-link. */
+  checkoutLink: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("ready"), url: z.url() }), z.strictObject({ kind: z.literal("subdomain_required") })]).optional() });
 export type OrderAggregateResponse = z.infer<typeof orderAggregateSchema>;
 export const listOrderAggregatesSchema = z.strictObject({
   search: z.string().max(120).optional(),
@@ -150,7 +152,7 @@ export const listOrderAggregatesSchema = z.strictObject({
     { message: "Invalid date interval", path: ["createdBefore"] });
 export type ListOrderAggregatesRequest = z.infer<typeof listOrderAggregatesSchema>;
 export const orderAggregateSummarySchema = orderAggregateSchema.pick({ checkoutEnabledAt: true, checkoutConfirmedAt: true, number: true, id: true, createdAt: true, scheduledDispatchDate: true, shippedAt: true, deliveredAt: true, completedAt: true, status: true,
-  paymentStatus: true, deliveryStatus: true, stockDeducted: true, buyer: true, source: true, sellerId: true, total: true })
+  paymentStatus: true, deliveryStatus: true, stockDeducted: true, buyer: true, source: true, sellerId: true, total: true, balanceDue: true })
   .extend({ courier: snapshotCourierSchema.nullable().optional(),
     /** Something in the order needs the seller's review: an active WhatsApp order with changes, marks or points not reviewed yet. */
     toReview: z.boolean() });
@@ -214,10 +216,13 @@ export const orderApiErrorSchema = z.strictObject({
     "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "RECEIPT_NOT_FOUND", "INVALID_TRANSITION", "DELIVERY_LOCKED", "PAYMENT_REQUIRED",
     "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "DELIVERY_UNAVAILABLE",
     "DELIVERY_METHOD_DISABLED", "INTERNAL_ERROR", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "SUBDOMAIN_REQUIRED",
+    "PAYMENT_EXCEEDS_BALANCE",
   ]),
   error: z.string(),
   issues: z.array(orderApiIssueSchema).optional(),
   currentPrice: moneySchema.extend({ amount: z.number().finite().nonnegative().max(9999999999999.99).multipleOf(0.01) }).optional(),
+  /** Sent only with PAYMENT_EXCEEDS_BALANCE: what is still left to collect. */
+  balanceDue: moneySchema.optional(),
 });
 export type OrderApiError = z.infer<typeof orderApiErrorSchema>;
 export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string(), currentPrice: orderApiErrorSchema.shape.currentPrice, variantId: z.uuid().optional() });

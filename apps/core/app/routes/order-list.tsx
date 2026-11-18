@@ -11,7 +11,6 @@ import { listOrderAggregatesSchema, orderListLoaderSchema } from "@shared/contra
 import { limaMidnightUtc, salesTimeZone } from "@shared/orders-date";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
-import { orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { toOrderAggregateListJson, toOrderListDispatchFields } from "@core/src/features/orders/presentation/order-json";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
@@ -28,7 +27,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet
 import { Checkbox } from "@core/app/components/ui/checkbox";
 import { titleCase } from "@core/app/components/zone-entries";
 import { DispatchLabelPrintDialog } from "@core/src/features/dispatch-labels/presentation/dispatch-label-print-dialog";
-import { OrderStatusIndicators } from "@core/src/features/orders/presentation/order-status-labels";
+import { OrderStatusText } from "@core/src/features/orders/presentation/order-status-labels";
 import { OrderLabelSelectionBar } from "@core/src/features/orders/presentation/order-label-selection-bar";
 import { pageSelectionState, selectionScope, skipReason, summarizeSelection, type SelectedOrder } from "@core/src/features/orders/presentation/order-label-selection";
 import { useOrderLabelSelection } from "@core/src/features/orders/presentation/use-order-label-selection";
@@ -42,13 +41,6 @@ function checkoutLabel(item: CheckoutLabelled) {
   return item.status === "active" ? "orders.checkoutPending" : null;
 }
 
-
-/** The balance comes from the payment summary: a list never describes stock. */
-function paidBalance(order: OrderAggregate) {
-  const summary = orderStateMachine.getPaymentSummary(order);
-  if (!summary.success) throw new Error("Invalid order aggregate response");
-  return summary.data.balanceDue;
-}
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const params = new URL(request.url).searchParams;
@@ -71,7 +63,6 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const list = toOrderAggregateListJson(result.data);
   const items = list.items.map((item, index) => ({ ...item,
     itemCount: result.data.items[index].items.reduce((sum, product) => sum + product.quantity, 0),
-    balanceDue: paidBalance(result.data.items[index]),
     ...toOrderListDispatchFields(result.data.items[index]),
   }));
   return orderListLoaderSchema.parse({ list: { ...list, items }, filters: parsed.data, base: companyPath(new URL(request.url).pathname, company.country, "/orders") });
@@ -95,7 +86,7 @@ export default function OrderList() {
     { id: "number", header: t("orders.listOrder"), mobile: "title", cell: (item) => <div className="flex flex-col items-start">
       <TextLink asChild><Link to={`${base}/${item.id}`} aria-label={t("orders.orderNumber", { number: item.number })}>#{item.number}</Link></TextLink>
       {item.source === "catalog" && <Badge variant="secondary">{t("orders.fromCatalog")}</Badge>}
-      <OrderStatusIndicators order={item} />
+      <OrderStatusText order={item} />
       {checkoutLabel(item) && <span className="text-xs font-normal text-muted-foreground">{t(checkoutLabel(item)!)}</span>}
       {item.toReview && item.status === "active" && <span className="text-xs font-medium text-[var(--warning)]">{t("orders.toReview")}</span>}
       <SkipWarning item={item} selected={!!labels.selection[item.id]} />

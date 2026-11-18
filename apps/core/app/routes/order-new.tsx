@@ -59,6 +59,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     result.error.code === "ORDER_ALREADY_EXISTS" ? "Esta venta ya se registró. Revisa el historial antes de intentar otra." :
     result.error.code === "VARIANT_NOT_FOUND" ? "Uno de los productos ya no está disponible." :
     result.error.code === "CURRENCY_MISMATCH" ? "Los productos deben tener la misma moneda." :
+    result.error.code === "PAYMENT_EXCEEDS_BALANCE" ? "Los pagos suman más que el total de la venta. Revisa los montos de los pagos." :
     result.error.code === "PERSISTENCE_UNAVAILABLE" ? "No se pudo completar la venta. Inténtalo de nuevo." : "Revisa los datos de la venta." });
   return Response.redirect(new URL(companyPath(new URL(request.url).pathname, access.company.country, `/orders/${result.data.order.id}`), request.url));
 }

@@ -17,8 +17,8 @@ import { applyRateRecovery } from "@core/src/features/orders/presentation/new-sa
 
 vi.mock("@core/src/features/delivery-settings/infrastructure/quotation-api", () => ({ requestDeliveryQuotation: vi.fn() }));
 vi.mock("@core/app/components/peru-district-select", () => ({
-  PeruDistrictSelect: ({ value, onChange, disabled }: { value: string | null; onChange: (code: string) => void; disabled?: boolean }) =>
-    <button type="button" data-testid="district" data-value={value ?? ""} disabled={disabled} onClick={() => onChange("150122")}>Distrito</button>,
+  PeruDistrictSelect: ({ value, onChange, disabled, invalid }: { value: string | null; onChange: (code: string) => void; disabled?: boolean; invalid?: boolean }) =>
+    <button type="button" data-testid="district" data-value={value ?? ""} data-invalid={String(invalid === true)} disabled={disabled} onClick={() => onChange("150122")}>Distrito</button>,
 }));
 import { requestDeliveryQuotation } from "@core/src/features/delivery-settings/infrastructure/quotation-api";
 
@@ -137,6 +137,10 @@ describe("OrderDeliveryCard", () => {
   });
 
   test("sets the quoted price of the chosen rate so a replaced delivery can be saved", async () => {
+    // With a single rate nothing is left to choose (it is selected for the seller); two rates keep the choice.
+    vi.mocked(requestDeliveryQuotation).mockResolvedValue(ok({ rates: [
+      { id: newRateId, method: "home", price: pen(12), optionId: "o", zoneId: "z", zoneName: "Lima" },
+      { id: "00000000-0000-4000-8000-0000000000e3", method: "home", price: pen(9), optionId: "o2", zoneId: "z", zoneName: "Lima" }] } as never));
     await mount(savedState());
     await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
     expect(latest.draft.delivery.fields.rateId).toBe("");
@@ -326,5 +330,52 @@ describe("OrderDeliveryCard", () => {
     expect(latest.draft.delivery.fields.districtCode).toBe("150122");
     expect(latest.draft.delivery.fields.rateId).toBe(rateId);
     expect(latest.draft.delivery.fields.address).toBe("Av. Lima 123");
+  });
+
+  test("a failed save marks an empty Departamento as invalid", async () => {
+    await mount(newState());
+    await choose("Domicilio");
+    expect(document.querySelector("[data-testid=district]")!.getAttribute("data-invalid")).toBe("true");
+    await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
+    expect(document.querySelector("[data-testid=district]")!.getAttribute("data-invalid")).toBe("false");
+  });
+
+  test("a single rate for the district is selected without a click", async () => {
+    await mount(newState());
+    await choose("Domicilio");
+    await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
+    expect(latest.draft.delivery.fields).toMatchObject({ rateId: newRateId, ratePrice: pen(12) });
+    expect(invalidFields(latest).map(mark => mark.field)).not.toContain("rateId");
+    expect(document.body.textContent).not.toContain("Selecciona una tarifa");
+  });
+
+  test("keeps the choice when the district offers several rates", async () => {
+    vi.mocked(requestDeliveryQuotation).mockResolvedValue(ok({ rates: [
+      { id: newRateId, method: "home", price: pen(12), optionId: "o", zoneId: "z", zoneName: "Lima" },
+      { id: "00000000-0000-4000-8000-0000000000e3", method: "home", price: pen(9), optionId: "o2", zoneId: "z", zoneName: "Lima" }] } as never));
+    await mount(newState());
+    await choose("Domicilio");
+    await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
+    expect(latest.draft.delivery.fields.rateId).toBe("");
+  });
+
+  test("the home or agency recipient phone shows «PE +51» and «987654321» like the customer", async () => {
+    await mount(setCustomer(savedState(), { name: "Ana", phone: "+51987654321" }));
+    await choose("Domicilio");
+    await act(async () => setState(state => ({ ...state, draft: { ...state.draft, delivery: { ...state.draft.delivery, sameAsCustomer: false, fields: { ...state.draft.delivery.fields, phone: "+51987654321" } } } })));
+    const input = field("phone");
+    expect(input.value).toBe("987654321");
+    expect(input.closest("[data-slot=field], div")?.parentElement?.textContent).toContain("PE +51");
+    expect(document.body.textContent).not.toContain("+51987654321");
+    await type("phone", "912345678");
+    expect(latest.draft.delivery.fields.phone).toBe("+51912345678");
+  });
+
+  test("the store pickup recipient phone stays free text", async () => {
+    await mount(savedState({ delivery: { method: "store", recipient, pickupPoint: { name: "Tienda", address: "Jr. Unión 1", instructions: null }, recordedBy: { kind: "seller", userId: "user-1" } } as never }));
+    expect(field("phone").value).toBe("+51977909427");
+    expect(document.body.textContent).not.toContain("PE +51");
+    await type("phone", "ext 12");
+    expect(latest.draft.delivery.fields.phone).toBe("ext 12");
   });
 });

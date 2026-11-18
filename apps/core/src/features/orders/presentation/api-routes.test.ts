@@ -178,3 +178,11 @@ test("passes the in-stock flag to the catalog search and rejects other values", 
   expect(await request("/catalog?inStock=false")).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   expect(await request(`/catalog?variantIds=${"00000000-0000-4000-8000-000000000001"}&inStock=true`)).toMatchObject({ status: 400 });
 });
+
+test("answers 409 PAYMENT_EXCEEDS_BALANCE with the pending balance", async () => {
+  vi.spyOn(orders, "registerPayment").mockResolvedValue({ success: false,
+    error: { code: "PAYMENT_EXCEEDS_BALANCE", message: "private detail", balanceDue: { amount: 60, currency: "PEN" } } });
+  const response = await request("/00000000-0000-4000-8000-000000000003/payments", "PE", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ paymentId: "00000000-0000-4000-8000-000000000004", amount: { amount: 999, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }) });
+  expect(response).toEqual({ status: 409, body: { code: "PAYMENT_EXCEEDS_BALANCE", error: "Payment exceeds the pending balance", balanceDue: { amount: 60, currency: "PEN" } } });
+});

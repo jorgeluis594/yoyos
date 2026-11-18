@@ -4,12 +4,14 @@ import { CircleCheck, CircleX, CreditCard, Truck } from "lucide-react";
 import { cn } from "cn";
 import { formatCurrency } from "@core/app/format-currency";
 import type { Money } from "@shared/money";
+import { paymentProgress } from "@shared/orders-payment";
 
 type OrderSource = "manual" | "catalog" | "whatsapp";
 export type LabelledOrder = Readonly<{
   status: "active" | "completed" | "cancelled";
   paymentStatus: "pending" | "paid";
   deliveryStatus: "pending" | "shipped" | "delivered";
+  total: Money;
   balanceDue: Money;
 }>;
 export type OrderStatusLabel = Readonly<{
@@ -29,8 +31,9 @@ export function orderOriginKey(source: OrderSource) {
 export function orderStatusLabels(order: LabelledOrder, t: TFunction, language: string): OrderStatusLabel[] {
   if (order.status === "completed") return [{ kind: "order", state: "completed", text: t("orderView.labels.completed"), name: t("orderView.labels.completedName", { label: t("orderView.labels.completed") }) }];
   if (order.status === "cancelled") return [{ kind: "order", state: "cancelled", text: t("orderView.labels.cancelled"), name: t("orderView.labels.cancelledName", { label: t("orderView.labels.cancelled") }) }];
-  const payment = order.paymentStatus === "paid" ? t("orderView.labels.paid")
-    : order.balanceDue.amount > 0 ? t("orderView.labels.paymentPendingBalance", { amount: formatCurrency(order.balanceDue.amount, order.balanceDue.currency, language) })
+  const progress = paymentProgress(order);
+  const payment = progress.kind === "paid" ? t("orderView.labels.paid")
+    : progress.kind === "partial" ? t("orderView.labels.paymentPartial", { amount: formatCurrency(progress.balanceDue.amount, progress.balanceDue.currency, language) })
     : t("orderView.labels.paymentPending");
   const delivery = t(`orderView.labels.${order.deliveryStatus === "pending" ? "deliveryPending" : order.deliveryStatus}`);
   return [
@@ -47,16 +50,9 @@ export function OrderStatusIcon({ label }: { label: OrderStatusLabel }) {
   return <Icon className={cn("size-4", tone(label.state))} aria-hidden="true" />;
 }
 
-/** The list's compact control: icons that open to show the text, with the text as accessible name and tooltip. */
-export function OrderStatusIndicators({ order }: { order: LabelledOrder }) {
+/** The list's states as visible text, each with its icon: a seller reads paid, partial, shipped or pending without opening anything. */
+export function OrderStatusText({ order }: { order: LabelledOrder }) {
   const { t, i18n } = useTranslation();
-  const labels = orderStatusLabels(order, t, i18n.language);
-  const name = labels.map((label) => label.name).join(" · ");
-  const text = labels.map((label) => label.text).join(" · ");
-  return <details className="order-state-indicator max-w-32">
-    <summary aria-label={name} title={name} className="flex cursor-pointer list-none items-center justify-center gap-1 rounded-[var(--radius-control)] transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring">
-      {labels.map((label) => <OrderStatusIcon key={label.kind} label={label} />)}
-    </summary>
-    <span className="block pt-1 text-xs font-normal text-muted-foreground">{text}</span>
-  </details>;
+  return <ul className="flex flex-col gap-0.5 text-xs font-normal">{orderStatusLabels(order, t, i18n.language).map((label) =>
+    <li key={label.kind} className="inline-flex items-center gap-1.5"><OrderStatusIcon label={label} /><span>{label.text}</span></li>)}</ul>;
 }

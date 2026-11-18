@@ -206,7 +206,7 @@ test("raising a line of a deducted order takes only the added units from the sto
 test("lowering a line and removing another of a deducted order return their units to the stock", async () => {
   await inShop(async (s) => {
     const id = await s.create([[s.trajeS, 2], [s.trajeM, 1], [s.deadpool, 3]]);
-    unwrap(await s.pay(id, 727));
+    unwrap(await s.pay(id, 627));
     expect([await s.stock(s.trajeS), await s.stock(s.trajeM), await s.stock(s.deadpool)]).toEqual([3, 4, 1]);
     unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
     expect([await s.stock(s.trajeS), await s.stock(s.trajeM), await s.stock(s.deadpool)]).toEqual([4, 5, 1]);

@@ -77,7 +77,8 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page.getByRole("alert")).toContainText("No hay stock suficiente");
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(1);
     await page.getByLabel(/^Cantidad: Cuaderno POS/).fill("1");
-    await page.getByLabel("Importe recibido").fill("0.30");
+    // The payment cannot exceed the total the screen shows (0.29); the server's price moved meanwhile, so the saved total is 0.30.
+    await page.getByLabel("Importe recibido").fill("0.29");
     await withTenantIsolation(tenantId, async () => await prisma.productVariant.update({ where: { id: stock.variantId }, data: { salePrice: 0.3 } }));
     await browserExpect(orderTotal(page)).toHaveText(formatCurrency(0.29, "PEN", "es"));
     await page.getByRole("button", { name: "Guardar venta" }).click();
@@ -204,7 +205,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
       payments: [], stockDeducted: false, deliveredAt: null, completedAt: null });
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(0);
     await page.goto("/es-PE/orders");
-    await browserExpect(page.getByRole("table", { name: "Órdenes" }).locator('summary[aria-label^="Estado del pago: Pago pendiente:"]')).toBeVisible();
+    await browserExpect(page.getByRole("table", { name: "Órdenes" }).getByText("Pago pendiente")).toBeVisible();
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
     await browserExpect(page.getByRole("group", { name: "Estado del pago: Pago pendiente" })).toBeVisible();
@@ -216,7 +217,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
       amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false } });
     expect(paid.status()).toBe(200);
     await page.reload();
-    await browserExpect(page.getByRole("group", { name: "Estado del pago: Pagada" })).toBeVisible();
+    await browserExpect(page.getByRole("group", { name: "Estado del pago: Pagado" })).toBeVisible();
     await browserExpect(page.getByRole("group", { name: "Estado de la entrega: Entrega pendiente" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(1);
@@ -320,7 +321,7 @@ test("new order saves partial payments, paid pending delivery and configured del
         balanceDue: { amount: scenario === "partial" ? 9.2 : scenario === "no-stock" ? 10 : 0 } });
       if (scenario === "delivery") expect(order).toMatchObject({ total: { amount: 14 }, deliveryCharge: { amount: 4 },
         payments: expect.arrayContaining([expect.objectContaining({ amount: { amount: 10, currency: "PEN" } }), expect.objectContaining({ amount: { amount: 4, currency: "PEN" } })]),
-        delivery: { recipient: { name: "Ana", phone: "999001" }, destination: { address: "Av. Lima 123", district: "MIRAFLORES", districtCode: "040110", instructions: "Puerta 2" } } });
+        delivery: { recipient: { name: "Ana", phone: "+51999001" }, destination: { address: "Av. Lima 123", district: "MIRAFLORES", districtCode: "040110", instructions: "Puerta 2" } } });
       if (scenario === "no-stock") expect(await withTenantIsolation(companyId, async () => await prisma.productStock.findFirst())).toMatchObject({ quantity: 0n });
     }
   } finally {

@@ -59,6 +59,11 @@ test("returns the variant of an item that is no longer available so the sale can
   expect(await save(input)).toMatchObject({ code: "VARIANT_NOT_FOUND", variantId });
 });
 
+test("a new sale refused for exceeding the total says the payments add up to more than the total", async () => {
+  vi.spyOn(composition, "createConfiguredOrder").mockResolvedValue({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", message: "Payment exceeds the pending balance", balanceDue: { amount: 15, currency: "PEN" } } });
+  expect(await save(input)).toEqual({ code: "PAYMENT_EXCEEDS_BALANCE", error: "Los pagos suman más que el total de la venta. Revisa los montos de los pagos." });
+});
+
 test("saves a new sale with payments and short stock and opens the order", async () => {
   const paymentId = "00000000-0000-4000-8000-000000000005";
   const create = vi.spyOn(composition, "createConfiguredOrder").mockResolvedValue({ success: true, data: { order: { id: orderId }, stockDue: { kind: "waiting", shortItems: [{ variantId: input.items[0].variantId, available: 3 }] } } } as never);

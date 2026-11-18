@@ -108,6 +108,21 @@ test("a failed subdomain read leaves the page with an unavailable link instead o
   expect(payload).not.toHaveProperty("orderId");
 });
 
+test("the detail loader shows the link from checkoutLinkOf, also when the subdomain read throws", async () => {
+  vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(aggregate()));
+  vi.spyOn(orders, "checkoutUrl").mockRejectedValue(new Error("catalog settings unreadable"));
+  const failure = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  expect(await loader(loaderArgs())).toMatchObject({ link: { kind: "unavailable" }, order: { id: orderId } });
+  expect(failure).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_link_unavailable", errorCode: "INTERNAL_ERROR" }), expect.any(String));
+});
+
+test("a payment refused for exceeding the balance answers with the balance core still sees", async () => {
+  vi.spyOn(orders, "registerPayment").mockResolvedValue(err({ code: "PAYMENT_EXCEEDS_BALANCE", message: "Payment exceeds the pending balance", balanceDue: { amount: 60, currency: "PEN" } }));
+  const paymentId = "00000000-0000-4000-8000-000000000003";
+  expect(await action(args({ operation: "confirm", paymentId, source: "manual", amount: "999", currency: "PEN", method: "bank_transfer" })))
+    .toEqual({ url: null, success: false, error: "PAYMENT_EXCEEDS_BALANCE", balanceDue: { amount: 60, currency: "PEN" } });
+});
+
 test.each(["confirm", "void"])("seller %s action dispatches payment operations without enabling checkout", async (operation) => {
   const enable = vi.spyOn(orders, "enableCheckout");
   const confirm = vi.spyOn(orders, "registerPayment").mockResolvedValue(err({ code: "ORDER_NOT_FOUND", message: "Unavailable" }));

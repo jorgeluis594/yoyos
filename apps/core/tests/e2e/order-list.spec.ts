@@ -45,14 +45,11 @@ test("seller scans units and independent states, searches orders and combines wo
     await browserExpect(rows).toHaveCount(6);
     await browserExpect(table.getByRole("columnheader")).toHaveText(["", "Pedido", "Cliente", "Distrito", "Fecha", "Unidades", "Total"]);
     await browserExpect(row("partial").locator('[data-column="itemCount"]')).toHaveText("5");
-    await row("partial").locator("summary").first().focus();
-    await page.keyboard.press("Enter");
-    await browserExpect(row("partial").locator("details[open]")).toContainText("Pago pendiente: S/ 50.00");
-    await row("partial").locator("summary").first().click();
-    await browserExpect(row("shipped").locator("summary").last()).toHaveAttribute("aria-label", /Estado de la entrega: Enviada/);
+    await browserExpect(row("partial")).toContainText(/Pago parcial · falta S\/\s50\.00/);
+    await browserExpect(row("shipped")).toContainText("Enviada");
     for (const kind of ["completed", "historical", "cancelled"]) {
-      await browserExpect(row(kind).locator("summary")).toHaveCount(1);
-      await browserExpect(row(kind).locator("summary")).toHaveAttribute("aria-label", kind === "cancelled" ? "Estado del pedido: Pedido cancelado" : "Estado de la venta: Venta completada");
+      await browserExpect(row(kind).locator("li")).toHaveCount(1);
+      await browserExpect(row(kind).locator("li")).toHaveText(kind === "cancelled" ? "Pedido cancelado" : "Venta completada");
     }
     await page.getByRole("link", { name: "Por cobrar", exact: true }).click();
     await browserExpect(rows).toHaveCount(1);
@@ -91,13 +88,11 @@ test("seller scans units and independent states, searches orders and combines wo
         await page.screenshot({ path: `test-results/order-list-${name}-${theme}.png`, fullPage: true, animations: "disabled" });
       }
     }
-    await row("partial").locator("summary").first().click();
-    await browserExpect(row("partial").locator("details[open]")).toContainText("Pago pendiente:");
-    await row("partial").locator("summary").first().click();
+    await browserExpect(row("partial")).toContainText("Pago parcial");
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/pt-BR/orders");
     await browserExpect(page.getByRole("columnheader")).toHaveText(["", "Pedido", "Cliente", "Distrito", "Data", "Unidades", "Total"]);
-    await browserExpect(page.locator('summary[aria-label="Status da venda: Venda concluída"]')).toHaveCount(2);
+    await browserExpect(page.getByText("Venda concluída", { exact: true })).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: "test-results/order-list-desktop-pt.png", fullPage: true, animations: "disabled" });
   } finally {
