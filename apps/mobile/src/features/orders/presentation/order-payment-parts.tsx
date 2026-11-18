@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Money } from "@shared/money";
-import { checkPaymentAmount, paymentProgress, type PaymentAmountProblem, type PaymentProgress } from "@shared/orders-payment";
+import { checkPaymentAmount, type PaymentAmountProblem, type PaymentProgress } from "@shared/orders-payment";
 import { choiceOfPayment, defaultPaymentChoice, paymentChoices, paymentFromChoice, walletProviderLabel, type PaymentChoice, type PaymentMethodAndProvider } from "@shared/wallet-providers";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";

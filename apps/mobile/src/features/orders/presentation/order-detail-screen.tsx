@@ -105,6 +105,8 @@ export default function OrderDetailScreen() {
   const [error, setError] = useState("");
   const [linkResult, setLinkResult] = useState<Readonly<{ orderId: string; link: Exclude<CheckoutLinkState, { kind: "loading" }> }> | null>(null);
   const [linkRefresh, setLinkRefresh] = useState(0);
+  // The last link state an aggregate load carried; a write answer without the field leaves it as it was.
+  const [knownLink, setKnownLink] = useState<Readonly<{ orderId: string; link: Exclude<CheckoutLinkState, { kind: "loading" | "error" }> }> | null>(null);
   const linkRequest = useRef(0);
   const checkoutGeneration = useRef(0);
   const [paymentError, setPaymentError] = useState("");
@@ -138,7 +140,8 @@ export default function OrderDetailScreen() {
   const cancellationBusy = cancellation.kind === "submitting" || cancellation.kind === "verifying";
   const cancellationBlocked = cancellationBusy || cancellation.kind === "uncertain" || detailRefreshFailed;
   // A result belongs to the order it was read for, so another order never shows this one's link while its own loads.
-  const checkoutLink: CheckoutLinkState = linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" };
+  const carried = order?.checkoutLink ?? (knownLink && knownLink.orderId === order?.id ? knownLink.link : null);
+  const checkoutLink: CheckoutLinkState = carried ?? (linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" });
   const { copied, copy: copyLink, open: openLink } = useCopyLink(checkoutLink.kind === "ready" ? checkoutLink.url : null);
   const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling || savingItems;
   /** The order and its review are one read: either failing fails it. */
@@ -331,8 +334,14 @@ export default function OrderDetailScreen() {
   // The live region is Android-only, so VoiceOver gets the same text announced once when the line appears.
   useEffect(() => { if (paymentLine) AccessibilityInfo.announceForAccessibility(translations.t(paymentLine === "waiting" ? "paymentRecordedWaiting" : "paymentRecorded")); }, [paymentLine]);
   useEffect(() => { if (copied) AccessibilityInfo.announceForAccessibility(translations.t("checkoutCopied")); }, [copied]);
+  const linkCarried = !!carried;
+  const carriedLink = order?.checkoutLink;
+  useEffect(() => { if (linkOrderId && carriedLink) setKnownLink({ orderId: linkOrderId, link: carriedLink }); }, [linkOrderId, carriedLink]);
+  const saleSaved = !!order && notice?.id === order.id && notice.shownTotal.currency === order.total.currency && notice.shownTotal.amount === order.total.amount;
+  useEffect(() => { if (saleSaved) AccessibilityInfo.announceForAccessibility(translations.t("saleSaved")); }, [saleSaved]);
+  // Only an order that does not say whether the store has a link asks for it, and only while no load has said so.
   useEffect(() => {
-    if (!linkOrderId || linkCancelled) return;
+    if (!linkOrderId || linkCancelled || linkCarried) return;
     const request = ++linkRequest.current;
     void (async () => {
       try {
@@ -343,7 +352,7 @@ export default function OrderDetailScreen() {
       } catch { if (request === linkRequest.current) setLinkResult({ orderId: linkOrderId, link: { kind: "error" } }); }
     })();
     return () => { linkRequest.current += 1; };
-  }, [linkOrderId, linkCancelled, linkRefresh]);
+  }, [linkOrderId, linkCancelled, linkRefresh, linkCarried]);
   async function runCancellation(verify: boolean) {
     if (!order || cancellationBusy || cancellationLock.current || savingPayment || fulfilling) return;
     if (!verify && (cancellationBlocked || order.cancelled || order.status !== "active" || order.deliveryStatus !== "pending")) return;
@@ -468,7 +477,8 @@ export default function OrderDetailScreen() {
   const canEditItems = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
   const itemsLockedText = order.cancelled || order.deliveryStatus === "pending" ? null : t(order.deliveryStatus === "shipped" ? "itemsEdit.lockedShipped" : "itemsEdit.lockedDelivered");
   const canEditDelivery = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
-  const checkoutState = order.cancelled ? t("checkoutCancelled") : order.checkoutConfirmedAt ? t("checkoutConfirmed") : order.status === "active" ? t("checkoutPending") : null;
+  const checkoutState = order.cancelled ? t("checkoutCancelled") : order.checkoutConfirmedAt ? t("checkoutConfirmed")
+    : order.status === "active" && checkoutLink.kind !== "subdomain_required" ? t("checkoutPending") : null;
   const openPayments = () => {
     scroll.current?.scrollTo({ y: paymentPosition.current, animated: false });
   };
@@ -532,6 +542,7 @@ export default function OrderDetailScreen() {
             <ThemedText type="small" style={{ color: theme.warning }}>{isWaitingDue(order.stockDue) ? t("stockWaitingHelp") : t("stockDeductingHelp")}</ThemedText>
           </View>
         </View> : null}
+        {saleSaved ? <ThemedText accessibilityLiveRegion="polite" style={{ color: theme.success }}>{t("saleSaved")}</ThemedText> : null}
         {changed && original ? <View style={[styles.card, styles.section, { backgroundColor: theme.warningSurface, borderColor: theme.border }]}>
           <ThemedText type="subtitle" accessibilityRole="header">{t('reviewCharge')}</ThemedText>
           <ThemedText>{t('shownAtConfirmation', { amount: money(original.amount, original.currency, locale) })}</ThemedText>

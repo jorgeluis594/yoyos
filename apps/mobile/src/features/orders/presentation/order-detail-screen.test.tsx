@@ -362,7 +362,7 @@ test("a confirmed order says so and still shows its link", async () => {
 test("without a subdomain the screen explains and leads to Apariencia de la tienda", async () => {
   mockEnableCheckout.mockResolvedValue({ success: false, error: { code: "SUBDOMAIN_REQUIRED", message: "Choose the catalog link" } });
   const screen = render(<OrderDetailScreen />);
-  await screen.findByText("Elige el link de tu tienda para compartir este pedido.");
+  await screen.findByText("Para compartir este pedido, elige primero el link de tu tienda en Apariencia de la tienda.");
   expect(screen.queryByText(linkUrl)).toBeNull();
   expect(screen.queryByRole("button", { name: "Copiar enlace" })).toBeNull();
   expect(screen.queryByText("No se pudo obtener el enlace. Inténtalo de nuevo.")).toBeNull();
@@ -399,7 +399,7 @@ test("a cancelled order offers no link action and never asks for the link", asyn
 test("returning to the screen asks for the link again so a new subdomain shows", async () => {
   mockEnableCheckout.mockResolvedValueOnce({ success: false, error: { code: "SUBDOMAIN_REQUIRED", message: "x" } });
   const screen = render(<OrderDetailScreen />);
-  await screen.findByText("Elige el link de tu tienda para compartir este pedido.");
+  await screen.findByText("Para compartir este pedido, elige primero el link de tu tienda en Apariencia de la tienda.");
   await act(async () => { mockFocus(); });
   expect(await screen.findByText(linkUrl)).toBeTruthy();
 });
@@ -1480,4 +1480,86 @@ test("a report on a paid order cannot be approved, says to reject a repeated rec
   expect(screen.getByText("Este pedido ya está pagado. Si el comprobante repite un pago que ya registraste, recházalo: el motivo que escribas lo verá el comprador.")).toBeTruthy();
   expect(screen.getAllByRole("button", { name: "Confirmar pago" })[0]).toBeDisabled();
   expect(screen.getByRole("button", { name: "Rechazar" })).toBeEnabled();
+});
+
+const activeOrder = () => { mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", completedAt: null, deliveredAt: null, checkoutEnabledAt: "2026-10-05T00:00:00.000Z" }; };
+const noLinkCopy = "Para compartir este pedido, elige primero el link de tu tienda en Apariencia de la tienda.";
+
+test("shows the link from the order without requesting checkout-link", async () => {
+  activeOrder();
+  mockOrder = { ...mockOrder, checkoutLink: { kind: "ready", url: linkUrl } };
+  const screen = render(<OrderDetailScreen />);
+  expect(await screen.findByText(linkUrl)).toBeTruthy();
+  expect(mockEnableCheckout).not.toHaveBeenCalled();
+});
+
+test("without a store link shows the one-sentence copy and no checkout-link request", async () => {
+  activeOrder();
+  mockOrder = { ...mockOrder, checkoutLink: { kind: "subdomain_required" } };
+  const screen = render(<OrderDetailScreen />);
+  expect(await screen.findByText(noLinkCopy)).toBeTruthy();
+  expect(screen.queryByText("Pendiente de confirmación")).toBeNull();
+  expect(screen.getByRole("button", { name: "Ir a Apariencia de la tienda" })).toBeTruthy();
+  for (let open = 0; open < 4; open++) await act(async () => { mockFocus(); });
+  expect(mockEnableCheckout).not.toHaveBeenCalled();
+});
+
+test("after the store chooses its link in Apariencia, returning to the order shows the link without reopening it", async () => {
+  activeOrder();
+  mockOrder = { ...mockOrder, checkoutLink: { kind: "subdomain_required" } };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText(noLinkCopy);
+  mockOrder = { ...mockOrder, checkoutLink: { kind: "ready", url: linkUrl } };
+  await act(async () => { mockFocus(); });
+  expect(await screen.findByText(linkUrl)).toBeTruthy();
+  expect(screen.queryByText(noLinkCopy)).toBeNull();
+  expect(mockEnableCheckout).not.toHaveBeenCalled();
+});
+
+test("a write answer without the link keeps the last known one", async () => {
+  activeOrder();
+  mockOrder = { ...mockOrder, paymentStatus: "pending", balanceDue: { amount: 12, currency: "PEN" }, paidAmount: { amount: 0, currency: "PEN" }, payments: [], checkoutLink: { kind: "ready", url: linkUrl } };
+  mockRegisterPayment.mockResolvedValue({ success: true, data: { order: { ...initialOrder, checkoutLink: undefined, status: "active", completedAt: null } } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText(linkUrl);
+  fireEvent.press(screen.getByRole("button", { name: "Registrar pago" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Registrar S/ }));
+  await screen.findByText("Pago registrado.");
+  expect(screen.getByText(linkUrl)).toBeTruthy();
+  expect(mockEnableCheckout).not.toHaveBeenCalled();
+});
+
+test("requests checkout-link only when the order does not say whether there is a link", async () => {
+  activeOrder();
+  const screen = render(<OrderDetailScreen />);
+  expect(await screen.findByText(linkUrl)).toBeTruthy();
+  expect(mockEnableCheckout).toHaveBeenCalledTimes(1);
+});
+
+test("shows «Venta guardada.» after a new sale opens its detail", async () => {
+  mockNotice = { id: mockId, shownTotal: { amount: 12, currency: "PEN" } };
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => {});
+  const screen = render(<OrderDetailScreen />);
+  expect(await screen.findByText("Venta guardada.")).toBeTruthy();
+  expect(announce.mock.calls.filter(([text]) => text === "Venta guardada.")).toHaveLength(1);
+  screen.unmount();
+  mockNotice = null;
+  const history = render(<OrderDetailScreen />);
+  await history.findByText("Venta completada");
+  expect(history.queryByText("Venta guardada.")).toBeNull();
+  announce.mockRestore();
+});
+
+test("a paid order reads «Pagado» in the badge", async () => {
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Venta completada");
+  expect(screen.getByLabelText("Pagado")).toBeTruthy();
+});
+
+test("the detail badge reads «Pago parcial · falta S/ 60.00»", async () => {
+  mockOrder = { ...initialOrder, status: "active", completedAt: null, paymentStatus: "pending", total: { amount: 90, currency: "PEN" },
+    paidAmount: { amount: 30, currency: "PEN" }, balanceDue: { amount: 60, currency: "PEN" }, deliveryStatus: "pending", stockDeducted: false };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Total");
+  expect(screen.getByLabelText(/^Pago parcial · falta S\/\s*60\.00$/)).toBeTruthy();
 });
