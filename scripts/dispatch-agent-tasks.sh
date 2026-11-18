@@ -52,7 +52,7 @@ fi
 jq -c '.[]' <<<"$tasks" | while read -r task; do
   id="$(jq -r .id <<<"$task")"
   title="$(jq -r .content <<<"$task")"
-  url="$(jq -r .webUrl <<<"$task")"
+  url="$(jq -r '.url // .webUrl' <<<"$task")"
   remaining_labels="$(jq -r --arg ready "$ready_label" '[.labels[] | select(. != $ready)] | join(",")' <<<"$task")"
   # The topic names the worktree and the implement-task integration branch jorgeluis594/<topic>.
   topic="$(iconv -f utf-8 -t ascii//TRANSLIT <<<"$title" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-40 | sed 's/^-*//; s/-*$//')"

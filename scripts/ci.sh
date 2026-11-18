@@ -24,7 +24,7 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 base="$(git merge-base HEAD "$parent")"
 changed="$( {
-  git diff --name-only --diff-filter=d "$base"
+  git diff --name-only "$base"
   git ls-files --others --exclude-standard
 } | sort -u)"
 
@@ -58,13 +58,27 @@ sources() {
   fi
 }
 
-lint() { [ $# -eq 0 ] || pnpm exec eslint --no-warn-ignored "$@"; }
+# A deleted file is a change that can break typecheck, imports or tests, but it cannot be
+# passed to a linter: callers filter the list down to the files that still exist.
+existing() {
+  local keep=()
+  for f in "$@"; do [ -f "$f" ] && keep+=("$f"); done
+  [ ${#keep[@]} -eq 0 ] || printf '%s\n' "${keep[@]}"
+}
+
+lint() {
+  local files
+  mapfile -t files < <(existing "$@")
+  [ ${#files[@]} -eq 0 ] || pnpm exec eslint --no-warn-ignored "${files[@]}"
+}
 
 # A partial cruise reports every unreached baseline entry as stale; hide that hint so
 # nobody shrinks the baseline from it.
 deps() {
-  [ $# -eq 0 ] && return 0
-  pnpm exec depcruise "$@" --config .dependency-cruiser.cjs --ignore-known 2>&1 \
+  local files
+  mapfile -t files < <(existing "$@")
+  [ ${#files[@]} -eq 0 ] && return 0
+  pnpm exec depcruise "${files[@]}" --config .dependency-cruiser.cjs --ignore-known 2>&1 \
     | { grep -v "stale known violations" || true; }
 }
 
