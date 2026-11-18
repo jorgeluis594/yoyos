@@ -250,11 +250,11 @@ export default function OrderHistoryScreen() {
             </View> : <View style={styles.badges}>
               <View style={styles.statusLine}>
                 <SymbolView name={{ ios: progress.kind === "paid" ? "checkmark.circle.fill" : "clock", android: progress.kind === "paid" ? "check_circle" : "schedule" }} size={16} tintColor={progress.kind === "paid" ? theme.success : theme.warning} />
-                <ThemedText type="small" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ flexShrink: 1, color: progress.kind === "paid" ? theme.success : theme.warning }}>{progress.kind === "paid" ? t('orderListPaid') : progress.kind === "partial" ? t('paymentPartialLeft', { amount: money(progress.balanceDue.amount, progress.balanceDue.currency, locale) }) : t('orderListPaymentPending')}</ThemedText>
+                <ThemedText type="small" style={{ flexShrink: 1, color: progress.kind === "paid" ? theme.success : theme.warning }}>{progress.kind === "paid" ? t('orderListPaid') : progress.kind === "partial" ? t('paymentPartialLeft', { amount: money(progress.balanceDue.amount, progress.balanceDue.currency, locale) }) : t('orderListPaymentPending')}</ThemedText>
               </View>
               <View style={styles.statusLine}>
                 <SymbolView name={{ ios: "shippingbox", android: "local_shipping" }} size={16} tintColor={theme.textSecondary} />
-                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={styles.statusText}>{deliveryStatusLabel(item.deliveryStatus, language)}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.statusText}>{deliveryStatusLabel(item.deliveryStatus, language)}</ThemedText>
               </View>
             </View>}
             {item.toReview && item.status === "active" ? <View style={styles.statusLine}>
@@ -316,7 +316,7 @@ const styles = StyleSheet.create({
   order: { marginHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 72, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
   orderText: { flex: 1, minWidth: 0, gap: 2 },
   customerName: { fontWeight: "600" }, amount: { fontWeight: "600", fontVariant: ["tabular-nums"], textAlign: "right", maxWidth: "40%" },
-  badges: { flexDirection: "row", columnGap: 12 }, badge: { alignSelf: "flex-start", borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
+  badges: { flexDirection: "row", flexWrap: "wrap", columnGap: 12, rowGap: 2 }, badge: { alignSelf: "flex-start", borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
   statusLine: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }, statusText: { flexShrink: 1 },
   checkout: { position: "absolute", top: 10, right: 12 },
   footer: { gap: 8, padding: 16 }, filters: { gap: 16 },
