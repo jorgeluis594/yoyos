@@ -56,8 +56,7 @@ test("rated pickup freezes its point, a recipient correction records the editor 
     } });
     expect(apiAssigned.ok()).toBe(true);
     // Only GET /aggregate carries the store link (`checkoutLink`); the PUT answer is the same order without it.
-    const { checkoutLink: _checkoutLink, ...assignedOrder } = assigned;
-    expect(await apiAssigned.json()).toEqual(assignedOrder);
+    expect(await apiAssigned.json()).toEqual({ ...assigned, checkoutLink: undefined });
     const changed = await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1,
       agency: { enabled: false }, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } });
     expect(changed.ok()).toBe(true);

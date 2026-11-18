@@ -56,6 +56,8 @@ test("creates a sale with the picker, a Yape advance and a customer, then opens 
     await amount.fill("150");
     await amount.press("/");
     await browserExpect(page.getByRole("dialog")).toHaveCount(0);
+    // The amount is a text field now: the «/» typed into it stays there (and is refused as not numeric), so the seller retypes it.
+    await amount.fill("150");
 
     await page.getByLabel("Nombre", { exact: true }).first().fill("Jorge Gonzalez");
     await page.getByRole("textbox", { name: "Celular" }).first().fill("977909427");
