@@ -35,7 +35,7 @@ type Props = Readonly<{
   /** Back to a product without options, with the values the form had before the first one. */
   onClearOptions: () => void;
   /** True while an option editor is open: what is typed there reaches the product only with its «Listo». */
-  onEditingChange?: (editing: boolean) => void;
+  onEditingChange?: (editing: "new" | "saved" | null) => void;
 }>;
 
 const { options: maxOptions, variants: maxVariants } = productOptionLimits;
@@ -46,8 +46,8 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
   const { t } = useTranslation();
   const [editing, setEditing] = useState<OptionBuffer | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
-  const isEditing = editing !== null;
-  useEffect(() => { onEditingChange?.(isEditing); }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
+  const editingKind = editing === null ? null : editing.isNew ? "new" : "saved";
+  useEffect(() => { onEditingChange?.(editingKind); }, [editingKind]); // eslint-disable-line react-hooks/exhaustive-deps
   const [notices, setNotices] = useState<Readonly<Record<string, string>>>({});
   const [valueNotices, setValueNotices] = useState<Readonly<Record<string, string>>>({});
   const [selected, setSelected] = useState<readonly string[]>([]);

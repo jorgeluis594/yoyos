@@ -301,7 +301,7 @@ test("Guardar is disabled while an option is being edited and the reason is visi
   type(byLabel("Agregar otro valor"), "S");
   expect(saveButton().disabled).toBe(true);
   expect(saveButton().getAttribute("aria-describedby")).toBe("save-blocked");
-  expect(container.querySelector("#save-blocked")?.textContent).toBe("Pulsa «Listo» en la opción para aplicar tus cambios antes de guardar el producto.");
+  expect(container.querySelector("#save-blocked")?.textContent).toBe("Pulsa «Listo» para aplicar la opción o «Eliminar» para descartarla antes de guardar el producto.");
   click(button("Listo"));
   expect(saveButton().disabled).toBe(false);
   expect(container.querySelector("#save-blocked")).toBeNull();
@@ -381,4 +381,11 @@ test("the stock total of a product with options also lives in the product data",
   mount({ draft: draftFromProduct(product(false)) });
   const total = container.querySelector<HTMLInputElement>("input[aria-readonly=true]")!;
   expect(total.closest("section")?.getAttribute("aria-labelledby")).toBe("product-data-heading");
+});
+
+test("editing a saved option keeps the Listo-only reason under the disabled Guardar", () => {
+  mount({ draft: draftFromProduct(product(false)) });
+  click(button("Editar Color"));
+  expect(saveButton().disabled).toBe(true);
+  expect(container.querySelector("#save-blocked")?.textContent).toBe("Pulsa «Listo» en la opción para aplicar tus cambios antes de guardar el producto.");
 });

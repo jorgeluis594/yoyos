@@ -328,6 +328,7 @@ const es = {
     deletedBlocked: "No se puede eliminar lo marcado: alguna variante ahora tiene pedidos o stock. Deshaz la eliminación y vuelve a guardar.",
     saveChanges: "Guardar cambios", noActiveList: "Sin variantes activas",
     finishOption: "Pulsa «Listo» en la opción para aplicar tus cambios antes de guardar el producto.",
+    finishNewOption: "Pulsa «Listo» para aplicar la opción o «Eliminar» para descartarla antes de guardar el producto.",
   },
   variantDetail: {
     loading: "Cargando variante…", loadError: "No se pudo cargar la variante. Revisa tu conexión e inténtalo otra vez.", retry: "Reintentar",
@@ -790,6 +791,7 @@ const pt = {
     deletedBlocked: "Não é possível excluir o que foi marcado: alguma variante agora tem pedidos ou estoque. Desfaça a exclusão e salve novamente.",
     saveChanges: "Salvar alterações", noActiveList: "Sem variantes ativas",
     finishOption: "Toque em «Pronto» na opção para aplicar suas alterações antes de salvar o produto.",
+    finishNewOption: "Toque em «Pronto» para aplicar a opção ou em «Excluir» para descartá-la antes de salvar o produto.",
   },
   variantDetail: {
     loading: "Carregando variante…", loadError: "Não foi possível carregar a variante. Verifique sua conexão e tente novamente.", retry: "Tentar novamente",
