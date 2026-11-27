@@ -1,19 +1,15 @@
 import { readFile } from "node:fs/promises";
 import pg from "pg";
-import { z } from "zod";
 import { log } from "@core/src/shared/infrastructure/logger";
+import { parseCourierCatalog } from "@core/src/features/delivery-settings/infrastructure/catalog-files";
 
 const catalogPath = process.env.COURIER_CATALOG_FILE ?? new URL("../prisma/catalog/couriers.json", import.meta.url);
-const courierCatalogFileSchema = z.array(z.strictObject({
-  code: z.string().regex(/^[a-z0-9]+(_[a-z0-9]+)*$/).max(40),
-  name: z.string().trim().min(1).max(120),
-  enabled: z.boolean(),
-})).refine((values) => new Set(values.map((value) => value.code)).size === values.length);
-
 let connected = false;
 const db = new pg.Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5_000 });
 try {
-  const couriers = courierCatalogFileSchema.parse(JSON.parse(await readFile(catalogPath, "utf8")));
+  const parsed = parseCourierCatalog(await readFile(catalogPath, "utf8"));
+  if (!parsed.success) throw new Error(parsed.error.message);
+  const couriers = parsed.data;
   await db.connect();
   connected = true;
   await db.query("BEGIN");
