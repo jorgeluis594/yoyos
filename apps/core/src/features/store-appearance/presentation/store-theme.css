@@ -130,7 +130,7 @@
 /* The catalog search keeps its own box in every theme, so it takes the ring even where checkout fields take the underline. */
 [data-store-theme] [data-store-part="catalog-search"]:focus-visible {
   outline-width: 2px;
-  box-shadow: var(--store-input-shadow);
+  box-shadow: var(--store-search-shadow);
 }
 
 /* Header */
@@ -148,7 +148,8 @@
   text-align: var(--store-logo-text-align);
   font-family: var(--store-font-heading);
   font-size: var(--store-text-store);
-  font-weight: var(--store-weight-heading);
+  font-weight: var(--store-weight-store);
+  font-style: var(--store-style-display);
   letter-spacing: var(--store-tracking-heading);
   line-height: 1.15;
 }
@@ -363,16 +364,42 @@
 }
 
 /* Catalog */
-/* Themes without a field border (Boutique, Noche) still draw the search box, in the control color that reaches 3:1 on every surface. */
+/*
+ * The catalog header is part of the page: no band, no rule, and the store name centered at display size. It balances onto two lines
+ * instead of leaving one word alone.
+ */
+[data-store-theme][data-store-surface="catalog"] [data-store-part="header"] {
+  border-bottom: none;
+  margin-bottom: 0;
+  background-color: transparent;
+}
+
+[data-store-theme][data-store-surface="catalog"] [data-store-part="header-brand"] {
+  color: var(--heading);
+  font-size: var(--store-text-catalog-store);
+  line-height: 1.1;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* Every theme draws the search as a pill with its own border, in a color that reaches 3:1 on the page (Boutique and Noche fields have no border). */
 [data-store-theme] [data-store-part="catalog-search"] {
-  border: 1px solid var(--control);
+  border: var(--store-search-border);
+  border-radius: var(--store-radius-search);
+  box-shadow: var(--store-search-shadow);
+  font-family: var(--store-catalog-detail-font);
+  font-style: var(--store-style-display);
+}
+
+[data-store-theme] [data-store-part="catalog-search-icon"] {
+  color: var(--foreground);
 }
 
 /* The card clips its square photo with its own rounding. */
 [data-store-theme] [data-store-part="catalog-card"] {
   overflow: hidden;
   border: var(--store-card-border);
-  border-radius: var(--store-radius-card);
+  border-radius: var(--store-radius-catalog-card);
   box-shadow: var(--store-card-shadow);
   background-color: var(--card);
   color: var(--card-foreground);
@@ -381,10 +408,21 @@
 /* A framed card keeps its text off the edge; a frameless one (inset 0) keeps the text flush with the photo. */
 [data-store-theme] [data-store-part="catalog-card"] :is([data-store-part="product-name"], [data-store-part="price"]) {
   padding-inline: var(--store-catalog-card-inset);
+  font-style: var(--store-style-display);
+}
+
+[data-store-theme] [data-store-part="catalog-card"] [data-store-part="product-name"] {
+  font-size: var(--store-text-catalog-name);
 }
 
 [data-store-theme] [data-store-part="catalog-card"] [data-store-part="price"] {
   padding-bottom: var(--store-catalog-card-inset);
+  color: var(--price);
+  font-family: var(--store-catalog-detail-font);
+  font-size: var(--store-text-catalog-price);
+  /* Lining figures keep a serif price level; a long «Desde» price wraps instead of being clipped by the card. */
+  font-variant-numeric: lining-nums tabular-nums;
+  white-space: normal;
 }
 
 [data-store-theme] [data-store-part="catalog-card"]:focus-visible {
@@ -447,9 +485,15 @@
   font-size: var(--store-text-small);
 }
 
-/* The main button rule removes the lifted shadow of the floating button; a drop shadow keeps it apart from the page in every theme. */
+/* The cart icon takes the theme's price color (Noche's cyan, the text color elsewhere); its count is the theme's primary chip. */
 [data-store-theme] [data-store-part="cart-button"] {
-  filter: drop-shadow(0 4px 10px rgb(0 0 0 / 0.2));
+  color: var(--price);
+}
+
+[data-store-theme] [data-store-part="cart-count"] {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+  font-family: var(--store-font-body);
 }
 
 [data-store-theme] [data-store-part="cart-sheet"] [role="dialog"] {

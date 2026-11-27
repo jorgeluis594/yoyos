@@ -53,10 +53,10 @@ describe("StoreBrandHeader", () => {
     ]) expect(html, property).toMatch(new RegExp(`${property}:var\\(--store-logo-[a-z-]+,\\s*${fallback.replace(/[().]/g, "\\$&")}\\)`));
   });
 
-  test("sets the store name in the theme's heading font and weight", () => {
+  test("sets the store name in the theme's heading font and store weight", () => {
     const html = renderToStaticMarkup(<StoreBrandHeader companyName="Lima Studio" logoUrl={null} />);
     expect(html).toContain("font-family:var(--store-font-heading, inherit)");
-    expect(html).toContain("font-weight:var(--store-weight-heading, 600)");
+    expect(html).toContain("font-weight:var(--store-weight-store, 600)");
     expect(html).not.toContain("font-semibold");
   });
 

@@ -14,10 +14,10 @@ const plate: CSSProperties = {
   padding: "var(--store-logo-padding, 0.25rem 0.5rem)",
 };
 
-/** The store name takes the theme's heading font and weight; without a theme it keeps today's semibold. */
+/** The store name takes the theme's heading font and its own weight; without a theme it keeps today's semibold. */
 const storeName: CSSProperties = {
   fontFamily: "var(--store-font-heading, inherit)",
-  fontWeight: "var(--store-weight-heading, 600)",
+  fontWeight: "var(--store-weight-store, 600)",
 };
 
 function BrandLogo({ url }: Readonly<{ url: string }>) {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { Link, useLocation } from "react-router";
-import { Minus, Plus, ShoppingBag } from "lucide-react";
+import { Minus, Plus, ShoppingBag, ShoppingCart } from "lucide-react";
 import { Alert, AlertAction, AlertDescription } from "@core/app/components/ui/alert";
 import { ProductThumbnail } from "@core/src/features/store-appearance/presentation/product-thumbnail";
 import { Button } from "@core/app/components/ui/button";
@@ -172,12 +172,13 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
 /** The look of the **Carrito** button: bag, label and unit count. Presentational, so the editor preview can draw it without a cart. */
 export function CatalogCartButtonFace({ units, className, ...props }: Readonly<{ units: number } & Omit<ComponentProps<typeof Button>, "children">>) {
   const unitsText = `${units} ${units === 1 ? "unidad" : "unidades"}`;
-  return <Button data-store-part="cart-button" size="lg" className={cn("fixed right-4 bottom-4 z-40 h-12 shadow-lg", className)} aria-label={`Carrito, ${unitsText}`} {...props}>
-    <ShoppingBag aria-hidden="true" />Carrito{units > 0 && <span className="rounded-full bg-background px-2 text-xs font-semibold text-foreground tabular-nums">{units}</span>}
+  return <Button data-store-part="cart-button" variant="ghost" size="icon" className={cn("relative size-11", className)} aria-label={`Carrito, ${unitsText}`} {...props}>
+    <ShoppingCart aria-hidden="true" className="size-7" />
+    {units > 0 && <span data-store-part="cart-count" className="absolute -top-0.5 -right-0.5 min-w-5 rounded-full px-1 text-center text-xs leading-5 font-semibold tabular-nums">{units}</span>}
   </Button>;
 }
 
-/** Fixed **Carrito** button with the unit count; opens the cart in a side sheet. Render it inside `CatalogShell`: the sheet portals next to the button so it keeps the store theme. */
+/** The cart icon of the header with the unit count; opens the cart in a side sheet. Render it inside `CatalogShell`: the sheet portals next to the button so it keeps the store theme. */
 export function CatalogCartButton({ companyId }: Readonly<{ companyId: string }>) {
   const [cart] = useCatalogCart(companyId);
   const [host, setHost] = useState<HTMLDivElement | null>(null);

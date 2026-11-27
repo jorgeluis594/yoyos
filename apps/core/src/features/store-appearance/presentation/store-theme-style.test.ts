@@ -103,7 +103,7 @@ describe("store-theme.css", () => {
 
   test("styles only parts inside a themed store", () => {
     expect(selectors.length).toBeGreaterThan(20);
-    for (const selector of selectors) expect(selector, selector).toMatch(/^\[data-store-theme\](?::not\(\[data-store-surface="catalog"\]\))? /);
+    for (const selector of selectors) expect(selector, selector).toMatch(/^\[data-store-theme\](?::not\(\[data-store-surface="catalog"\]\)|\[data-store-surface="catalog"\])? /);
   });
 
   test("reads only variables that every theme writes, also in catalog parts", () => {
@@ -209,8 +209,8 @@ describe("store-theme.css", () => {
 
   test("hooks only the closed list of store parts", () => {
     const parts = new Set([...stylesheet.matchAll(/data-store-part="([a-z-]+)"/g)].map((match) => match[1]));
-    expect([...parts].sort()).toEqual(["card", "cart-button", "cart-line", "cart-sheet", "catalog-card", "catalog-card-photo", "catalog-empty", "catalog-gallery-thumbnail", "catalog-more", "catalog-notice",
-      "catalog-product-photo", "catalog-quantity", "catalog-search", "catalog-sold-out", "field", "field-group", "free", "header", "header-brand", "option", "option-cost",
+    expect([...parts].sort()).toEqual(["card", "cart-button", "cart-count", "cart-line", "cart-sheet", "catalog-card", "catalog-card-photo", "catalog-empty", "catalog-gallery-thumbnail", "catalog-more", "catalog-notice",
+      "catalog-product-photo", "catalog-quantity", "catalog-search", "catalog-search-icon", "catalog-sold-out", "field", "field-group", "free", "header", "header-brand", "option", "option-cost",
       "option-group", "order-title", "payment-details", "payment-image", "payment-method", "price", "product-meta", "product-name", "product-row", "section-title", "status", "total",
       "total-amount", "total-label"]);
   });
@@ -220,7 +220,7 @@ describe("store-theme.css", () => {
   test("scopes the catalog parts to the store theme subtree", () => {
     const catalog = selectors.filter((selector) => /catalog-|cart-/.test(selector));
     expect(catalog.length).toBeGreaterThanOrEqual(12);
-    for (const selector of catalog) expect(selector, selector).toMatch(/^\[data-store-theme\](?::not\(\[data-store-surface="catalog"\]\))? /);
+    for (const selector of catalog) expect(selector, selector).toMatch(/^\[data-store-theme\](?::not\(\[data-store-surface="catalog"\]\)|\[data-store-surface="catalog"\])? /);
   });
 
   test("applies the theme photo filter to card photos and cart thumbnails, never to the product page photo", () => {
@@ -233,28 +233,31 @@ describe("store-theme.css", () => {
   test("clips the square card photo with the card's rounding in Suave", () => {
     expect(rule("catalog-card-photo")).toContain("border-radius: 0");
     expect(rule("catalog-card")).toMatch(/overflow: hidden/);
-    expect(rule("catalog-card")).toContain("border-radius: var(--store-radius-card)");
+    expect(rule("catalog-card")).toContain("border-radius: var(--store-radius-catalog-card)");
     expect(rule("catalog-product-photo")).toContain("border-radius: var(--store-radius-card)");
-    expect(storeThemes.suave.style["radius-card"]).toBe("16px");
+    expect(storeThemes.suave.style["radius-catalog-card"]).toBe("24px");
     expect(storeThemes.suave.thumbnail.radius).toBe("999px");
   });
 
   test("meets 4.5:1 for the sold-out badge and 3:1 for the catalog search border in every theme", () => {
     const token = (body: string, property: string) => new RegExp(`(?:^|[\\s;])${property}:[^;]*var\\(--([a-z-]+)\\)`).exec(body)?.[1] as keyof StoreThemeDefinition["colors"];
     const badge = rule("catalog-sold-out");
-    const [badgeText, badgeSurface, searchBorder] = [token(badge, "color"), token(badge, "background-color"), token(rule("catalog-search"), "border")];
-    expect([badgeText, badgeSurface, searchBorder]).toEqual(["warning", "warning-surface", "control"]);
+    const [badgeText, badgeSurface] = [token(badge, "color"), token(badge, "background-color")];
+    expect([badgeText, badgeSurface]).toEqual(["warning", "warning-surface"]);
+    expect(rule("catalog-search")).toContain("border: var(--store-search-border)");
     for (const id of storeThemeIds) {
-      const { colors, backgroundImage } = storeThemes[id];
+      const { colors, backgroundImage, style } = storeThemes[id];
+      const searchBorder = /var\(--([a-z-]+)\)/.exec(style["search-border"])?.[1] as keyof StoreThemeDefinition["colors"];
+      expect(colors[searchBorder], `${id}: search border color`).toBeDefined();
       expect(contrast(colors[badgeText], colors[badgeSurface]), `${id}: badge`).toBeGreaterThanOrEqual(4.5);
       for (const surface of [colors.background, colors.card, colors["input-surface"], ...(backgroundImage?.stops ?? [])])
         expect(contrast(colors[searchBorder], surface), `${id}: search border on ${surface}`).toBeGreaterThanOrEqual(3);
     }
   });
 
-  test("insets the card text only where the theme draws a card frame", () => {
+  test("insets the card text only in the themes that draw a card frame", () => {
     const inset = (id: StoreThemeId) => /--store-catalog-card-inset:([^;]+);/.exec(storeThemeCss(id, scope))?.[1];
-    expect(Object.fromEntries(storeThemeIds.map((id) => [id, inset(id)]))).toEqual({ classic: "0.5rem", boutique: "0", antojo: "0.5rem", suave: "0.5rem", noche: "0.5rem" });
+    expect(Object.fromEntries(storeThemeIds.map((id) => [id, inset(id)]))).toEqual({ classic: "12px", boutique: "0", antojo: "14px", suave: "16px", noche: "14px" });
     expect(stylesheet).toMatch(/catalog-card"\] :is\([^)]*\) \{\s*padding-inline: var\(--store-catalog-card-inset\)/);
   });
 
