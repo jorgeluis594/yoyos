@@ -5,7 +5,7 @@ import type { Result } from "@shared/result";
 import type { CourierCatalogId, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
 export type DeliveryAgencyId = string & { readonly __brand: "DeliveryAgencyId" };
-// System catalog row, maintained by SQL (D5): the app only reads it.
+// System catalog row, loaded by hand from prisma/catalog/agencies.csv (D5): the app only reads it.
 export type DeliveryAgency = Readonly<{
   id: DeliveryAgencyId; courierId: CourierCatalogId; name: string; address: string; districtCode: PeruDistrictCode;
   enabled: boolean; courierEnabled: boolean;
