@@ -12,7 +12,8 @@ import { orderFulfillmentBlock } from "@shared/orders-fulfillment";
 import { mentionedPriceNote } from "@shared/mentioned-price";
 import { PaymentFields, type PaymentFieldsValue } from "@mobile/features/orders/presentation/payment-fields";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, View } from "react-native";
+import { AccessibilityInfo, ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
 import * as Crypto from "expo-crypto";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -108,6 +109,7 @@ export default function OrderDetailScreen() {
   const linkRequest = useRef(0);
   const checkoutGeneration = useRef(0);
   const [paymentError, setPaymentError] = useState("");
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   // What the last recorded payment left behind; it stays until the seller starts another payment, delivery or fulfillment action.
   const [paymentLine, setPaymentLine] = useState<"recorded" | "waiting" | null>(null);
   const [savingPayment, setSavingPayment] = useState<string | null>(null);
@@ -302,8 +304,7 @@ export default function OrderDetailScreen() {
   async function viewReceipt(imageId: string) {
     const result = await orders.receiptUrl(imageId);
     if (!result.success) { setPaymentError(t("receiptUnavailable")); return; }
-    try { await Linking.openURL(result.data); }
-    catch { setPaymentError(t("receiptUnavailable")); }
+    setReceiptUrl(result.data);
   }
   useFocusEffect(useCallback(() => {
     checkoutGeneration.current += 1;
@@ -466,6 +467,8 @@ export default function OrderDetailScreen() {
   const review = editor && editor !== "manual" ? editor : null;
   const openEditor = (value: NonNullable<typeof editor>) => { if (cancellationLock.current || writeBusy || order.cancelled) return; setPaymentError(""); setPaymentLine(null); setRejection(null); setEditor(value); };
   const closeEditor = () => { if (!savingPayment) { setEditor(null); setRejection(null); setPaymentError(""); } };
+  const receiptViewer = receiptUrl ? <ReceiptViewer url={receiptUrl} closeLabel={t("closeReceipt")}
+    onClose={() => setReceiptUrl(null)} onError={() => { setReceiptUrl(null); setPaymentError(t("receiptUnavailable")); }} /> : null;
   // The one main action is the next valid transition; when it is blocked the button stays disabled and says why.
   const nextOperation = order.deliveryStatus === "pending" ? (order.delivery?.method === "store" ? "deliver" : "ship") : order.deliveryStatus === "shipped" ? "deliver" : null;
   const nextBlock = nextOperation ? orderFulfillmentBlock(order, nextOperation) : null;
@@ -602,14 +605,15 @@ export default function OrderDetailScreen() {
           {!order.cancelled && order.balanceDue.amount > 0 ? <Button disabled={writeBusy} onPress={() => openEditor("manual")}>{hasPaid ? t('collectBalance', { amount: format(order.balanceDue) }) : t('detailRegisterPayment')}</Button> : null}
         </View>
         {order.delivery || !order.cancelled ? <View style={[styles.card, styles.section, cardStyle]}>
-          <View style={styles.row}>
-            <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('delivery')}</ThemedText>
-            {!order.cancelled ? <DeliveryBadge status={order.deliveryStatus} language={language} /> : null}
+          <View style={styles.productsHeader}>
+            <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
+            {/* The pill pins itself to the top of its parent; a wrapper lets the header center it. */}
+            <View style={styles.flex}>{!order.cancelled ? <DeliveryBadge status={order.deliveryStatus} language={language} /> : null}</View>
+            {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => { setPaymentLine(null); router.push({ pathname: "/orders/delivery", params: { id: order.id } }); }}>{t(order.delivery ? 'editOrderDeliveryData' : 'assignOrderDeliveryData')}</Button> : null}
           </View>
           {!order.cancelled ? <>
             {canEditDelivery ? <OrderDayField row label={t('rowDispatch')} value={order.scheduledDispatchDate ?? ""} onChange={day => void reschedule(day)} />
               : <DeliveryRow symbol={deliveryRowSymbols.dispatch} label={t('rowDispatch')} value={order.scheduledDispatchDate ?? t('noScheduledDispatch')} muted={!order.scheduledDispatchDate} />}
-            <View style={[styles.divider, { borderColor: theme.border }]} />
           </> : null}
           {order.delivery ? <DeliveryRow symbol={deliveryRowSymbols.shipping} label={t('rowShipping')} expanded={deliveryOpen} onPress={() => setDeliveryOpen(!deliveryOpen)}
             value={shippingSummary(order.delivery.method === "store" ? { method: "store" } : order.delivery.method === "agency"
@@ -617,8 +621,7 @@ export default function OrderDetailScreen() {
               : { method: "home", district: order.delivery.destination.district })} />
             : canEditDelivery ? <ThemedText themeColor="textSecondary">{t('orderDeliveryUndefined')}</ThemedText> : null}
           {!order.cancelled && Platform.OS === "android" && order.delivery && order.delivery.method !== "store"
-            ? <><View style={[styles.divider, { borderColor: theme.border }]} /><LabelRow id={order.id} number={order.number} /></> : null}
-          {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => { setPaymentLine(null); router.push({ pathname: "/orders/delivery", params: { id: order.id } }); }}>{t(order.delivery ? 'editOrderDeliveryData' : 'assignOrderDeliveryData')}</Button> : null}
+            ? <LabelRow id={order.id} number={order.number} /> : null}
           {canEditDelivery && order.paymentStatus === "pending" ? <ThemedText type="small" themeColor="textSecondary">{t('manualDeliveryWithoutPayment')}</ThemedText> : null}
           {order.delivery ? <>
             {deliveryOpen ? <View style={styles.section}>
@@ -709,27 +712,17 @@ export default function OrderDetailScreen() {
         </View>
       </View> : null}
     </View>
-    <Modal visible={review !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeEditor}>
-      <SafeAreaView style={[styles.page, { backgroundColor: theme.background }]}>
-        <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <View style={styles.modalHeader}>
-            <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('detailReviewPayment')}</ThemedText>
-            <Button variant="ghost" disabled={writeBusy} onPress={closeEditor}>{t('detailClose')}</Button>
-          </View>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-            <ThemedText>{t('balanceDue', { amount: format(order.balanceDue) })}</ThemedText>
-            {review ? <Button variant="secondary" onPress={() => void viewReceipt(review.receiptImageId)}>{t('viewReceipt')}</Button> : null}
-            {review && rejection ? <RejectionForm busy={writeBusy} reason={rejection.reason}
-              onChange={reason => setRejection({ reason })} onBack={() => { setRejection(null); setPaymentError(""); }}
-              onConfirm={() => void rejectReport(review.paymentId, rejection.reason)} /> : null}
-            {review && !rejection ? <PaymentEditor key={review.paymentId} order={order} busy={writeBusy}
-              onConfirm={(amount, method, deduct) => void confirmPayment(review.paymentId, "buyer_report", amount, method, deduct)} /> : null}
-            {review && !rejection ? <Button variant="secondary" disabled={writeBusy} onPress={() => { setPaymentError(""); setRejection({ reason: "" }); }}>{t('rejectPayment')}</Button> : null}
-            {paymentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </Modal>
+    {review ? <ReceiptReviewModal key={review.paymentId} title={t('detailReviewPayment')} closeLabel={t('detailClose')} busy={writeBusy} error={paymentError}
+      summary={t('balanceDue', { amount: format(order.balanceDue) })} rejectLabel={t('rejectPayment')} unavailableLabel={t('receiptUnavailable')}
+      loadUrl={async () => { const result = await orders.receiptUrl(review.receiptImageId); return result.success ? result.data : null; }}
+      rejection={rejection ? <RejectionForm busy={writeBusy} reason={rejection.reason}
+        onChange={reason => setRejection({ reason })} onBack={() => { setRejection(null); setPaymentError(""); }}
+        onConfirm={() => void rejectReport(review.paymentId, rejection.reason)} /> : null}
+      editor={<PaymentEditor order={order} busy={writeBusy}
+        onConfirm={(amount, method, deduct) => void confirmPayment(review.paymentId, "buyer_report", amount, method, deduct)} />}
+      onClose={closeEditor}
+      onReject={() => { setPaymentError(""); setRejection({ reason: "" }); }} /> : null}
+    {receiptViewer}
     {reviewFlow && orderReview ? <OrderReviewModal origin={reviewFlow.origin} order={order} review={orderReview} format={format}
       onClose={() => setReviewFlow(null)} onConfirmed={reviewConfirmed} onReload={reloadForReview} onUndo={applyUndo} /> : null}
     <PaymentRegisterSheet visible={editor === "manual"} balance={order.balanceDue.amount} currency={order.total.currency}
@@ -744,6 +737,28 @@ export default function OrderDetailScreen() {
         void confirmPayment(manualPaymentId.current, "manual", amount, method, deductStockIfPartial);
       }} />
   </SafeAreaView></ThemedView>;
+}
+
+function ReceiptViewer({ url, closeLabel, onClose, onError }: { url: string; closeLabel: string; onClose: () => void; onError: () => void }) {
+  const window = useWindowDimensions();
+  const [ratio, setRatio] = useState<number | null>(null);
+  const maxWidth = window.width - 32, maxHeight = window.height * 0.8;
+  const width = ratio === null ? maxWidth : Math.min(maxWidth, maxHeight * ratio);
+  const height = ratio === null ? maxHeight : width / ratio;
+  return <Modal visible transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
+    <View style={styles.receiptBackdrop}>
+      <Pressable accessible={false} style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={[styles.receiptFrame, { width, height }]}>
+        <Image source={{ uri: url }} contentFit="contain" transition={150} style={styles.page}
+          onLoad={event => { if (event.source.width > 0 && event.source.height > 0) setRatio(event.source.width / event.source.height); }}
+          onError={onError} />
+      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel={closeLabel} hitSlop={8} onPress={onClose}
+        style={({ pressed }) => [styles.receiptClose, { top: Math.max(48, window.height * 0.04), opacity: pressed ? 0.7 : 1 }]}>
+        <SymbolView name={{ ios: "xmark", android: "close" }} size={24} tintColor="#FFFFFF" />
+      </Pressable>
+    </View>
+  </Modal>;
 }
 
 function LabelRow({ id, number }: { id: string; number: number }) {
@@ -778,6 +793,14 @@ function Disclosure({ label, description, open, onPress }: { label: string; desc
 }
 
 const styles = StyleSheet.create({
+  reviewBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.6)" },
+  reviewCard: { alignSelf: "stretch", maxWidth: 600, marginHorizontal: 20, padding: 16, gap: 12, borderRadius: 20, overflow: "hidden" },
+  reviewBody: { gap: 12 },
+  reviewHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  reviewImage: { alignSelf: "stretch", borderRadius: 12, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  receiptBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.85)" },
+  receiptFrame: { borderRadius: 12, overflow: "hidden" },
+  receiptClose: { position: "absolute", right: 16, width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
   productsHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   editBar: { gap: 8, padding: 16, borderTopWidth: StyleSheet.hairlineWidth },
   editActions: { flexDirection: "row", gap: 8 },
@@ -800,7 +823,6 @@ const styles = StyleSheet.create({
   semibold: { fontWeight: "600" }, amount: { fontWeight: "600", fontVariant: ["tabular-nums"], textAlign: "right" },
   moneyRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
   moneyLabel: { flexGrow: 1, flexShrink: 1, flexBasis: 150 }, moneyValue: { textAlign: "right", fontVariant: ["tabular-nums"] },
-  divider: { borderTopWidth: StyleSheet.hairlineWidth, marginVertical: 2 },
   disclosure: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingVertical: 4, borderRadius: 6 },
   modalHeader: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
   item: { gap: 4, paddingVertical: 12 },
@@ -816,6 +838,49 @@ function PaymentEditor({ order, busy, onConfirm }: { order: OrderAggregateRespon
   return <View style={styles.section}><PaymentFields value={value} onChange={setValue} currency={order.total.currency} busy={busy} showStockOption={showStock} />
     <Button disabled={busy} loading={busy} onPress={() => onConfirm(value.amount, paymentFromChoice(choiceOfPayment(value) ?? defaultPaymentChoice), showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
   </View>;
+}
+
+/** Buyer-reported payment review: the receipt, the editable amount and method, and both decisions in one centered dialog. */
+function ReceiptReviewModal({ title, closeLabel, summary, rejectLabel, unavailableLabel, busy, error, rejection, editor, loadUrl, onClose, onReject }: {
+  title: string; closeLabel: string; summary: string; rejectLabel: string; unavailableLabel: string; busy: boolean; error: string;
+  rejection: React.ReactNode; editor: React.ReactNode; loadUrl: () => Promise<string | null>; onClose: () => void; onReject: () => void }) {
+  const theme = useTheme();
+  const window = useWindowDimensions();
+  const [image, setImage] = useState<{ url: string | null } | null>(null);
+  const [ratio, setRatio] = useState<number | null>(null);
+  const load = useRef(loadUrl);
+  useEffect(() => { let active = true; void load.current().then(url => { if (active) setImage({ url }); }); return () => { active = false; }; }, []);
+  const width = Math.min(window.width, 640) - 72, maxHeight = window.height * 0.36;
+  const height = ratio === null ? Math.min(width * 1.6, maxHeight) : Math.min(width / ratio, maxHeight);
+  return <Modal visible transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
+    <KeyboardAvoidingView style={[styles.reviewBackdrop, rejection ? { justifyContent: "flex-start", paddingTop: window.height * 0.1 } : null]} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <Pressable accessible={false} style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={[styles.reviewCard, { backgroundColor: theme.backgroundElement, maxHeight: window.height * 0.88 }]}>
+        <View style={styles.reviewHeader}>
+          <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{title}</ThemedText>
+          <Pressable accessibilityRole="button" accessibilityLabel={closeLabel} disabled={busy} hitSlop={8} onPress={onClose}
+            style={({ pressed }) => [styles.iconButton, { opacity: pressed ? 0.6 : 1 }]}>
+            <SymbolView name={{ ios: "xmark", android: "close" }} size={24} tintColor={theme.text} />
+          </Pressable>
+        </View>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.reviewBody}>
+        {rejection ?? <>
+          <View style={[styles.reviewImage, { height, backgroundColor: theme.backgroundSelected }]}>
+            {image?.url ? <Image source={{ uri: image.url }} contentFit="contain" transition={150} style={StyleSheet.absoluteFill}
+              onLoad={event => { if (event.source.width > 0 && event.source.height > 0) setRatio(event.source.width / event.source.height); }}
+              onError={() => setImage({ url: null })} /> : null}
+            {image === null || (image.url && ratio === null) ? <ActivityIndicator color={theme.textSecondary} /> : null}
+            {image && !image.url ? <ThemedText type="small" themeColor="textSecondary">{unavailableLabel}</ThemedText> : null}
+          </View>
+          <ThemedText style={styles.semibold}>{summary}</ThemedText>
+          {editor}
+          <Button variant="secondary" disabled={busy} onPress={onReject}>{rejectLabel}</Button>
+        </>}
+        {error ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{error}</ThemedText> : null}
+        </ScrollView>
+      </View>
+    </KeyboardAvoidingView>
+  </Modal>;
 }
 
 function RejectionForm({ reason, busy, onChange, onBack, onConfirm }: { reason: string; busy: boolean;

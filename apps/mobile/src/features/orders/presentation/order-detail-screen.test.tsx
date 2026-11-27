@@ -67,6 +67,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   registerPayment: (...args: unknown[]) => mockRegisterPayment(...args),
   voidPayment: (...args: unknown[]) => mockVoidPayment(...args),
   rejectPayment: (...args: unknown[]) => mockRejectPayment(...args),
+  receiptUrl: async () => ({ success: true, data: "https://images.example/receipt.jpg" }),
 } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
   status: "ready", user: { id: mockUserId }, company: { id: "00000000-0000-4000-8000-000000000001", country: mockCountry },

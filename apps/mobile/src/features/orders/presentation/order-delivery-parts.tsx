@@ -1,3 +1,5 @@
+/** @jsxImportSource react */
+// Preserve native Pressable style callbacks outside NativeWind interop.
 import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
@@ -5,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
 import { StatusPill } from "@mobile/features/orders/presentation/order-payment-parts";
-import { deliveryStatusLabel, orderLanguage } from "@mobile/features/orders/presentation/order-labels";
+import { deliveryBadgeLabel, deliveryStatusLabel, orderLanguage } from "@mobile/features/orders/presentation/order-labels";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { getPeruDistrict, getPeruProvince } from "@shared/peru-geography";
 import tokens from "../../../../../../docs/design-tokens.json";
@@ -23,7 +25,7 @@ export const deliveryRowSymbols = {
 
 /** Delivery state at a glance, in the seller's order language. */
 export function DeliveryBadge({ status, language }: { status: DeliveryStatus; language: Language }) {
-  return <StatusPill label={deliveryStatusLabel(status, language)} tone={status === "delivered" ? "success" : "neutral"}
+  return <StatusPill label={deliveryBadgeLabel(status, language)} accessibilityLabel={deliveryStatusLabel(status, language)} tone={status === "delivered" ? "success" : "neutral"}
     symbol={status === "delivered" ? { ios: "checkmark.circle", android: "check_circle" } : status === "shipped" ? { ios: "shippingbox", android: "local_shipping" } : { ios: "clock", android: "schedule" }} />;
 }
 
@@ -34,11 +36,11 @@ export function DeliveryRow({ symbol, label, value, onPress, disabled = false, e
   const theme = useTheme();
   const content = <>
     <View style={[styles.tile, { backgroundColor: theme.secondary }]}>
-      <SymbolView name={symbol as never} size={20} tintColor={theme.text} />
+      <SymbolView name={symbol as never} size={18} tintColor={theme.text} />
     </View>
     <View style={styles.flex}>
       <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>{label}</ThemedText>
-      <ThemedText themeColor={muted ? "textSecondary" : "text"} style={styles.value} numberOfLines={2}>{value}</ThemedText>
+      <ThemedText themeColor={muted ? "textSecondary" : "text"} style={styles.value} numberOfLines={1}>{value}</ThemedText>
     </View>
     {onPress ? <SymbolView name={expanded ? { ios: "chevron.down", android: "expand_more" } : { ios: "chevron.right", android: "chevron_right" }} size={20} tintColor={theme.textSecondary} /> : null}
   </>;
@@ -56,6 +58,11 @@ type ShippingChoice =
   | Readonly<{ method: "store" }>
   | Readonly<{ method: "home" | "agency"; district: string; province?: string }>;
 
+const minorWords = new Set(["de", "del", "la", "las", "los", "y"]);
+/** Geography names are stored in capitals; a summary reads them as a place name. */
+const placeName = (name: string) => name.toLocaleLowerCase("es").split(" ")
+  .map((word, index) => index > 0 && minorWords.has(word) ? word : word.charAt(0).toLocaleUpperCase("es") + word.slice(1)).join(" ");
+
 /** One-line shipping summary shared by the new sale and the order detail. */
 export function useShippingSummary() {
   const { t } = useTranslation();
@@ -63,8 +70,9 @@ export function useShippingSummary() {
     if (!choice) return t('shippingEmpty');
     if (choice.method === "store") return t('shippingSummaryStore');
     const code = "districtCode" in choice ? getPeruDistrict(choice.districtCode) : null;
-    const district = "district" in choice ? choice.district : code?.name ?? "";
-    const province = "province" in choice ? choice.province : code ? getPeruProvince(code.provinceCode)?.name : undefined;
+    const district = placeName("district" in choice ? choice.district : code?.name ?? "");
+    const provinceName = "province" in choice ? choice.province : code ? getPeruProvince(code.provinceCode)?.name : undefined;
+    const province = provinceName ? placeName(provinceName) : undefined;
     if (choice.method === "home") return district ? t('shippingSummaryHome', { district }) : t('shippingSummaryHomeShort');
     return [t('shippingSummaryAgency'), [district, province].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
   };
@@ -102,8 +110,8 @@ export function OptionSheet<Value extends string>({ visible, title, options, val
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  row: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingVertical: 8, borderRadius: 6 },
-  tile: { width: 40, height: 40, borderRadius: tokens.radius.control, alignItems: "center", justifyContent: "center" },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingVertical: 4, borderRadius: 6 },
+  tile: { width: 32, height: 32, borderRadius: tokens.radius.control, alignItems: "center", justifyContent: "center" },
   value: { fontWeight: 500 },
   scrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)" },
   sheet: { borderTopLeftRadius: tokens.radius.overlay, borderTopRightRadius: tokens.radius.overlay, borderTopWidth: tokens.sizing.borderWidth },

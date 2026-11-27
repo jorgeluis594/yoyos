@@ -131,7 +131,7 @@ export const translations = {
  
  
  
-    viewReceipt: "Ver captura", receiptUnavailable: "No se pudo abrir la captura.", voidPayment: "Anular pago",
+    viewReceipt: "Ver captura", closeReceipt: "Cerrar captura", receiptUnavailable: "No se pudo abrir la captura.", voidPayment: "Anular pago",
     manualPayment: "Registrar pago manual", paymentAmount: "Importe recibido", paymentMethod: "Medio de pago",
     wallet: "Billetera digital", bankTransfer: "Transferencia bancaria", deductStockIfPartial: "Descontar stock con abono parcial",
     confirmPayment: "Confirmar pago", invalidPaymentAmount: "Ingresa un importe positivo con hasta dos decimales.",
@@ -353,7 +353,7 @@ export const translations = {
  
  
  
-    viewReceipt: "Ver comprovante", receiptUnavailable: "Não foi possível abrir o comprovante.", voidPayment: "Anular pagamento",
+    viewReceipt: "Ver comprovante", closeReceipt: "Fechar comprovante", receiptUnavailable: "Não foi possível abrir o comprovante.", voidPayment: "Anular pagamento",
     manualPayment: "Registrar pagamento manual", paymentAmount: "Valor recebido", paymentMethod: "Meio de pagamento",
     wallet: "Carteira digital", bankTransfer: "Transferência bancária", deductStockIfPartial: "Descontar estoque com pagamento parcial",
     confirmPayment: "Confirmar pagamento", invalidPaymentAmount: "Informe um valor positivo com até duas casas decimais.",
