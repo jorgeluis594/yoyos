@@ -12,7 +12,8 @@ import { PageHeader } from "@core/app/components/ui/page-header";
 import type { ProductDetailResponse } from "@shared/contracts/products";
 import { CombinationDialog, DeactivateDialog, DeleteDialog } from "@core/src/features/products/presentation/variant-detail-dialogs";
 import { deleteBlock, variantLabel, type VariantIntent, type VariantOutcome } from "@core/src/features/products/presentation/variant-detail-model";
-import { QrCode, VariantLabel, type LabelHandle } from "@core/src/features/products/presentation/variant-label";
+import { QrCode } from "@core/app/components/qr-code";
+import { VariantLabel, type LabelHandle } from "@core/src/features/products/presentation/variant-label";
 import { ConfirmDialog } from "@core/src/features/products/presentation/variant-dialogs";
 import { useDiscardGuard } from "@core/src/features/products/presentation/use-discard-guard";
 

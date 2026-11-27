@@ -10,6 +10,8 @@ import type { CompanyId, UserId } from "@mobile/features/whatsapp/domain/ids";
 import { createLocalSql, type SqlDatabase } from "@mobile/features/whatsapp/infrastructure/local-sql";
 import { createMessageApi } from "@mobile/features/whatsapp/infrastructure/message-api";
 import { createMessageQuestionsApi } from "@mobile/features/whatsapp/infrastructure/message-questions-api";
+import { createLinkQrApi } from "@mobile/features/whatsapp/infrastructure/link-qr-api";
+import { shareLinkQrChanges } from "@mobile/features/whatsapp/application/share-link-qr";
 import { createSqliteLinkStore } from "@mobile/features/whatsapp/infrastructure/sqlite-link-store";
 import { createSqliteMessageStore } from "@mobile/features/whatsapp/infrastructure/sqlite-message-store";
 import { uploadImage } from "@mobile/shared/infrastructure/image-api";
@@ -44,6 +46,8 @@ export function createWhatsAppRuntime(deps: WhatsAppRuntimeDeps) {
   const sync = createSyncWorker({ store, api: createMessageApi(deps.request), images: deps.gateway, uploadImage: (uri, mimeType) => uploadImage(deps.request, uri, mimeType), session, now: deps.now, random: deps.random, schedule: deps.schedule, debug: deps.debug });
   const receive = receiveMessage({ store, links, whatsapp: deps.gateway, now: deps.now, wakeSync: sync.wake });
   const reception = createReceptionLifecycle({ whatsapp: deps.gateway, links, session, receive, sync, debug: deps.debug });
+  // Lives as long as the runtime: the QR is shown in Yoyos web too, so it can be scanned from a computer.
+  shareLinkQrChanges({ subscribe: reception.subscribe, share: createLinkQrApi(deps.request).share });
 
   return {
     store,

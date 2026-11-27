@@ -1,6 +1,7 @@
 import type { Resource } from "i18next";
 
 const es = {
+  whatsappLinkQr: { title: "Vincula tu WhatsApp", description: "Escanea este código con el celular donde tienes tu WhatsApp.", qrLabel: "Código QR para vincular WhatsApp", expiresIn: "El código vence en {{seconds}} s.", expired: "El código venció. Pide uno nuevo en la app Yoyos de tu celular.", stepOpen: "Abre WhatsApp en tu celular.", stepDevices: "Toca Dispositivos vinculados y luego Vincular un dispositivo.", stepScan: "Apunta la cámara a este código.", close: "Cerrar" },
   notFoundPage: { title: "Página no encontrada", hint: "Revisa el enlace o pide uno nuevo a quien te lo compartió." },
   checkoutPage: { unavailable: "Enlace no disponible", askSeller: "Solicita el enlace al vendedor.", nameRequired: "Ingresa tu nombre.", phoneInvalid: "Ingresa tu teléfono, por ejemplo 977 909 427.", loadError: "No se pudo cargar el pedido", loadErrorHint: "Reintenta para consultar el estado actual de tu pedido.", retry: "Reintentar" },
   checkoutQuote: { title: "Entrega por cotizar", hint: "El comprador confirmó sus datos. Confirma el costo para habilitar el pago en su checkout.", cost: "Costo de entrega", invalid: "Ingresa un importe válido, incluso 0 si no hay costo.", charge: "Cobrar la entrega al comprador", error: "No se pudo confirmar el costo. Actualiza el pedido y vuelve a intentarlo.", save: "Confirmar costo y habilitar pago", saving: "Confirmando…" },
@@ -483,6 +484,7 @@ const pt = {
     checkEmailTitle: "Confira seu e-mail", checkEmailDescription: "Confira seu e-mail se houver uma verificação pendente. Se já tem uma conta, entre ou recupere sua senha.", verificationSent: "Se houver uma verificação pendente, você receberá um link.", resendVerification: "Reenviar verificação",
     verifiedTitle: "Verificação concluída", verificationFailedTitle: "Não foi possível verificar o e-mail", verifiedDescription: "Entre para continuar. A verificação não inicia uma sessão automaticamente.", verificationFailedDescription: "O link pode ter expirado ou deixado de ser válido. Solicite outro na página de verificação do e-mail.", backToCheckEmail: "Voltar para verificar o e-mail",
   },
+  whatsappLinkQr: { title: "Vincule seu WhatsApp", description: "Escaneie este código com o celular onde está o seu WhatsApp.", qrLabel: "Código QR para vincular o WhatsApp", expiresIn: "O código expira em {{seconds}} s.", expired: "O código expirou. Peça um novo no app Yoyos do seu celular.", stepOpen: "Abra o WhatsApp no seu celular.", stepDevices: "Toque em Dispositivos conectados e depois em Conectar um aparelho.", stepScan: "Aponte a câmera para este código.", close: "Fechar" },
   nav: {
     main: "Navegação principal", home: "Início", products: "Produtos", orders: "Vendas", paymentSettings: "Meios de pagamento", storeAppearance: "Aparência da loja", catalogSettings: "Catálogo", assistants: "Assistentes de IA", newProduct: "Novo produto", product: "Produto",
     toggleTheme: "Alternar tema", lightMode: "Modo claro", darkMode: "Modo escuro", signingOut: "Saindo…", signOut: "Sair", signOutError: "Não foi possível sair. Tente novamente.",

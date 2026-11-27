@@ -4,6 +4,8 @@ import { pathToFileURL } from "node:url";
 import { app } from "@core/src/app";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { applicationEventBus } from "@core/src/composition/event-bus";
+import { linkQrHub } from "@core/src/features/whatsapp-link/link-qr-hub";
+import { attachLinkQrSocket } from "@core/src/features/whatsapp-link/link-qr-socket";
 
 export async function startServer() {
   const port = Number(process.env.PORT ?? 3000);
@@ -15,6 +17,7 @@ export async function startServer() {
     getLoadContext: (req) => build.entry.module.createRequestContext(req.ip, req.hostname),
   }));
   const server = app.listen(port, () => log.info({ event: "server_started", port }, "Core listening"));
+  attachLinkQrSocket(server, linkQrHub);
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
     server.close(async () => { await provider.stop(); process.exit(0); });
   });

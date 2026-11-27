@@ -34,6 +34,8 @@ import { orderReviewRoutes } from "@core/src/features/orders/presentation/order-
 import { orderItemsRoutes } from "@core/src/features/orders/presentation/order-items-routes";
 import { pushDeviceRoutes, pushDeviceUnregisterRoutes } from "@core/src/features/notifications/presentation/push-device-routes";
 import { log, requestLogging } from "@core/src/shared/infrastructure/logger";
+import { linkQrHub } from "@core/src/features/whatsapp-link/link-qr-hub";
+import { linkQrRoutes } from "@core/src/features/whatsapp-link/link-qr-routes";
 
 export const app = express();
 // Coolify's proxy terminates HTTPS; without this React Router sees http and rejects actions as CSRF.
@@ -72,6 +74,7 @@ app.use("/api/catalog", (_request, response, next) => { response.set("Cache-Cont
 app.use("/api/store-appearance", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 app.use("/api/push-devices", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 app.use("/api/seller-notices", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
+app.use("/api/whatsapp-link", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 app.use("/api/orders", express.json({ limit: "100kb", verify: (_request, _response, body) => {
   if (hasDuplicateJsonKeys(body.toString("utf8"))) throw new Error("Duplicate JSON key");
 } }));
@@ -117,6 +120,7 @@ app.use("/api/messages", mobileMessageRoutes(registerMobileMessage));
 app.use("/api/messages", messageQuestionRoutes);
 app.use("/api/push-devices", pushDeviceRoutes);
 app.use("/api/seller-notices", sellerNoticeRoutes);
+app.use("/api/whatsapp-link/qr", linkQrRoutes(linkQrHub));
 app.use("/api/company/payment-settings", paymentSettingsRoutes);
 app.use("/api/company/dispatch-sender", dispatchSenderRoutes);
 app.use("/api/dispatch-labels", dispatchLabelRoutes);
