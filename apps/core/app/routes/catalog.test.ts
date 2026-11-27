@@ -33,15 +33,25 @@ beforeEach(() => {
 });
 
 test("the grid on fantasio.localhost shows Fantasio products and sends noindex and no-referrer", async () => {
-  const browse = vi.spyOn(catalogBrowse, "browse").mockResolvedValue(ok({ storeName: "Moda Lucía", items: [], hasMore: false }));
+  const item = { id: "00000000-0000-4000-8000-000000000009", name: "Polo", imageUrl: null, price: { kind: "single" as const, amount: { amount: 45, currency: "PEN" as const } }, soldOut: false };
+  const browse = vi.spyOn(catalogBrowse, "browse").mockResolvedValue(ok({ storeName: "Moda Lucía", items: [item] as never, hasMore: false }));
   const loaded = await loader(args({}, "?q=%20polo%20&page=2"));
-  expect(loaded).toMatchObject({ data: { storeName: "Moda Lucía", companyId, q: "polo", pages: 2 }, init: { headers: { "Referrer-Policy": "no-referrer" } } });
-  expect(browse).toHaveBeenLastCalledWith({ search: "polo", pages: 2 }, published);
+  expect(loaded).toMatchObject({ data: { storeName: "Moda Lucía", companyId, q: "polo", page: 2 }, init: { headers: { "Referrer-Policy": "no-referrer" } } });
+  expect(browse).toHaveBeenLastCalledWith({ search: "polo", page: 2 }, published);
   await loader(args({}, "?q=p&page=-1"));
-  expect(browse).toHaveBeenLastCalledWith({ search: null, pages: 1 }, published);
+  expect(browse).toHaveBeenLastCalledWith({ search: null, page: 1 }, published);
   await loader(args({}, "?page=21"));
-  expect(browse).toHaveBeenLastCalledWith({ search: null, pages: 20 }, published);
+  expect(browse).toHaveBeenLastCalledWith({ search: null, page: 20 }, published);
   expect(meta({ data: { storeName: "Moda Lucía" } } as never)).toContainEqual({ name: "robots", content: "noindex, nofollow" });
+});
+
+test("a page past the last one goes back to the first page of the same search", async () => {
+  vi.spyOn(catalogBrowse, "browse").mockResolvedValue(ok({ storeName: "Moda Lucía", items: [], hasMore: false }));
+  const location = (search: string) => loader(args({}, search)).then(() => null, (thrown: Response) => thrown.headers.get("Location"));
+  expect(await location("?q=polo&page=4")).toBe("/?q=polo");
+  expect(await location("?page=4")).toBe("/");
+  // An empty first page is the empty store, not a redirect.
+  expect(await location("")).toBeNull();
 });
 
 test("an unavailable storefront and a failed read are never an empty catalog", async () => {

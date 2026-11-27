@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Link } from "react-router";
+import { Search } from "lucide-react";
 import { StoreBrandHeader } from "@core/src/features/store-appearance/presentation/store-brand-header";
 import { StoreTheme } from "@core/src/features/store-appearance/presentation/store-theme";
 import type { PublicStoreAppearance } from "@core/src/features/store-appearance/presentation/store-appearance-schemas";
@@ -19,28 +20,32 @@ export const formatCatalogAmount = (money: Money) => formatCurrency(money.amount
 export const formatCatalogPrice = ({ kind, amount }: CatalogProduct["price"]) =>
   kind === "from" ? `Desde ${formatCatalogAmount(amount)}` : formatCatalogAmount(amount);
 
-/** The store's theme paints every buyer page of the catalog, with the same scope and fixed color scheme as the checkout. `cart` is the mount point for the cart button; the store logo and name link to the catalog home unless `linkHome` is false (the inert editor preview). */
+/** The store's theme paints every buyer page of the catalog, with the same scope and fixed color scheme as the checkout. `cart` is the cart icon at the end of the header; the store logo and name link to the catalog home unless `linkHome` is false (the inert editor preview). */
 export function CatalogShell({ appearance, storeName, cart, linkHome = true, children }: Readonly<{
   appearance: PublicStoreAppearance; storeName: string; cart?: ReactNode; linkHome?: boolean; children: ReactNode;
 }>) {
   return <StoreTheme appearance={appearance} surface="catalog">
-    <div className="min-h-screen bg-background text-foreground">
-      <header data-store-part="header" className="border-b bg-card"><div className={`${catalogPage} flex min-h-16 items-center justify-between gap-3 py-3`}>
-        <StoreBrandHeader companyName={storeName} logoUrl={appearance.logoUrl} to={linkHome ? "/" : undefined} />{cart}
+    <div className="min-h-screen text-foreground">
+      {/* The empty first column mirrors the cart icon, so the store name stays centered on the page. */}
+      <header data-store-part="header"><div className={`${catalogPage} grid min-h-16 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 pt-4 pb-1`}>
+        <div className="col-start-2 flex min-w-0 justify-center"><StoreBrandHeader companyName={storeName} logoUrl={appearance.logoUrl} to={linkHome ? "/" : undefined} /></div>{cart}
       </div></header>
-      <main className={`${catalogPage} flex flex-col gap-4 py-6 pb-24`}>{children}</main>
+      <main className={`${catalogPage} flex flex-col gap-5 pt-3 pb-24`}>{children}</main>
     </div>
   </StoreTheme>;
 }
 
-/** The search field of the catalog; the editor preview passes `readOnly` to draw it inert. */
-export function CatalogSearchField(props: Omit<ComponentProps<typeof Input>, "type" | "placeholder" | "aria-label" | "autoComplete">) {
-  return <Input data-store-part="catalog-search" type="search" maxLength={80} placeholder="Buscar productos" aria-label="Buscar productos" autoComplete="off" {...props} />;
+/** The search field of the catalog, a pill with its magnifier; the editor preview passes `readOnly` to draw it inert. */
+export function CatalogSearchField({ className, ...props }: Omit<ComponentProps<typeof Input>, "type" | "placeholder" | "aria-label" | "autoComplete">) {
+  return <div className="relative">
+    <Search data-store-part="catalog-search-icon" aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2" />
+    <Input data-store-part="catalog-search" type="search" maxLength={80} placeholder="Buscar productos" aria-label="Buscar productos" autoComplete="off" className={cn("h-12 pr-4 pl-12", className)} {...props} />
+  </div>;
 }
 
 /** The product grid, with the columns and gaps the catalog uses. */
 export function CatalogGrid({ children, ...props }: ComponentProps<"ul">) {
-  return <ul className="grid grid-cols-2 gap-x-3 gap-y-5 lg:grid-cols-4 lg:gap-x-5" {...props}>{children}</ul>;
+  return <ul className="grid grid-cols-2 gap-x-3 gap-y-4 lg:grid-cols-4 lg:gap-x-5 lg:gap-y-5" {...props}>{children}</ul>;
 }
 
 /** Empty cards in the grid's shape, while products load. */
@@ -54,13 +59,13 @@ export function ProductGridSkeleton({ count = 8 }: Readonly<{ count?: number }>)
 
 /** A card of the grid: the square photo, the name and the price. Without `to` it is inert, for the editor preview. */
 export function CatalogProductCard({ item, to }: Readonly<{ item: Omit<CatalogCard, "id">; to?: string }>) {
-  const className = "group flex flex-col gap-2 rounded-[var(--radius-card)] outline-offset-4";
+  const className = "group flex h-full flex-col gap-1.5 rounded-[var(--radius-card)] outline-offset-4";
   const content = <>
     <div className="relative">
       <CatalogProductImage name={item.name} url={item.imageUrl} part="catalog-card-photo" />
       {item.soldOut && <span data-store-part="catalog-sold-out" className="absolute top-2 left-2 rounded-full bg-background/90 px-2 py-0.5 text-xs font-medium">Agotado</span>}
     </div>
-    <span data-store-part="product-name" className="line-clamp-2 text-sm group-hover:underline">{item.name}</span>
+    <span data-store-part="product-name" className="mt-1.5 line-clamp-2 text-sm group-hover:underline">{item.name}</span>
     <span data-store-part="price" className="font-semibold">{formatCatalogPrice(item.price)}</span>
   </>;
   return to

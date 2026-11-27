@@ -24,7 +24,7 @@ type Pair = Readonly<{ label: string; foreground: string; surface: string }>;
 function textPairs(theme: StoreThemeDefinition): Pair[] {
   const { colors } = theme;
   const pairs: Pair[] = [];
-  for (const token of ["foreground", "heading", "muted-foreground", "label", "placeholder", "free"] as const)
+  for (const token of ["foreground", "heading", "muted-foreground", "label", "placeholder", "free", "price"] as const)
     for (const surface of cardAndPage(theme)) pairs.push({ label: `${token} on ${surface}`, foreground: colors[token], surface });
   for (const token of ["foreground", "placeholder"] as const) pairs.push({ label: `${token} on input-surface`, foreground: colors[token], surface: colors["input-surface"] });
   pairs.push({ label: "link on card", foreground: colors.link, surface: colors.card });
@@ -96,7 +96,7 @@ describe("store themes", () => {
       expect(theme.colors.accent, theme.id).toBe(theme.colors["selected-surface"]);
       expect(theme.colors["accent-foreground"], theme.id).toBe(theme.colors.foreground);
     }
-    expect(themes.map((theme) => theme.colors["accent-strong"])).toEqual(["#111111", "#141210", "#F75348", "#1F1A1C", "#3CC8E8"]);
+    expect(themes.map((theme) => theme.colors["accent-strong"])).toEqual(["#111111", "#141210", "#C73A30", "#1F1A1C", "#3CC8E8"]);
   });
 
   test("keeps Antojo's coral button with dark brown text", () => {

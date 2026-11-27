@@ -21,9 +21,6 @@ const block = (selector: string, declarations: readonly Declaration[]) =>
 /** A field with no border is drawn as an underline: its focus is that underline, thicker, because a box would touch its text. */
 const underlineField = ({ style }: StoreThemeDefinition) => style["input-border"] === "none";
 
-/** A card draws a frame when it has a border, a shadow or a surface apart from the page; only then its text needs room from the edge. */
-const framedCard = ({ style, colors }: StoreThemeDefinition) => style["card-border"] !== "none" || style["card-shadow"] !== "none" || colors.card !== colors.background;
-
 function variables(theme: StoreThemeDefinition): Declaration[] {
   const { fonts, logo, thumbnail } = theme;
   return [
@@ -40,7 +37,6 @@ function variables(theme: StoreThemeDefinition): Declaration[] {
     ["--store-thumb-width", thumbnail.width], ["--store-thumb-ratio", thumbnail.ratio], ["--store-thumb-radius", thumbnail.radius],
     ["--store-thumb-border", thumbnail.border], ["--store-thumb-filter", thumbnail.filter],
     ["--store-focus-box", underlineField(theme) ? "0px" : "2px"], ["--store-focus-underline", underlineField(theme) ? "3px" : "0px"],
-    ["--store-catalog-card-inset", framedCard(theme) ? "0.5rem" : "0"],
   ];
 }
 

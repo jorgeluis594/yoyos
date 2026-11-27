@@ -342,7 +342,7 @@ describe("store appearance editor with the live preview", () => {
     await browserExpect(label("Tema Clásico · Tus productos")).toBeVisible();
     await browserExpect(catalog).toHaveCount(3);
     await browserExpect(catalog.first()).toContainText("Mochila");
-    await browserExpect(previewFrame(page).locator("[data-store-part=cart-button]")).toContainText("Carrito1");
+    await browserExpect(previewFrame(page).locator("[data-store-part=cart-button]")).toContainText("1");
     await browserExpect(previewFrame(page).locator("[data-slot=card-placeholder]")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Escritorio" }).click();
