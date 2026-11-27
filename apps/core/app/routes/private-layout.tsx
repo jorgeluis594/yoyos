@@ -12,6 +12,7 @@ import { TextLink } from "@core/app/components/ui/text-link";
 import { privateUserContext } from "@core/app/private-user-context";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
 import { companyPath, localizedPath } from "@core/app/locale";
+import { LinkQrDialog } from "@core/src/features/whatsapp-link/link-qr-dialog";
 
 export { middleware } from "@core/app/private-access";
 
@@ -157,6 +158,7 @@ export default function PrivateLayout() {
           </nav>
         </header>
         <main id="main-content" tabIndex={-1} className="px-page-mobile py-section outline-none sm:px-page-desktop"><PageContainer className="max-w-content"><Outlet /></PageContainer></main>
+        <LinkQrDialog />
       </div>
     </div>
   );
