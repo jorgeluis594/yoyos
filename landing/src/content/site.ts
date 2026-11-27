@@ -4,9 +4,7 @@ export const brandName = "Yoyos";
 export const skipLinkLabel = "Ir al contenido";
 
 export const navLinks = [
-  { label: "Cómo funciona", anchor: "como-funciona" },
-  { label: "Funciones", anchor: "funciones" },
-  { label: "Envíos y pagos", anchor: "integraciones" },
+  { label: "Catálogo", anchor: "catalogo" },
   { label: "Precio", anchor: "precio" },
   { label: "Preguntas", anchor: "preguntas" },
 ] as const;
@@ -32,16 +30,15 @@ export const footerContent = {
   product: {
     title: "Producto",
     links: [
-      { label: "Cómo funciona", anchor: "como-funciona" },
-      { label: "Funciones", anchor: "funciones" },
+          { label: "Catálogo", anchor: "catalogo" },
       { label: "Precio", anchor: "precio" },
       { label: "Preguntas", anchor: "preguntas" },
     ],
   },
   contact: {
     title: "Contacto",
-    whatsapp: (phoneDisplay: string) => `WhatsApp: ${phoneDisplay}`,
-    call: (phoneDisplay: string) => `Llámanos: ${phoneDisplay}`,
+    whatsapp: "WhatsApp",
+    call: "Llámanos",
     email: (email: string) => `Correo: ${email}`,
   },
   socialLabels: { tiktok: "TikTok", instagram: "Instagram" },

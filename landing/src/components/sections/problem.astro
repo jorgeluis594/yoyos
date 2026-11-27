@@ -1,60 +1,134 @@
 ---
-import X from "@lucide/astro/icons/x";
-import SectionHeading from "@landing/src/components/section-heading.astro";
 import { problemContent } from "@landing/src/content/sections/problem";
 ---
 
-<section id="problema" class="section" aria-labelledby="problema-titulo">
-  <div class="container stack">
-    <SectionHeading id="problema-titulo" heading={problemContent.heading} />
-    <ul class="bullets" data-reveal>
-      {problemContent.bullets.map((bullet) => (
-        <li><X class="mark" aria-hidden="true" /><span>{bullet}</span></li>
-      ))}
-    </ul>
-    <p class="closing">{problemContent.closing}</p>
+<section id="problema" class="problem" aria-labelledby="problema-titulo">
+  <div class="layout">
+    <div class="say">
+      <h2 id="problema-titulo">{problemContent.heading}</h2>
+      <p class="closing">{problemContent.closing}</p>
+    </div>
+    <div class="sheet">
+      <span class="tape" aria-hidden="true"></span>
+      <ul>
+        {problemContent.bullets.map((bullet) => (
+          <li><span>{bullet}</span></li>
+        ))}
+      </ul>
+    </div>
   </div>
 </section>
 
 <style>
-  .stack {
-    display: grid;
-    gap: var(--space-8);
+  /* A calm stretch of plain paper after the packing table, torn where it meets the kraft. On it, the notebook page
+     of chores a seller does by hand after a live, each one already crossed out in red pen. */
+  .problem {
+    position: relative;
+    padding: var(--space-16) var(--page-gutter-mobile);
+    background: var(--paper);
+    color: var(--kraft-ink);
   }
 
-  .bullets {
+  .problem::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 100%;
+    height: var(--space-4);
+    margin-block-end: calc(-1 * var(--border-width));
+    background: var(--paper);
+    clip-path: polygon(0 100%, 0 40%, 4% 62%, 9% 28%, 15% 55%, 21% 20%, 27% 58%, 34% 34%, 40% 66%, 47% 26%, 53% 52%, 60% 18%, 66% 60%, 73% 30%, 79% 64%, 86% 24%, 92% 56%, 97% 32%, 100% 50%, 100% 100%);
+  }
+
+  .layout {
     display: grid;
-    gap: var(--space-3);
-    max-width: var(--reader-max-width);
-    margin: 0 auto;
+    gap: var(--space-12);
+    max-width: var(--landing-max-width);
+    margin-inline: auto;
+  }
+
+  .say {
+    display: grid;
+    align-content: center;
+    gap: var(--space-6);
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: var(--sheet-title-size);
+    line-height: 1.1;
+    font-weight: 800;
+    letter-spacing: var(--tracking-display);
+    text-wrap: balance;
+  }
+
+  .closing {
+    color: var(--kraft-ink-soft);
+    font-size: var(--hero-lead-size);
+    font-weight: 500;
+    text-wrap: balance;
+  }
+
+  .sheet {
+    position: relative;
+    padding: var(--space-8) var(--space-6) var(--space-6);
+    rotate: 1.2deg;
+    background: var(--card);
+    box-shadow: var(--shadow-paper);
+  }
+
+  .tape {
+    position: absolute;
+    inset-block-start: calc(-1 * var(--space-3));
+    inset-inline-start: 50%;
+    width: 30%;
+    height: var(--space-6);
+    translate: -50% 0;
+    rotate: -3deg;
+    background: var(--tape-solid);
+    box-shadow: var(--shadow-paper);
+  }
+
+  ul {
+    display: grid;
+    margin: 0;
     padding: 0;
     list-style: none;
   }
 
-  .bullets li {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--space-3);
-    padding: var(--space-4);
-    border: var(--border-width) solid var(--border);
-    border-radius: var(--radius-overlay);
-    background: var(--card);
+  /* Ruled lines of the notebook; the pen stroke through each chore is the point of the section. */
+  li {
+    padding-block: var(--space-4);
+    border-block-end: var(--border-width) solid var(--paper-line);
+    font-family: var(--font-display);
+    font-size: var(--hero-lead-size);
+    line-height: 1.4;
+    font-weight: 600;
   }
 
-  .mark {
-    flex: none;
-    width: var(--icon-action-size);
-    height: var(--icon-action-size);
-    margin-block-start: var(--space-1);
-    color: var(--destructive);
+  li span {
+    text-decoration: line-through;
+    text-decoration-color: var(--stamp-ink);
+    text-decoration-thickness: calc(1.5 * var(--border-width));
   }
 
-  .closing {
-    max-width: var(--reader-max-width);
-    margin-inline: auto;
-    font-size: var(--text-section-title-size);
-    line-height: var(--text-section-title-line);
-    font-weight: var(--text-section-title-weight);
-    text-align: center;
+  @media (min-width: 64em) {
+    .problem {
+      padding: var(--space-24) var(--page-gutter-desktop);
+    }
+
+    h2 {
+      font-size: var(--hero-price-size);
+    }
+
+    .layout {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: center;
+      gap: var(--space-16);
+    }
+
+    .sheet {
+      padding: var(--space-12) var(--space-12) var(--space-8);
+    }
   }
 </style>

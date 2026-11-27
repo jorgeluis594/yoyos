@@ -1,91 +1,232 @@
 ---
 import Check from "@lucide/astro/icons/check";
-import CtaLink from "@landing/src/components/cta-link.astro";
-import SectionHeading from "@landing/src/components/section-heading.astro";
+import WhatsappIcon from "@landing/src/components/whatsapp-icon.astro";
 import { siteConfig } from "@landing/src/config/site";
 import { pricingContent } from "@landing/src/content/sections/pricing";
-import { ctaLabels, navLinks } from "@landing/src/content/site";
+import { ctaLabels } from "@landing/src/content/site";
 import { whatsappUrl } from "@landing/src/lib/contact";
+import { kraftTileUrl } from "@landing/src/lib/kraft-tile";
 
-const label = navLinks.find((link) => link.anchor === "precio")?.label;
+const kraft = await kraftTileUrl();
 const demoEnabled = siteConfig.demoForm.kind === "enabled";
 ---
 
-<section id="precio" class="section" aria-labelledby="precio-titulo">
-  <div class="container">
-    <SectionHeading id="precio-titulo" label={label} heading={pricingContent.heading} />
-
-    <div class="card" data-reveal>
-      <h3>{pricingContent.planName}</h3>
-      <p class="price">
-        <span class="amount">{pricingContent.price}</span>
-        <span class="period">{pricingContent.period}</span>
-      </p>
-      <p class="vat">{pricingContent.vatNote}</p>
-      <p class="lead">{pricingContent.subtext}</p>
-
-      <p class="includes-label">{pricingContent.includesLabel}</p>
-      <ul class="includes">
-        {
-          pricingContent.includes.map((item) => (
-            <li>
-              <Check class="icon" aria-hidden="true" />
-              <span>{item}</span>
-            </li>
-          ))
-        }
-      </ul>
-
-      <div class="actions">
-        <CtaLink href={whatsappUrl(siteConfig.whatsapp)} event="whatsapp_click" location="precio" newTab>
+<section id="precio" class="pricing" aria-labelledby="precio-titulo" style={`--kraft: url(${kraft});`}>
+  <div class="layout">
+    <div class="say">
+      <h2 id="precio-titulo">{pricingContent.heading}</h2>
+      <div class="cta-row">
+        <a class="cta" href={whatsappUrl(siteConfig.whatsapp)} data-event="whatsapp_click" data-location="precio" target="_blank" rel="noopener">
+          <WhatsappIcon class="cta-icon" />
           {ctaLabels.whatsapp}
-        </CtaLink>
+        </a>
         {
           demoEnabled && (
-            <CtaLink href="#demo" variant="secondary" event="demo_form_open" location="precio">
+            <a class="quiet" href="#demo" data-event="demo_form_open" data-location="precio">
               {ctaLabels.demo}
-            </CtaLink>
+            </a>
           )
         }
       </div>
-      <p class="microcopy">{pricingContent.microcopy}</p>
+    </div>
+
+    <div class="receipt">
+      <div class="paper">
+        <h3>{pricingContent.planName}</h3>
+        <p class="includes-label">{pricingContent.includesLabel}</p>
+        <ul class="includes">
+          {
+            pricingContent.includes.map((item) => (
+              <li>
+                <Check class="icon" aria-hidden="true" />
+                <span>{item}</span>
+              </li>
+            ))
+          }
+        </ul>
+        <p class="price">
+          <span class="amount">{pricingContent.price}</span>{" "}
+          <span class="period">{pricingContent.period}</span>
+        </p>
+        <p class="vat">{pricingContent.vatNote}</p>
+        <span class="stamp" aria-hidden="true">{pricingContent.stamp}</span>
+      </div>
     </div>
   </div>
 </section>
 
 <style>
-  .card {
-    display: grid;
-    gap: var(--space-4);
-    max-width: var(--form-max-width);
-    margin: var(--space-12) auto 0;
-    padding: var(--space-8);
-    border: calc(2 * var(--border-width)) solid var(--primary);
-    border-radius: var(--radius-overlay);
-    background: var(--card);
+  /* Back on the packing table for the bill: the price is a till receipt lying on the kraft, its total at the foot
+     and the same rubber stamp as the hero across it. */
+  .pricing {
+    padding: var(--space-16) var(--page-gutter-mobile);
+    overflow-x: clip;
+    background:
+      linear-gradient(var(--kraft-wash), var(--kraft-wash)),
+      var(--kraft-shade) var(--kraft) repeat;
+    background-size:
+      auto,
+      var(--kraft-tile-size) auto;
+    color: var(--kraft-ink);
   }
 
-  .price {
+  .layout {
+    display: grid;
+    gap: var(--space-12);
+    max-width: var(--landing-max-width);
+    margin-inline: auto;
+  }
+
+  .say {
+    display: grid;
+    align-content: center;
+    gap: var(--space-6);
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: var(--sheet-title-size);
+    line-height: 1.1;
+    font-weight: 800;
+    letter-spacing: var(--tracking-display);
+    text-wrap: balance;
+  }
+
+  /* The same length of packing tape as the hero holds the same call to action. */
+  .cta-row {
+    position: relative;
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-2);
+    align-items: center;
+    gap: var(--space-2) var(--space-6);
+    padding-block: var(--space-4);
   }
 
-  .amount {
-    font-size: var(--text-headline-wide-size);
-    line-height: var(--text-headline-wide-line);
-    font-weight: var(--text-headline-weight);
+  .cta-row::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline: -100% -8%;
+    background: var(--tape);
+    clip-path: polygon(0 0, 99.4% 0, 100% 18%, 99.3% 34%, 100% 52%, 99.2% 70%, 99.9% 86%, 99.4% 100%, 0 100%);
   }
 
-  .period,
-  .vat,
-  .microcopy {
-    color: var(--muted-foreground);
+  .cta-row > * {
+    position: relative;
+  }
+
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    min-height: var(--touch-target-min-size);
+    padding: var(--space-3) var(--space-6);
+    border-radius: var(--radius-overlay);
+    background: var(--whatsapp);
+    box-shadow: var(--shadow-paper);
+    color: var(--card);
+    font-family: var(--font-display);
+    font-size: var(--text-section-title-size);
+    line-height: 1.2;
+    font-weight: 700;
+    text-decoration: none;
+    transition:
+      background-color var(--motion-feedback) var(--motion-easing),
+      translate var(--motion-feedback) var(--motion-easing);
+  }
+
+  .cta:hover {
+    background: var(--whatsapp-hover);
+    color: var(--card);
+    translate: 0 calc(-1 * var(--motion-lift));
+  }
+
+  .cta :global(.cta-icon) {
+    flex: none;
+    width: var(--icon-navigation-size);
+    height: var(--icon-navigation-size);
+  }
+
+  .quiet {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--touch-target-min-size);
+    color: var(--kraft-ink);
+    font-weight: 600;
+  }
+
+  .quiet:hover {
+    color: var(--kraft-ink);
+    text-decoration-thickness: var(--focus-width);
+  }
+
+  .pricing :focus-visible {
+    outline-color: var(--kraft-ink);
+  }
+
+  /* The receipt: the shadow lives on the wrapper because the paper itself is cut to a saw-tooth foot. */
+  .receipt {
+    justify-self: center;
+    width: 100%;
+    max-width: var(--form-max-width);
+    rotate: 1.2deg;
+    filter: drop-shadow(var(--shadow-object));
+  }
+
+  .paper {
+    position: relative;
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-8) var(--space-6) var(--space-12);
+    background: var(--card);
+    clip-path: polygon(
+      0 0,
+      100% 0,
+      100% 98%,
+      96% 100%,
+      92% 98%,
+      88% 100%,
+      84% 98%,
+      80% 100%,
+      76% 98%,
+      72% 100%,
+      68% 98%,
+      64% 100%,
+      60% 98%,
+      56% 100%,
+      52% 98%,
+      48% 100%,
+      44% 98%,
+      40% 100%,
+      36% 98%,
+      32% 100%,
+      28% 98%,
+      24% 100%,
+      20% 98%,
+      16% 100%,
+      12% 98%,
+      8% 100%,
+      4% 98%,
+      0 100%
+    );
+  }
+
+  h3 {
+    padding-block-end: var(--space-4);
+    border-block-end: var(--border-width) dashed var(--paper-line);
+    font-family: var(--font-display);
+    font-size: var(--text-headline-size);
+    line-height: 1.1;
+    font-weight: 800;
   }
 
   .includes-label {
-    font-weight: var(--text-label-weight);
+    color: var(--kraft-ink-soft);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: var(--text-label-size);
+    font-weight: 500;
+    text-transform: uppercase;
   }
 
   .includes {
@@ -98,32 +239,139 @@ const demoEnabled = siteConfig.demoForm.kind === "enabled";
 
   .includes li {
     display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--space-3);
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: start;
+    gap: var(--space-3);
   }
 
   .icon {
-    width: var(--icon-inline-size);
-    height: var(--icon-inline-size);
+    width: var(--icon-action-size);
+    height: var(--icon-action-size);
     margin-block-start: var(--space-1);
-    stroke-width: var(--icon-stroke);
-    color: var(--success);
+    color: var(--whatsapp);
   }
 
-  .actions {
-    display: grid;
-    gap: var(--space-3);
+  .price {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding-block-start: var(--space-4);
+    border-block-start: var(--border-width) dashed var(--paper-line);
+    font-family: var(--font-display);
+    font-weight: 700;
   }
 
-  .microcopy {
-    font-size: var(--text-caption-size);
-    line-height: var(--text-caption-line);
+  .amount {
+    color: var(--primary-hover);
+    font-size: var(--hero-title-size-phone);
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: var(--tracking-display);
   }
 
-  @media (min-width: 48em) {
-    .actions {
-      grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  .period {
+    font-size: var(--text-page-title-size);
+  }
+
+  .vat {
+    color: var(--kraft-ink-soft);
+    font-size: var(--text-body-compact-size);
+    line-height: var(--text-body-compact-line);
+  }
+
+  .stamp {
+    position: absolute;
+    inset-block-start: var(--space-6);
+    inset-inline-end: var(--space-4);
+    padding: var(--space-1) var(--space-3);
+    border: var(--stamp-border) solid currentColor;
+    border-radius: var(--radius-card);
+    rotate: 8deg;
+    color: var(--stamp-ink);
+    opacity: 0.86;
+    mix-blend-mode: multiply;
+    font-family: var(--font-display);
+    font-size: var(--text-section-title-size);
+    line-height: 1.1;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  @media (min-width: 64em) {
+    .pricing {
+      padding: var(--space-24) var(--page-gutter-desktop);
+    }
+
+    .layout {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: center;
+      gap: var(--space-16);
+    }
+
+    h2 {
+      font-size: var(--hero-price-size);
+    }
+
+    .paper {
+      padding: var(--space-12) var(--space-12) var(--space-16);
+    }
+
+    .amount {
+      font-size: var(--hero-title-size);
+    }
+
+    .stamp {
+      inset-block: auto 9%;
+      inset-inline-end: 6%;
+      rotate: -9deg;
+    }
+  }
+
+  /* The only motion in the section: the WhatsApp button nudges every few seconds, like a chat that wants a reply. */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes pricing-nudge {
+      0%,
+      12%,
+      100% {
+        scale: 1;
+      }
+
+      5% {
+        scale: 1.07;
+      }
+    }
+
+    @keyframes pricing-ring {
+      0%,
+      14%,
+      100% {
+        rotate: 0deg;
+      }
+
+      3% {
+        rotate: -18deg;
+      }
+
+      6% {
+        rotate: 15deg;
+      }
+
+      9% {
+        rotate: -10deg;
+      }
+
+      12% {
+        rotate: 6deg;
+      }
+    }
+
+    .cta {
+      animation: pricing-nudge var(--motion-nudge-cycle) ease-in-out var(--motion-scene) infinite;
+    }
+
+    .cta :global(.cta-icon) {
+      animation: pricing-ring var(--motion-nudge-cycle) ease-in-out var(--motion-scene) infinite;
     }
   }
 </style>

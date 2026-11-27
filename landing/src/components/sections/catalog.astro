@@ -1,0 +1,293 @@
+---
+import { Picture } from "astro:assets";
+import { catalogContent } from "@landing/src/content/sections/catalog";
+---
+
+<section id="catalogo" class="catalog" aria-labelledby="catalogo-titulo">
+  <div class="layout">
+    <header class="head">
+      <h2 id="catalogo-titulo">
+        <span class="line">{catalogContent.heading.lead}</span>{" "}
+        <span class="marked">
+          {catalogContent.heading.marked}
+          <svg class="swoosh" viewBox="0 0 300 14" preserveAspectRatio="none" fill="none" aria-hidden="true">
+            <path d="M3 9C60 3 150 2 297 6" stroke="currentColor" stroke-width="6" stroke-linecap="round"></path>
+          </svg>
+        </span>
+      </h2>
+      <p>{catalogContent.lead}</p>
+    </header>
+
+    <ul class="themes" aria-label={catalogContent.themesLabel}>
+      {catalogContent.themes.map((theme) => (
+        <li>
+          <Picture
+            class="phone"
+            src={theme.image}
+            formats={["avif", "webp"]}
+            widths={[240, 360, 520, 760]}
+            sizes="(min-width: 64em) 21vw, (min-width: 40em) 36vw, 64vw"
+            alt={theme.alt}
+            loading="lazy"
+          />
+          <span class="theme-name">{theme.name}</span>
+        </li>
+      ))}
+    </ul>
+
+    <ul class="checkout">
+      {catalogContent.checkout.map((point) => <li>{point}</li>)}
+    </ul>
+  </div>
+</section>
+
+<style>
+  /* The shop window: a seamless espresso backdrop with one warm light behind five phones, each showing the seller's
+     catalog in one of its real themes. The torn paper, the pen stroke and the tape come from the hero's table. */
+  .catalog {
+    padding: var(--space-16) 0;
+    overflow-x: clip;
+    background:
+      radial-gradient(64% 50% at 50% 56%, var(--showcase-glow), transparent 74%),
+      var(--showcase);
+    color: var(--showcase-ink);
+  }
+
+  .layout {
+    display: grid;
+    gap: var(--space-8);
+    max-width: var(--hero-max-width);
+    margin-inline: auto;
+  }
+
+  .head {
+    display: grid;
+    gap: var(--space-4);
+    padding-inline: var(--page-gutter-mobile);
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: var(--hero-title-size-phone);
+    line-height: 1.08;
+    font-weight: 800;
+    letter-spacing: var(--tracking-display);
+  }
+
+  .line {
+    display: block;
+  }
+
+  .marked {
+    position: relative;
+    isolation: isolate;
+    display: inline-block;
+    margin-inline-start: calc(-1 * var(--space-3));
+    padding: var(--space-1) var(--space-4) var(--space-3) var(--space-3);
+    rotate: -1deg;
+    color: var(--kraft-ink);
+    filter: drop-shadow(var(--shadow-paper));
+  }
+
+  .marked::before,
+  .theme-name::before,
+  .checkout::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--paper);
+    clip-path: polygon(0.6% 4%, 99.2% 0, 100% 22%, 99% 40%, 99.8% 62%, 98.9% 81%, 99.6% 100%, 0.4% 97%, 1.1% 78%, 0.2% 58%, 1% 37%, 0 18%);
+  }
+
+  .swoosh {
+    position: absolute;
+    inset-block-end: 6%;
+    inset-inline-start: 20%;
+    width: 76%;
+    height: 9%;
+    max-width: none;
+    color: var(--primary);
+  }
+
+  .head p {
+    max-width: var(--reader-max-width);
+    color: var(--showcase-soft);
+    font-size: var(--hero-lead-size);
+    font-weight: 500;
+    text-wrap: pretty;
+  }
+
+  /* Phone: a shelf you swipe along. Desktop: the five in a row, shoulder to shoulder, the middle one a step forward. */
+  .themes {
+    display: flex;
+    gap: var(--space-4);
+    margin: 0;
+    padding: var(--space-4) var(--page-gutter-mobile) var(--space-6);
+    overflow-x: auto;
+    list-style: none;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: var(--page-gutter-mobile);
+    scrollbar-width: none;
+  }
+
+  .themes li {
+    display: grid;
+    flex: 0 0 64%;
+    gap: var(--space-6);
+    justify-items: center;
+    align-content: start;
+    scroll-snap-align: center;
+  }
+
+  /* Each phone is a cut-out plate; its only shadow is the soft one it casts on the backdrop. */
+  .themes :global(.phone) {
+    width: 100%;
+    height: auto;
+    filter: drop-shadow(var(--shadow-showcase));
+  }
+
+  /* The theme's name on a scrap of the same torn paper as the headline. */
+  .theme-name {
+    position: relative;
+    isolation: isolate;
+    padding: var(--space-1) var(--space-4);
+    color: var(--kraft-ink);
+    filter: drop-shadow(var(--shadow-paper));
+    font-family: var(--font-display);
+    font-size: var(--text-section-title-size);
+    line-height: 1.3;
+    font-weight: 800;
+  }
+
+  .themes li:nth-child(odd) .theme-name {
+    rotate: -1.5deg;
+  }
+
+  .themes li:nth-child(even) .theme-name {
+    rotate: 1.2deg;
+  }
+
+  /* What the buyer does next, written on a length of the packing tape. */
+  .checkout {
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    gap: var(--space-1);
+    justify-items: center;
+    margin: 0 var(--page-gutter-mobile);
+    padding: var(--space-4) var(--space-6);
+    color: var(--kraft-ink);
+    text-align: center;
+    list-style: none;
+    font-family: var(--font-display);
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .checkout::before {
+    background: var(--tape-opaque);
+  }
+
+  @media (min-width: 40em) {
+    .themes li {
+      flex-basis: 36%;
+    }
+
+    .checkout {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: var(--space-1) var(--space-4);
+    }
+
+    .checkout li + li::before {
+      content: "·";
+      margin-inline-end: var(--space-4);
+    }
+  }
+
+  @media (min-width: 64em) {
+    .catalog {
+      padding-block: var(--space-24);
+    }
+
+    .layout {
+      gap: var(--space-12);
+    }
+
+    .head {
+      padding-inline: var(--page-gutter-desktop);
+    }
+
+    h2 {
+      font-size: var(--hero-title-size);
+    }
+
+    .themes {
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      padding: var(--space-8) var(--page-gutter-desktop) 0;
+      overflow: visible;
+    }
+
+    .themes li {
+      flex: 0 1 17.5%;
+      margin-inline: -0.4%;
+    }
+
+    .themes li:nth-child(2),
+    .themes li:nth-child(4) {
+      z-index: 1;
+      flex-basis: 19%;
+    }
+
+    .themes li:nth-child(3) {
+      z-index: 2;
+      flex-basis: 21%;
+    }
+
+    .theme-name {
+      font-size: var(--text-page-title-size);
+    }
+
+    .checkout {
+      margin-inline: var(--page-gutter-desktop);
+      padding: var(--space-4) var(--space-8);
+      font-size: var(--text-page-title-size);
+    }
+
+  }
+
+  /* Pointing at a phone picks it up off the shelf: it comes forward over its neighbours and its name tag straightens.
+     The list item keeps its place, so the pointer never loses its target. */
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .themes :global(.phone),
+    .theme-name {
+      transition:
+        translate var(--motion-pickup) var(--motion-arrive),
+        scale var(--motion-pickup) var(--motion-arrive),
+        rotate var(--motion-pickup) var(--motion-arrive);
+    }
+
+    .themes li:hover {
+      z-index: 3;
+    }
+
+    .themes li:hover :global(.phone) {
+      translate: 0 -4%;
+      scale: 1.07;
+      rotate: -2deg;
+    }
+
+    .themes li:nth-child(even):hover :global(.phone) {
+      rotate: 2deg;
+    }
+
+    .themes li:hover .theme-name {
+      rotate: 0deg;
+      scale: 1.08;
+    }
+  }
+</style>

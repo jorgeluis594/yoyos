@@ -1,130 +1,612 @@
 ---
-import CtaLink from "@landing/src/components/cta-link.astro";
-import Screenshot from "@landing/src/components/screenshot.astro";
+import { Picture } from "astro:assets";
+import ArrowRight from "@lucide/astro/icons/arrow-right";
+import Check from "@lucide/astro/icons/circle-check";
+import ClipboardList from "@lucide/astro/icons/clipboard-list";
+import Link from "@lucide/astro/icons/link";
+import Phone from "@lucide/astro/icons/phone";
+import openBox from "@landing/src/assets/plates/open-box.png";
+import phoneChat from "@landing/src/assets/plates/phone-chat.png";
+import WhatsappIcon from "@landing/src/components/whatsapp-icon.astro";
 import { siteConfig } from "@landing/src/config/site";
-import { heroImage } from "@landing/src/content/sections/hero-image";
 import { heroContent, heroImageSizing } from "@landing/src/content/sections/hero";
 import { ctaLabels } from "@landing/src/content/site";
 import { telUrl, whatsappUrl } from "@landing/src/lib/contact";
+import { kraftTileUrl } from "@landing/src/lib/kraft-tile";
 
 const { demoForm, phone, whatsapp } = siteConfig;
+const kraft = await kraftTileUrl();
+const [photoStep, orderStep, linkStep] = heroContent.steps;
 ---
 
-<section id="inicio" class="section hero">
-  <div class="container layout">
+<section id="inicio" class="hero" style={`--kraft: url(${kraft});`}>
+  <div class="layout">
     <div class="copy">
-      <p class="pill-label" data-entrance>{heroContent.eyebrow}</p>
-      <h1 data-entrance style="--motion-order: 1">{heroContent.heading}</h1>
-      <p class="lead" data-entrance style="--motion-order: 2">{heroContent.lead}</p>
-      <div class="actions" data-entrance style="--motion-order: 3">
-        <CtaLink href={whatsappUrl(whatsapp)} event="whatsapp_click" location="hero" newTab>{ctaLabels.whatsapp}</CtaLink>
+      <h1>
+        <span class="line">{heroContent.heading.lead}</span>{" "}
+        <span class="marked">
+          {heroContent.heading.marked}
+          <svg class="swoosh" viewBox="0 0 300 14" preserveAspectRatio="none" fill="none" aria-hidden="true">
+            <path d="M3 9C60 3 150 2 297 6" stroke="currentColor" stroke-width="6" stroke-linecap="round"></path>
+          </svg>
+        </span>
+      </h1>
+      <p class="lead">{heroContent.lead.map((part) => ("strong" in part ? <strong>{part.text}</strong> : part.text))}</p>
+
+      <p class="offer">
+        <span class="price">
+          <strong>{heroContent.price.amount}</strong>{" "}
+          {heroContent.price.period}
+        </span>{" "}
+        <span class="divider" aria-hidden="true"></span>
+        <span class="commission">{heroContent.commission}</span>
+      </p>
+
+      <div class="cta-row">
+        <a class="cta" href={whatsappUrl(whatsapp)} data-event="whatsapp_click" data-location="hero" target="_blank" rel="noopener">
+          <WhatsappIcon class="cta-icon" />
+          {ctaLabels.whatsapp}
+        </a>
+        <a class="quiet" href={telUrl(phone)} data-event="call_click" data-location="hero">
+          <Phone class="quiet-icon" aria-hidden="true" />
+          {heroContent.callLink}
+        </a>
         {demoForm.kind === "enabled" && (
-          <CtaLink href="#demo" variant="secondary" event="demo_form_open" location="hero">{ctaLabels.demo}</CtaLink>
+          <a class="quiet" href="#demo" data-event="demo_form_open" data-location="hero">{ctaLabels.demo}</a>
         )}
       </div>
-      <a class="call" data-entrance style="--motion-order: 4" href={telUrl(phone)} data-event="call_click" data-location="hero">{heroContent.callLink}</a>
-      <p class="microcopy" data-entrance style="--motion-order: 4">{heroContent.microcopy}</p>
     </div>
-    <div class="media" data-entrance="lift" style="--motion-order: 1">
-      <div class="layers">
-        <span class="layer back" aria-hidden="true"></span>
-        <span class="layer middle" aria-hidden="true"></span>
-        <div class="front"><Screenshot capture={heroImage} priority widths={heroImageSizing.widths} sizes={heroImageSizing.sizes} /></div>
+
+    <div class="show">
+      <div class="scene">
+        <Picture
+          class="box"
+          src={openBox}
+          formats={["avif", "webp"]}
+          widths={[...heroImageSizing.widths]}
+          sizes={heroImageSizing.sizes}
+          loading="eager"
+          fetchpriority="high"
+          alt={heroContent.boxAlt}
+        />
+        <Picture
+          class="phone"
+          src={phoneChat}
+          formats={["avif", "webp"]}
+          widths={[240, 420, 640]}
+          sizes="(min-width: 64em) 17vw, 36vw"
+          loading="eager"
+          alt={heroContent.phoneAlt}
+        />
+        <span class="stamp" aria-hidden="true">{heroContent.stamp}<Check class="stamp-check" /></span>
       </div>
+        <ol class="flow">
+          <li>
+            <span class="step-icon whatsapp"><WhatsappIcon class="glyph" /></span>
+            {photoStep}
+          </li>
+          <li>
+            <ArrowRight class="arrow" aria-hidden="true" />
+            <span class="step-icon"><ClipboardList class="glyph" aria-hidden="true" /></span>
+            {orderStep}
+          </li>
+          <li>
+            <ArrowRight class="arrow" aria-hidden="true" />
+            <span class="step-icon"><Link class="glyph" aria-hidden="true" /></span>
+            {linkStep}
+          </li>
+        </ol>
     </div>
   </div>
 </section>
 
 <style>
+  /* The packing table: kraft paper under everything, the copy written on it, the chat and the packed box lying on it. */
   .hero {
-    padding-block-start: var(--space-8);
+    padding-block: var(--space-6) var(--space-12);
+    overflow-x: clip;
+    background:
+      linear-gradient(var(--kraft-wash), var(--kraft-wash)),
+      var(--kraft-shade) var(--kraft) repeat;
+    background-size:
+      auto,
+      var(--kraft-tile-size) auto;
+    color: var(--kraft-ink);
   }
 
   .layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-12);
-    align-items: center;
-  }
-
-  .copy {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    min-width: 0;
-    justify-items: start;
     gap: var(--space-6);
+    max-width: var(--hero-max-width);
+    margin-inline: auto;
+    padding-inline: var(--page-gutter-mobile);
   }
 
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
+  /* Phone: the copy's children join the layout grid so the scene can sit between the call to action and the steps. */
+  .copy {
+    display: contents;
   }
 
-  .call {
-    display: inline-flex;
-    align-items: center;
-    min-height: var(--touch-target-min-size);
-    font-weight: var(--text-label-weight);
+  h1 {
+    font-family: var(--font-display);
+    font-size: var(--hero-title-size-phone);
+    line-height: 1.08;
+    font-weight: 800;
+    letter-spacing: var(--tracking-display);
   }
 
-  .microcopy {
-    color: var(--muted-foreground);
-    font-size: var(--text-body-compact-size);
-    line-height: var(--text-body-compact-line);
+  .line {
+    display: block;
   }
 
-  /* Soft card with the capture layered over two offset sheets; capped below the desktop breakpoint so the
-     stacked hero stays a phone-sized mockup instead of a full-width slab. */
-  .media {
-    justify-self: center;
-    width: 100%;
-    max-width: calc(var(--form-max-width) * 5 / 8);
-    padding: var(--space-8);
-    overflow: hidden;
-    border-radius: var(--radius-overlay);
-    background: var(--accent);
-  }
-
-  .layers {
+  /* A torn strip of paper under the second line, with a pen stroke below the words. */
+  .marked {
     position: relative;
-    margin-inline-end: var(--space-4);
+    isolation: isolate;
+    display: inline-block;
+    margin-inline-start: calc(-1 * var(--space-3));
+    padding: var(--space-1) var(--space-4) var(--space-3) var(--space-3);
+    rotate: -1deg;
+    filter: drop-shadow(var(--shadow-paper));
   }
 
-  .layer {
+  .marked::before,
+  .flow::before,
+  .offer::before {
+    content: "";
     position: absolute;
     inset: 0;
-    border: var(--border-width) solid var(--border);
-    border-radius: var(--radius-overlay);
+    z-index: -1;
+    background: var(--paper);
+    clip-path: polygon(0.6% 4%, 99.2% 0, 100% 22%, 99% 40%, 99.8% 62%, 98.9% 81%, 99.6% 100%, 0.4% 97%, 1.1% 78%, 0.2% 58%, 1% 37%, 0 18%);
   }
 
-  .back {
-    background: var(--secondary);
-    transform: translate(var(--space-4), calc(-1 * var(--space-4)));
+  .swoosh {
+    position: absolute;
+    inset-block-end: 6%;
+    inset-inline-start: 24%;
+    width: 72%;
+    height: 9%;
+    max-width: none;
+    color: var(--primary);
   }
 
-  .middle {
-    background: var(--card);
-    transform: translate(var(--space-2), calc(-1 * var(--space-2)));
+  .lead {
+    order: 6;
+    color: var(--kraft-ink-soft);
+    font-size: var(--hero-lead-size);
+    line-height: 1.45;
+    font-weight: 500;
+    max-width: var(--hero-lead-measure);
+    text-wrap: pretty;
   }
 
-  .front {
+  .lead strong {
+    color: var(--kraft-ink);
+    font-weight: 700;
+  }
+
+  /* The scene and, right under it, the three moments it shows. */
+  .show {
+    order: 2;
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  /* One paper slip under the scene: the three moments read as a single caption, not as loose icons. */
+  .flow {
     position: relative;
+    isolation: isolate;
+    justify-self: center;
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    rotate: 0.6deg;
+    filter: drop-shadow(var(--shadow-paper));
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+    font-size: var(--text-body-compact-size);
+    text-align: center;
+    list-style: none;
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  .flow li {
+    display: grid;
+    justify-items: center;
+    align-content: start;
+    gap: var(--space-2);
+  }
+
+  .flow :global(.arrow) {
+    display: none;
+    flex: none;
+    width: var(--icon-navigation-size);
+    height: var(--icon-navigation-size);
+    color: var(--primary);
+  }
+
+  .step-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: var(--space-8);
+    height: var(--space-8);
+    border-radius: var(--radius-pill);
+    background: var(--secondary);
+  }
+
+  .step-icon.whatsapp {
+    background: var(--whatsapp);
+    color: var(--card);
+  }
+
+  .step-icon :global(.glyph) {
+    width: var(--icon-action-size);
+    height: var(--icon-action-size);
+  }
+
+  .offer {
+    order: 5;
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    justify-self: center;
+    gap: var(--space-1) var(--space-4);
+    padding: var(--space-2) var(--space-6);
+    rotate: -1.2deg;
+    filter: drop-shadow(var(--shadow-paper));
+    font-family: var(--font-display);
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .price {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-size: var(--text-page-title-size);
+  }
+
+  .price strong {
+    color: var(--primary-hover);
+    font-size: var(--hero-price-size);
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: var(--tracking-display);
+  }
+
+  .divider {
+    display: none;
+    align-self: stretch;
+    width: var(--border-width);
+    background: var(--paper-line);
+  }
+
+  /* A length of packing tape stuck across the table holds the call to action. */
+  .cta-row {
+    order: 4;
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: var(--space-1);
+    padding-block: var(--space-4) var(--space-2);
+  }
+
+  .cta-row::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline: -100% -40%;
+    background: var(--tape);
+    clip-path: polygon(0 0, 99.4% 0, 100% 18%, 99.3% 34%, 100% 52%, 99.2% 70%, 99.9% 86%, 99.4% 100%, 0 100%);
+  }
+
+  .cta-row > * {
+    position: relative;
+  }
+
+  .cta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    justify-self: stretch;
+    gap: var(--space-3);
+    min-height: var(--space-16);
+    padding: var(--space-3) var(--space-6);
+    border-radius: var(--radius-overlay);
+    background: var(--whatsapp);
+    box-shadow: var(--shadow-paper);
+    color: var(--card);
+    font-family: var(--font-display);
+    font-size: var(--text-section-title-size);
+    line-height: 1.2;
+    font-weight: 700;
+    text-decoration: none;
+    transition:
+      background-color var(--motion-feedback) var(--motion-easing),
+      translate var(--motion-feedback) var(--motion-easing);
+  }
+
+  .cta:hover {
+    background: var(--whatsapp-hover);
+    color: var(--card);
+    translate: 0 calc(-1 * var(--motion-lift));
+  }
+
+  .cta :global(.cta-icon) {
+    flex: none;
+    width: var(--icon-navigation-size);
+    height: var(--icon-navigation-size);
+  }
+
+  .quiet {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--touch-target-min-size);
+    color: var(--kraft-ink);
+    font-weight: 600;
+  }
+
+  .quiet:hover {
+    color: var(--kraft-ink);
+    text-decoration-thickness: var(--focus-width);
+  }
+
+  .quiet :global(.quiet-icon) {
+    flex: none;
+    width: var(--icon-action-size);
+    height: var(--icon-action-size);
+  }
+
+  .hero :focus-visible {
+    outline-color: var(--kraft-ink);
+  }
+
+  /* The phone lies in front of the box; both cut-outs cast their shadow on the paper. */
+  .scene {
+    position: relative;
+    aspect-ratio: 5 / 4;
+    width: 100%;
+    max-width: var(--form-max-width);
+    margin-inline: auto;
+  }
+
+  .scene :global(img) {
+    position: absolute;
+    height: auto;
+    filter: drop-shadow(var(--shadow-object));
+  }
+
+  .scene :global(.box) {
+    inset-block-start: 0;
+    inset-inline-end: 0;
+    width: 62%;
+  }
+
+  .scene :global(.phone) {
+    inset-block-end: 0;
+    inset-inline-start: 0;
+    width: 44%;
+  }
+
+  .stamp {
+    position: absolute;
+    inset-block-end: -1%;
+    inset-inline-end: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: min-content;
+    padding: var(--space-1) var(--space-3);
+    border: var(--stamp-border) solid currentColor;
+    border-radius: var(--radius-card);
+    rotate: -9deg;
+    color: var(--stamp-ink);
+    opacity: 0.86;
+    mix-blend-mode: multiply;
+    font-family: var(--font-display);
+    font-size: var(--text-body-compact-size);
+    line-height: 1;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .stamp :global(.stamp-check) {
+    flex: none;
+    width: var(--icon-navigation-size);
+    height: var(--icon-navigation-size);
+  }
+
+  @media (min-width: 40em) {
+    h1 {
+      font-size: var(--hero-title-size);
+    }
+
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: var(--space-3);
+      font-size: inherit;
+      text-align: start;
+    }
+
+    .flow li {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    .offer {
+      justify-content: flex-start;
+      justify-self: start;
+      padding: var(--space-3) var(--space-6);
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2) var(--space-6);
+      padding-block: var(--space-4);
+    }
+
+    .cta {
+      justify-self: auto;
+      min-height: var(--touch-target-min-size);
+    }
+
+    .flow :global(.arrow) {
+      display: block;
+    }
   }
 
   @media (min-width: 64em) {
     .hero {
-      padding-block-start: var(--space-16);
+      display: grid;
+      align-items: center;
+      min-height: var(--hero-min-height);
+      padding-block: var(--space-4) var(--space-12);
     }
 
     .layout {
-      grid-template-columns: 1fr 1fr;
-      gap: var(--space-16);
+      width: 100%;
     }
 
-    .media {
-      justify-self: stretch;
+    .layout {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: center;
+      gap: var(--space-8);
+      padding-inline: var(--page-gutter-desktop);
+    }
+
+    .copy {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-6);
+    }
+
+    .show,
+    .lead,
+    .offer,
+    .cta-row {
+      order: 0;
+    }
+
+    .flow {
+      flex-wrap: nowrap;
+    }
+
+    .scene {
+      aspect-ratio: 10 / 9;
+    }
+
+    .scene :global(.box) {
+      width: 68%;
+    }
+
+    /* The scene never grows taller than the first screen leaves for it. */
+    .scene {
+      justify-self: center;
+      width: min(104%, var(--hero-scene-max-width));
       max-width: none;
+      margin-inline: 0;
+    }
+
+    .stamp {
+      inset-inline-end: 9%;
+      font-size: var(--text-headline-size);
+    }
+  }
+
+  @media (min-width: 80em) {
+    .divider {
+      display: block;
+    }
+  }
+
+  @media (min-width: 90em) {
+    .flow li {
+      white-space: nowrap;
+    }
+  }
+  /* The opening sequence, once per load and short: the chat slides onto the table, the order gets stamped, and the
+     WhatsApp button answers: it keeps nudging every few seconds, like a chat that wants a reply. Everything else is
+     still from the first frame; reduced motion gets the static page. */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes hero-slide {
+      from {
+        opacity: 0;
+        translate: -45% 6%;
+        rotate: -9deg;
+      }
+    }
+
+    @keyframes hero-stamp {
+      from {
+        opacity: 0;
+        scale: 2.2;
+      }
+    }
+
+    @keyframes hero-nudge {
+      0%,
+      12%,
+      100% {
+        scale: 1;
+      }
+
+      5% {
+        scale: 1.07;
+      }
+    }
+
+    @keyframes hero-ring {
+      0%,
+      14%,
+      100% {
+        rotate: 0deg;
+      }
+
+      3% {
+        rotate: -18deg;
+      }
+
+      6% {
+        rotate: 15deg;
+      }
+
+      9% {
+        rotate: -10deg;
+      }
+
+      12% {
+        rotate: 6deg;
+      }
+    }
+
+    .scene :global(.phone) {
+      animation: hero-slide var(--motion-scene) var(--motion-arrive) both;
+    }
+
+    .stamp {
+      animation: hero-stamp var(--motion-stamp) ease-in calc(var(--motion-beat) * 4) both;
+    }
+
+    .cta {
+      animation: hero-nudge var(--motion-nudge-cycle) ease-in-out calc(var(--motion-beat) * 8) infinite;
+    }
+
+    .cta :global(.cta-icon) {
+      animation: hero-ring var(--motion-nudge-cycle) ease-in-out calc(var(--motion-beat) * 8) infinite;
     }
   }
 </style>

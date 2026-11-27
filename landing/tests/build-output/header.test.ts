@@ -4,13 +4,11 @@ import { pages, readPage } from "./html";
 const whatsapp = "https://wa.me/51912345678";
 
 describe("header", () => {
-  test("shows the logo, the five anchors, and the WhatsApp and call links with their fallbacks when the optional variables are empty", () => {
+  test("shows the logo, the three anchors, and the WhatsApp and call links with their fallbacks when the optional variables are empty", () => {
     const header = readPage("minimal", "index.html").querySelector("header.site-header");
     expect(header?.querySelector('a[href="/"] img')?.getAttribute("alt")).toBe("Yoyos");
     expect(header?.querySelectorAll("nav a").map((link) => [link.text, link.getAttribute("href")])).toEqual([
-      ["Cómo funciona", "#como-funciona"],
-      ["Funciones", "#funciones"],
-      ["Envíos y pagos", "#integraciones"],
+      ["Catálogo", "#catalogo"],
       ["Precio", "#precio"],
       ["Preguntas", "#preguntas"],
     ]);
@@ -40,7 +38,7 @@ describe("header", () => {
 
   test("points the anchors at the home from the other pages", () => {
     const links = readPage("minimal", "privacidad.html").querySelectorAll("header nav a");
-    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/#como-funciona", "/#funciones", "/#integraciones", "/#precio", "/#preguntas"]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/#catalogo", "/#precio", "/#preguntas"]);
   });
 
   test("hides Ingresar with an empty login URL and links it in header and footer when configured", () => {
