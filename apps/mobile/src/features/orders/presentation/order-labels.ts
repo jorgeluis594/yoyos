@@ -33,6 +33,9 @@ export function orderLanguage(country: Country, deviceLocale = Intl.DateTimeForm
 
 export const orderStatusLabel = (status: Status, language: Language) => labels[language][status];
 export const deliveryStatusLabel = (status: Delivery, language: Language) => labels[language][status];
+const shortPending = { es: "Pendiente", en: "Pending", pt: "Pendente" } as const;
+/** Badge beside a delivery heading, where the full label would repeat the heading. */
+export const deliveryBadgeLabel = (status: Delivery, language: Language) => status === "pending" ? shortPending[language] : labels[language][status];
 export const documentTypeLabel = (type: DocumentType, language: Language) => labels[language][type];
 export const deliveryMethodLabel = (method: "home" | "agency" | "store", language: Language) => labels[language][method];
 

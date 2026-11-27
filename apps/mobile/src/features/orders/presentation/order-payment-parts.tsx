@@ -33,10 +33,10 @@ export function paymentAmountProblem(typed: string, balance: number, currency: s
   return checked.error.problem === "exceeds_balance" && !capAtBalance ? null : checked.error.problem;
 }
 
-export function StatusPill({ label, tone, symbol }: { label: string; tone: PillTone; symbol?: { ios: string; android: string } }) {
+export function StatusPill({ label, tone, symbol, accessibilityLabel = label }: { label: string; tone: PillTone; symbol?: { ios: string; android: string }; accessibilityLabel?: string }) {
   const theme = useTheme();
   const color = tone === "success" ? theme.success : tone === "warning" ? theme.warning : theme.textSecondary;
-  return <View accessible accessibilityLabel={label} style={[styles.pill, { backgroundColor: tone === "success" ? theme.successSurface : tone === "warning" ? theme.warningSurface : theme.secondary }]}>
+  return <View accessible accessibilityLabel={accessibilityLabel} style={[styles.pill, { backgroundColor: tone === "success" ? theme.successSurface : tone === "warning" ? theme.warningSurface : theme.secondary }]}>
     {symbol ? <SymbolView name={symbol as never} size={14} tintColor={color} /> : null}
     <ThemedText type="small" numberOfLines={1} style={{ color }}>{label}</ThemedText>
   </View>;
