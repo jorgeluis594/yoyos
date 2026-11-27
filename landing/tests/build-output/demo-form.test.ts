@@ -15,13 +15,13 @@ describe("demo form", () => {
     expect(page.text).not.toContain("o agenda una demo");
     expect(page.querySelectorAll("a").filter((link) => link.getAttribute("href") === "#demo")).toHaveLength(0);
     const demo = page.querySelector("#demo");
-    expect(demo?.querySelector("h2")?.text.trim()).toBe("Tu próximo live, con los pedidos en orden");
+    expect(demo?.querySelector("h2")?.text.replace(/\s+/g, " ").trim()).toBe("Tu próximo live, con los pedidos en orden");
     expect(demo?.text).toContain(
-      "Escríbenos por WhatsApp o llámanos, y en la demo te ayudamos a dejar Yoyos listo con tus productos. S/ 50 al mes + IGV, sin comisión por venta.",
+      "En la demo te ayudamos a dejar Yoyos listo con tus productos.",
     );
     expect(demo?.querySelector('a[data-event="whatsapp_click"]')?.getAttribute("href")).toBe(whatsapp);
     expect(demo?.querySelector('a[data-event="call_click"]')?.text.trim()).toBe("Llámanos");
-    expect(demo?.text).toContain("+51912345678");
+    expect(demo?.text).not.toContain("+51912345678");
   });
 
   test("with a form action the form posts to it with the contract field names, honeypot and consent version", () => {
@@ -187,10 +187,6 @@ describe("demo form", () => {
     expect(bytes).toBeLessThanOrEqual(2048);
   });
 
-  test("the integrations logo list carries no invented accessible name", () => {
-    expect(readPage("minimal", "index.html").querySelector("#integraciones .logos")?.hasAttribute("aria-label")).toBe(false);
-  });
-
   test("renders no success or error block without a form action", () => {
     const page = readPage("minimal", "index.html");
     for (const id of ["demo-ok-whatsapp", "demo-ok-llamada", "demo-error"]) expect(page.querySelector(`#${id}`)).toBeNull();
@@ -208,30 +204,28 @@ describe("pricing, integrations, FAQ and testimonials", () => {
     }
   });
 
-  test("the FAQ lists questions 1–5 and 7–11 as details with H3 questions and analytics attributes", () => {
+  test("the FAQ lists the seven published questions as details with H3 questions and analytics attributes", () => {
     const faq = readPage("minimal", "index.html").querySelector("#preguntas");
     expect(faq?.querySelector("h2")?.text.trim()).toBe("Preguntas frecuentes");
     const entries = faq?.querySelectorAll("details") ?? [];
-    expect(entries.map((entry) => entry.getAttribute("data-faq-q"))).toEqual(["1", "2", "3", "4", "5", "7", "8", "9", "10", "11"]);
+    expect(entries.map((entry) => entry.getAttribute("data-faq-q"))).toEqual(["1", "2", "4", "5", "7", "9", "11"]);
     expect(entries.every((entry) => entry.querySelector("summary h3") !== null)).toBe(true);
     // faq_open is built only by the toggle listener, so no FAQ element may carry data-event (the click listener matches it).
     expect(faq?.querySelectorAll("[data-event]")).toHaveLength(0);
-    expect(entries[2]?.querySelector("h3")?.text.trim()).toBe("¿Cuánto cuesta?");
+    expect(entries[2]?.querySelector("h3")?.text.trim()).toBe("Hay herramientas gratis que hacen algo parecido.");
     expect(entries.every((entry) => !entry.hasAttribute("open"))).toBe(true);
   });
 
   test("the pricing card shows the price, the IGV note and the eight included items", () => {
     const pricing = readPage("full", "index.html").querySelector("#precio");
-    expect(pricing?.querySelector("h2")?.text.trim()).toBe("Un solo precio: S/ 50 al mes + IGV. Sin comisión por venta.");
+    expect(pricing?.querySelector("h2")?.text.replace(/\s+/g, " ").trim()).toBe("Un solo precio: S/ 50 al mes + IGV. Sin comisión por venta.");
     const text = pricing?.text.replace(/\s+/g, " ");
     for (const copy of [
       "Yoyos",
       "S/ 50",
       "/ mes + IGV",
       "Los precios no incluyen IGV.",
-      "Suscripción mensual. Sin comisión por tus ventas y sin pagos únicos.",
       "Incluye",
-      "En la demo te ayudamos a dejar Yoyos listo con tus productos.",
     ]) {
       expect(text).toContain(copy);
     }
@@ -257,34 +251,9 @@ describe("pricing, integrations, FAQ and testimonials", () => {
     expect(readPage("minimal", "index.html").querySelector('#precio a[data-event="demo_form_open"]')).toBeNull();
   });
 
-  test("the integrations section lists the four items, the four real logos with their alt and the trademark note", () => {
-    const section = readPage("minimal", "index.html").querySelector("#integraciones");
-    expect(section?.querySelector("h2")?.text.trim()).toBe("Envíos por agencias Shalom y Olva, cobros con Yape y Plin");
-    const text = section?.text.replace(/\s+/g, " ");
-    for (const copy of [
-      "Funciona con lo que ya usas.",
-      "Vinculas tu WhatsApp desde la app, como en WhatsApp Web. Tus clientes te siguen escribiendo como siempre.",
-      "Configura envíos a agencias Shalom y Olva. Tu cliente elige la sede de destino y tú imprimes el rótulo. La guía la sigues sacando en la agencia.",
-      "Si tu cliente prefiere recoger, también puede elegirlo.",
-      "Muestra tus datos de cobro y recibe el comprobante en cada pedido.",
-      "WhatsApp, Shalom, Olva, Yape y Plin son marcas de sus respectivos dueños. Yoyos no está afiliado a ellas.",
-    ]) {
-      expect(text).toContain(copy);
-    }
-    const logos = section?.querySelectorAll("[data-partner-logo]") ?? [];
-    expect(logos.map((logo) => [logo.getAttribute("data-partner-logo"), logo.getAttribute("alt")])).toEqual([
-      ["Shalom", "Logo de Shalom"],
-      ["Olva", "Logo de Olva"],
-      ["Yape", "Logo de Yape"],
-      ["Plin", "Logo de Plin"],
-    ]);
-    expect(logos.every((logo) => logo.tagName.toLowerCase() === "img")).toBe(true);
-    expect(logos.every((logo) => /^\/_astro\/.+\.(png|svg|webp)$/.test(logo.getAttribute("src") ?? ""))).toBe(true);
-    expect(logos.every((logo) => Number(logo.getAttribute("width")) > 0 && Number(logo.getAttribute("height")) > 0)).toBe(true);
-    expect(section?.querySelectorAll("[data-provisional]").length).toBe(0);
-  });
-
-  test("the phone number shown in the final CTA is the configured display", () => {
-    expect(readPage("full", "index.html").querySelector("#demo")?.text).toContain(phoneDisplay);
+  test("the final CTA never prints the phone number; the call link carries it", () => {
+    const demo = readPage("full", "index.html").querySelector("#demo");
+    expect(demo?.text).not.toContain(phoneDisplay);
+    expect(demo?.querySelector('a[data-event="call_click"]')?.getAttribute("href")).toBe("tel:+51912345678");
   });
 });

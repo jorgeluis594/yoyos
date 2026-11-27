@@ -16,3 +16,45 @@
   descent-override: 22.5%;
   line-gap-override: 0%;
 }
+
+/* Akt, the landing's display face (headlines and the price), measured against the approved comp; latin subset. */
+@font-face {
+  font-family: "Akt";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("@fontsource/akt/files/akt-latin-700-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Akt";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/akt/files/akt-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Akt";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/akt/files/akt-latin-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Akt";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 800;
+  src: url("@fontsource/akt/files/akt-latin-800-normal.woff2") format("woff2");
+}
+
+/* Label data printed on the thermal rótulos (order numbers, prices, fields). */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2") format("woff2");
+}

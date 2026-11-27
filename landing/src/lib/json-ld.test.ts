@@ -29,9 +29,9 @@ describe("buildHomeStructuredData", () => {
     expect(JSON.parse(serializeJsonLd(buildHomeStructuredData(config, faqEntries)))).toEqual(fixture);
   });
 
-  test("includes the ten published questions in FAQPage and leaves out question 6", () => {
+  test("includes the seven published questions in FAQPage and leaves out question 6", () => {
     const questions = node("FAQPage")["mainEntity"] as Node[];
-    expect(questions).toHaveLength(10);
+    expect(questions).toHaveLength(7);
     expect(questions.map((question) => question["name"])).not.toContain("¿Qué pasa con mis datos y los de mis clientes?");
   });
 

@@ -17,13 +17,6 @@ export const faqEntries: readonly FaqEntry[] = [
       "Lo entendemos: entre lives y despachos no te sobra tiempo. Por eso Yoyos se usa desde tu celular, junto al WhatsApp que ya tienes. En la demo te ayudamos a dejar Yoyos listo con tus productos.",
   },
   {
-    number: 3,
-    question: "¿Cuánto cuesta?",
-    visibility: "published",
-    answer:
-      "S/ 50 al mes + IGV. Es una suscripción mensual: no cobramos comisión por tus ventas ni hay pagos únicos. Escríbenos por WhatsApp y te mostramos cómo funciona con tus productos.",
-  },
-  {
     number: 4,
     question: "Hay herramientas gratis que hacen algo parecido.",
     visibility: "published",
@@ -47,25 +40,11 @@ export const faqEntries: readonly FaqEntry[] = [
       "Justo cuando empiezas es el mejor momento para ordenarte. Cada pedido que copias a mano del chat al cuaderno, cada dirección que vuelves a pedir y cada captura de Yape que buscas te quitan tiempo que podrías usar para vender. Y cuando un live te va bien, ya tienes todo listo para atender más pedidos sin enredarte.",
   },
   {
-    number: 8,
-    question: "¿Sirve con Yape y Plin?",
-    visibility: "published",
-    answer:
-      "Sí. Puedes cobrar con Yape, Plin o transferencia bancaria. Tu cliente ve tus datos de pago en el link del pedido y sube su comprobante, y tú lo verificas.",
-  },
-  {
     number: 9,
     question: "¿Necesito una impresora especial para los rótulos?",
     visibility: "published",
     answer:
       "Yoyos imprime en impresoras de etiquetas y estamos sumando más modelos. En la demo te decimos cuál te conviene.",
-  },
-  {
-    number: 10,
-    question: "¿Funciona en iPhone?",
-    visibility: "published",
-    answer:
-      "Yoyos está disponible para Android y en la web, y la app para iPhone viene en camino.",
   },
   {
     number: 11,
