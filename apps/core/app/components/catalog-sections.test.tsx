@@ -23,6 +23,11 @@ describe("CatalogShell", () => {
     expect(shell(false)).not.toContain("<a ");
   });
 
+  test("keeps the whole cart, sheet host included, in the header's last column", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><CatalogShell appearance={clasico} storeName="Lima Studio" cart={<><div data-store-part="cart-sheet" /><button type="button">Carrito</button></>}><p>Productos</p></CatalogShell></MemoryRouter>);
+    expect(html).toContain('<div class="col-start-3 flex justify-end"><div data-store-part="cart-sheet"></div><button type="button">Carrito</button></div>');
+  });
+
   test("renders Noche dark inside the shell", () => {
     const html = renderToStaticMarkup(<MemoryRouter><CatalogShell appearance={{ logoUrl: null, theme: "noche" }} storeName="Lima Studio"><p>Productos</p></CatalogShell></MemoryRouter>);
     expect(html).toMatch(/data-store-theme-id="noche" class="dark /);

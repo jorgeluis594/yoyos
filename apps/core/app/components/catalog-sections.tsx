@@ -28,7 +28,8 @@ export function CatalogShell({ appearance, storeName, cart, linkHome = true, chi
     <div className="min-h-screen text-foreground">
       {/* The empty first column mirrors the cart icon, so the store name stays centered on the page. */}
       <header data-store-part="header"><div className={`${catalogPage} grid min-h-16 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 pt-4 pb-1`}>
-        <div className="col-start-2 flex min-w-0 justify-center"><StoreBrandHeader companyName={storeName} logoUrl={appearance.logoUrl} to={linkHome ? "/" : undefined} /></div>{cart}
+        <div className="col-start-2 flex min-w-0 justify-center"><StoreBrandHeader companyName={storeName} logoUrl={appearance.logoUrl} to={linkHome ? "/" : undefined} /></div>
+        {cart && <div className="col-start-3 flex justify-end">{cart}</div>}
       </div></header>
       <main className={`${catalogPage} flex flex-col gap-5 pt-3 pb-24`}>{children}</main>
     </div>
