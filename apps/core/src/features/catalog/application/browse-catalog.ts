@@ -10,8 +10,8 @@ import type { ProductId } from "@core/src/features/products/domain/product";
 
 export type CatalogAccess = Readonly<{ companyId: CompanyId }>;
 export type CatalogStore = Readonly<{ name: string; currency: Currency }>;
-/** `pages` is how many pages are shown, so a reload or a return from a product restores everything loaded. */
-export type BrowseCatalogInput = Readonly<{ search: CatalogSearch | null; pages: number }>;
+/** `page` is the one page shown, counted from 1, so a reload or a return from a product shows the same products. */
+export type BrowseCatalogInput = Readonly<{ search: CatalogSearch | null; page: number }>;
 export type BrowseCatalogError =
   | Readonly<{ code: "CATALOG_UNAVAILABLE"; message: string }>
   | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>
@@ -39,9 +39,9 @@ export async function browseCatalog(input: BrowseCatalogInput, access: CatalogAc
   Promise<Result<CatalogPage & Readonly<{ storeName: string }>, BrowseCatalogError>> {
   const store = await publishedStore(access.companyId, deps);
   if (!store.success) return store;
-  const page = await deps.listCatalogProducts({ currency: store.data.currency, search: input.search, offset: 0, limit: input.pages * catalogPageSize });
-  // The page cap stops «Ver más» from linking past what the query accepts.
-  return page.success ? ok({ ...page.data, hasMore: page.data.hasMore && input.pages < maxCatalogPages, storeName: store.data.name }) : page;
+  const page = await deps.listCatalogProducts({ currency: store.data.currency, search: input.search, offset: (input.page - 1) * catalogPageSize, limit: catalogPageSize });
+  // The page cap stops «Siguiente» from linking past what the query accepts.
+  return page.success ? ok({ ...page.data, hasMore: page.data.hasMore && input.page < maxCatalogPages, storeName: store.data.name }) : page;
 }
 
 /** The product page keeps the store it already read when the product is gone, so it can still be shown in the store's theme. */

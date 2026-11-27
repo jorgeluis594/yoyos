@@ -9,12 +9,14 @@ import { catalogPageSize, maxCatalogPages } from "@core/src/features/catalog/dom
 const companyId = "00000000-0000-4000-8000-000000000001" as CompanyId;
 const store = { name: "Moda Lucía", currency: "PEN" as const };
 
-test("the last allowed page hides «Ver más» even when more products exist", async () => {
+test("each page reads only its own products, and the last allowed page offers no next one even when more products exist", async () => {
   const listCatalogProducts = vi.fn(async () => ok({ items: [], hasMore: true }));
   const deps = { readStore: async () => ok(store), listCatalogProducts };
-  expect(await browseCatalog({ search: null, pages: maxCatalogPages - 1 }, { companyId }, deps)).toMatchObject({ data: { hasMore: true } });
-  expect(await browseCatalog({ search: null, pages: maxCatalogPages }, { companyId }, deps)).toMatchObject({ data: { hasMore: false } });
-  expect(listCatalogProducts).toHaveBeenLastCalledWith({ currency: "PEN", search: null, offset: 0, limit: maxCatalogPages * catalogPageSize });
+  expect(await browseCatalog({ search: null, page: 1 }, { companyId }, deps)).toMatchObject({ data: { hasMore: true } });
+  expect(listCatalogProducts).toHaveBeenLastCalledWith({ currency: "PEN", search: null, offset: 0, limit: catalogPageSize });
+  expect(await browseCatalog({ search: null, page: 3 }, { companyId }, deps)).toMatchObject({ data: { hasMore: true } });
+  expect(listCatalogProducts).toHaveBeenLastCalledWith({ currency: "PEN", search: null, offset: 2 * catalogPageSize, limit: catalogPageSize });
+  expect(await browseCatalog({ search: null, page: maxCatalogPages }, { companyId }, deps)).toMatchObject({ data: { hasMore: false } });
 });
 
 const product = { id: "00000000-0000-4000-8000-000000000002", name: "Polo básico" } as unknown as CatalogProduct;

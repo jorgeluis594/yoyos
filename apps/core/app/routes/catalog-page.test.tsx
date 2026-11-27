@@ -32,7 +32,7 @@ const button = (name: string) => [...container.querySelectorAll("button")].find(
 const shows = (text: string) => vi.waitFor(() => expect(container.textContent).toContain(text));
 
 test("catalog page shows cards with initial, «Desde» and «Agotado», and an empty search offers «Borrar búsqueda» back to the empty store", async () => {
-  const page = (q: string, items: object[] = [], hasMore = false) => ({ storeName: "Moda Lucía", companyId, appearance: { logoUrl: null, theme: "classic" }, items, hasMore, q, pages: 1 });
+  const page = (q: string, items: object[] = [], hasMore = false) => ({ storeName: "Moda Lucía", companyId, appearance: { logoUrl: null, theme: "classic" }, items, hasMore, q, page: 1 });
   const loader = vi.fn(({ request }: { request: Request }) => page(new URL(request.url).searchParams.get("q") ?? ""));
   loader.mockReturnValueOnce(page("", [
     card("polo básico", { price: { kind: "from", amount: pen(45) } }), card("Casaca negra", { soldOut: true })], true));
@@ -42,7 +42,10 @@ test("catalog page shows cards with initial, «Desde» and «Agotado», and an e
   expect(cards[0].textContent?.replace(/\s/g, " ")).toBe("Ppolo básicoDesde S/ 45.00");
   expect(cards[1].textContent).toContain("Agotado");
   expect(container.querySelector("img")).toBeNull();
-  expect([...container.querySelectorAll("a")].some((link) => link.textContent === "Ver más")).toBe(true);
+  // The first page offers only the next one; «Anterior» stays in place, disabled.
+  const steps = [...container.querySelectorAll('nav[aria-label="Páginas del catálogo"] [data-store-part="catalog-more"]')];
+  expect(steps.map((step) => [step.textContent, step.getAttribute("href")])).toEqual([["Anterior", null], ["Siguiente", "/?page=2"]]);
+  expect(container.querySelector('[data-store-part="catalog-page"]')?.textContent).toBe("Página 1");
 
   act(() => root!.unmount());
   container.remove();

@@ -467,6 +467,11 @@
   color: var(--foreground);
 }
 
+[data-store-theme] [data-store-part="catalog-page"] {
+  color: var(--foreground);
+  font-family: var(--store-font-body);
+}
+
 [data-store-theme] [data-store-part="catalog-empty"] {
   color: var(--muted-foreground);
   font-family: var(--store-font-body);

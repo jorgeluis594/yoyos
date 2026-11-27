@@ -41,8 +41,8 @@ function addProduct(companyId: string, name: string, variants: VariantSeed[], op
   });
 }
 
-const browse = async (companyId: CompanyId, search: string | null = null, pages = 1) =>
-  catalogBrowse.browse({ search: search as CatalogSearch | null, pages }, await storefront(companyId));
+const browse = async (companyId: CompanyId, search: string | null = null, page = 1) =>
+  catalogBrowse.browse({ search: search as CatalogSearch | null, page }, await storefront(companyId));
 
 afterAll(async () => {
   for (const id of companies) await withTenantIsolation(id, async () => {
@@ -101,7 +101,7 @@ test("products with only deactivated variants take no place in a page and the pa
   const second = await browse(companyId, null, 2);
   expect(first.success && first.data.items.map(({ id }) => id)).toEqual(visible.slice(6).reverse());
   expect(first).toMatchObject({ success: true, data: { hasMore: true } });
-  expect(second.success && second.data.items.map(({ id }) => id)).toEqual(visible.reverse());
+  expect(second.success && second.data.items.map(({ id }) => id)).toEqual(visible.slice(0, 6).reverse());
   expect(second).toMatchObject({ success: true, data: { hasMore: false } });
   // The card shows the active variants only: the inactive L at 100 is not the highest price.
   expect(first.success && first.data.items[0]).toMatchObject({ name: "Visible 29", price: { kind: "single", amount: { amount: 30 } }, soldOut: false });
@@ -126,9 +126,9 @@ test("search finds «POLO OVERSIZE» and «Polo básico» for «polo» and ignor
   expect(first).toMatchObject({ success: true, data: { hasMore: true } });
   expect(first.success && first.data.items).toHaveLength(24);
   expect(first.success && first.data.items[0].name).toBe("Producto 21");
-  const all = await browse(companyId, null, 2);
-  expect(all.success && all.data.items).toHaveLength(26);
-  expect(all).toMatchObject({ success: true, data: { hasMore: false } });
+  const second = await browse(companyId, null, 2);
+  expect(second.success && second.data.items).toHaveLength(2);
+  expect(second).toMatchObject({ success: true, data: { hasMore: false } });
 });
 
 const setHidden = (companyId: string, productId: string, hidden: boolean) =>

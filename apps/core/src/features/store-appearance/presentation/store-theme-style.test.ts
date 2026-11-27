@@ -209,7 +209,7 @@ describe("store-theme.css", () => {
 
   test("hooks only the closed list of store parts", () => {
     const parts = new Set([...stylesheet.matchAll(/data-store-part="([a-z-]+)"/g)].map((match) => match[1]));
-    expect([...parts].sort()).toEqual(["card", "cart-button", "cart-count", "cart-line", "cart-sheet", "catalog-card", "catalog-card-photo", "catalog-empty", "catalog-gallery-thumbnail", "catalog-more", "catalog-notice",
+    expect([...parts].sort()).toEqual(["card", "cart-button", "cart-count", "cart-line", "cart-sheet", "catalog-card", "catalog-card-photo", "catalog-empty", "catalog-gallery-thumbnail", "catalog-more", "catalog-notice", "catalog-page",
       "catalog-product-photo", "catalog-quantity", "catalog-search", "catalog-search-icon", "catalog-sold-out", "field", "field-group", "free", "header", "header-brand", "option", "option-cost",
       "option-group", "order-title", "payment-details", "payment-image", "payment-method", "price", "product-meta", "product-name", "product-row", "section-title", "status", "total",
       "total-amount", "total-label"]);

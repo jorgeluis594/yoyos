@@ -6,7 +6,7 @@ export type CartQuantity = number & { readonly __brand: "CartQuantity" };
 export type CatalogValidationError = Readonly<{ code: "INVALID_SEARCH" | "INVALID_QUANTITY"; message: string }>;
 
 export const catalogPageSize = 24;
-/** `?page=N` past this is clamped, so a buyer never loses the products already loaded. */
+/** `?page=N` past this is clamped to it, and the last allowed page offers no next one. */
 export const maxCatalogPages = 20;
 
 export function parseCatalogSearch(value: string): Result<CatalogSearch, CatalogValidationError> {
