@@ -34,8 +34,9 @@ test("create products from the private form, validate input, and reload detail",
     await page.getByLabel("Nombre *").fill("  Cuaderno  ");
     await page.getByLabel("Precio de venta (PEN) *").fill("12.50");
     await page.getByRole("button", { name: "Guardar producto" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+(\?saved=1)?$/);
-    const firstProductUrl = page.url().replace(/\?saved=1$/, "");
+    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+\?saved=1&created=1$/);
+    await browserExpect(page.getByRole("link", { name: "Crear otro producto" })).toBeVisible();
+    const firstProductUrl = page.url().replace(/\?.*$/, "");
     await browserExpect(page.getByRole("heading", { name: "Cuaderno" })).toBeVisible();
     await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("12.50");
     await browserExpect(page.getByLabel("SKU")).toHaveValue("");
@@ -60,7 +61,7 @@ test("create products from the private form, validate input, and reload detail",
     await page.getByLabel("Stock inicial").fill("7");
     await page.getByLabel("Descripción").fill("Grafito");
     await page.getByRole("button", { name: "Guardar producto" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+(\?saved=1)?$/);
+    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+\?saved=1&created=1$/);
     await page.reload();
     await browserExpect(page.getByLabel("SKU")).toHaveValue("LAP-1");
     await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("1.20");
@@ -90,7 +91,7 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page.getByText("Este SKU ya está en uso.")).toBeVisible();
     await page.getByLabel("SKU").fill("LAP-2");
     await page.getByRole("button", { name: "Guardar producto" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+(\?saved=1)?$/);
+    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+\?saved=1&created=1$/);
 
     const count = await withTenantIsolation(companyId, async () => prisma.product.count({ where: { companyId } }));
     expect(count).toBe(3);

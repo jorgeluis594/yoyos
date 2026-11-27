@@ -1,27 +1,28 @@
 ---
 import logoLight from "@landing/src/assets/brand/yoyos-logo-light.svg";
 import { siteConfig } from "@landing/src/config/site";
-import { ctaLabels, footerContent } from "@landing/src/content/site";
+import { ctaLabels, footerContent, headerContent } from "@landing/src/content/site";
 import { telUrl, whatsappUrl } from "@landing/src/lib/contact";
+import { kraftTileUrl } from "@landing/src/lib/kraft-tile";
 
 type Props = Readonly<{ isHome: boolean }>;
 
 const { isHome } = Astro.props;
 const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
-const phoneDisplay = siteConfig.phone.display;
+const kraft = await kraftTileUrl();
 const socialLinks = [
   { label: footerContent.socialLabels.tiktok, url: siteConfig.social.tiktok },
   { label: footerContent.socialLabels.instagram, url: siteConfig.social.instagram },
 ].flatMap(({ label, url }) => (url === null ? [] : [{ label, url }]));
 ---
 
-<footer class="site-footer">
+<footer class="site-footer" style={`--kraft: url(${kraft});`}>
   <div class="container grid">
     <div class="brand">
       <a href="/">
         <img src={logoLight.src} width={logoLight.width} height={logoLight.height} alt={footerContent.logoAlt} loading="lazy" />
       </a>
-      <p class="lead">{footerContent.tagline}</p>
+      <p class="tagline">{footerContent.tagline}</p>
     </div>
 
     <nav aria-label={footerContent.product.title}>
@@ -39,12 +40,12 @@ const socialLinks = [
       <ul>
         <li>
           <a href={whatsappUrl(siteConfig.whatsapp)} target="_blank" rel="noopener" data-event="whatsapp_click" data-location="footer">
-            {footerContent.contact.whatsapp(phoneDisplay)}
+            {footerContent.contact.whatsapp}
           </a>
         </li>
         <li>
-          <a href={telUrl(siteConfig.phone)} data-event="call_click" data-location="footer">
-            {footerContent.contact.call(phoneDisplay)}
+          <a href={telUrl(siteConfig.phone)} data-event="call_click" data-location="footer" aria-label={headerContent.callAriaLabel(siteConfig.phone.display)}>
+            {footerContent.contact.call}
           </a>
         </li>
         {siteConfig.contactEmail && (
@@ -61,30 +62,38 @@ const socialLinks = [
         <li><a href="/privacidad">{footerContent.legal.privacy}</a></li>
       </ul>
       <p>{footerContent.copyright}</p>
-      <p class="lead small">{footerContent.trademarks}</p>
+      <p class="small">{footerContent.trademarks}</p>
     </div>
   </div>
 </footer>
 
 <style>
+  /* The page ends where it began: on the kraft of the packing table, the paper above torn off over it. */
   .site-footer {
-    border-block-start: var(--border-width) solid var(--border);
-    padding-block: var(--space-12);
+    position: relative;
+    padding-block: var(--space-16) var(--space-12);
+    background:
+      linear-gradient(var(--kraft-wash), var(--kraft-wash)),
+      var(--kraft-shade) var(--kraft) repeat;
+    background-size:
+      auto,
+      var(--kraft-tile-size) auto;
+    color: var(--kraft-ink);
+  }
+
+  .site-footer::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    inset-block-start: calc(-1 * var(--border-width));
+    height: var(--space-4);
+    background: var(--paper);
+    clip-path: polygon(0 0, 100% 0, 100% 48%, 95% 74%, 90% 40%, 84% 70%, 78% 32%, 71% 68%, 65% 38%, 58% 76%, 52% 44%, 45% 72%, 39% 30%, 32% 64%, 26% 38%, 19% 74%, 13% 42%, 7% 68%, 3% 36%, 0 60%);
   }
 
   .grid {
     display: grid;
     gap: var(--space-8);
-  }
-
-  @media (min-width: 64em) {
-    .grid {
-      grid-template-columns: 2fr 1fr 1fr;
-    }
-
-    .legal {
-      grid-column: 1 / -1;
-    }
   }
 
   .brand {
@@ -95,36 +104,54 @@ const socialLinks = [
 
   .brand img {
     width: auto;
-    height: var(--space-8);
+    height: var(--space-12);
+  }
+
+  .tagline {
+    max-width: var(--form-max-width);
+    font-weight: 500;
+    text-wrap: balance;
   }
 
   .column-title {
     margin-block-end: var(--space-3);
-    font-size: var(--text-label-size);
-    line-height: var(--text-label-line);
-    font-weight: var(--text-section-title-weight);
+    font-family: var(--font-display);
+    font-size: var(--text-section-title-size);
+    line-height: 1.2;
+    font-weight: 800;
   }
 
   ul {
     display: grid;
-    gap: var(--space-2);
+    gap: var(--space-1);
     padding: 0;
     list-style: none;
   }
 
   a {
-    color: var(--foreground);
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--space-8);
+    color: var(--kraft-ink);
+    font-weight: 600;
+    text-decoration-color: var(--paper-line);
   }
 
   a:hover {
-    color: var(--primary);
+    color: var(--kraft-ink);
+    text-decoration-color: currentColor;
+    text-decoration-thickness: var(--focus-width);
+  }
+
+  .site-footer :focus-visible {
+    outline-color: var(--kraft-ink);
   }
 
   .legal {
     display: grid;
     gap: var(--space-2);
     padding-block-start: var(--space-6);
-    border-block-start: var(--border-width) solid var(--border);
+    border-block-start: var(--border-width) dashed var(--kraft-ink);
     font-size: var(--text-body-compact-size);
     line-height: var(--text-body-compact-line);
   }
@@ -132,5 +159,27 @@ const socialLinks = [
   .small {
     font-size: var(--text-caption-size);
     line-height: var(--text-caption-line);
+  }
+
+  @media (min-width: 64em) {
+    .site-footer {
+      padding-block: var(--space-24) var(--space-12);
+    }
+
+    .grid {
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: var(--space-12) var(--space-8);
+    }
+
+    .legal {
+      grid-column: 1 / -1;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: var(--space-6);
+    }
+
+    .legal .small {
+      text-align: end;
+    }
   }
 </style>

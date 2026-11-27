@@ -1,76 +1,288 @@
 ---
 import Phone from "@lucide/astro/icons/phone";
-import CtaLink from "@landing/src/components/cta-link.astro";
 import DemoForm from "@landing/src/components/demo-form.astro";
-import SectionHeading from "@landing/src/components/section-heading.astro";
+import WhatsappIcon from "@landing/src/components/whatsapp-icon.astro";
 import { siteConfig } from "@landing/src/config/site";
 import { finalCtaContent } from "@landing/src/content/sections/final-cta";
 import { ctaLabels, headerContent } from "@landing/src/content/site";
 import { telUrl, whatsappUrl } from "@landing/src/lib/contact";
 
 const phoneDisplay = siteConfig.phone.display;
+const withForm = siteConfig.demoForm.kind === "enabled";
 ---
 
-<section id="demo" class="section" aria-labelledby="demo-titulo">
-  <div class="container">
-    <SectionHeading id="demo-titulo" heading={finalCtaContent.heading} lead={finalCtaContent.lead} />
-
-    <div class="actions" data-reveal>
-      <CtaLink href={whatsappUrl(siteConfig.whatsapp)} event="whatsapp_click" location="cta_final" newTab>
-        {ctaLabels.whatsapp}
-      </CtaLink>
-      <CtaLink
-        href={telUrl(siteConfig.phone)}
-        variant="secondary"
-        event="call_click"
-        location="cta_final"
-        ariaLabel={headerContent.callAriaLabel(phoneDisplay)}
-      >
-        <Phone class="icon" aria-hidden="true" />
-        {ctaLabels.call}
-      </CtaLink>
+<section id="demo" class="closing" aria-labelledby="demo-titulo">
+  <div class="sheet">
+    <span class="tape" aria-hidden="true"></span>
+    <div class:list={["layout", { "with-form": withForm }]}>
+    <div class="say">
+      <h2 id="demo-titulo">
+        {finalCtaContent.heading.lead}{" "}
+        <span class="marked">
+          {finalCtaContent.heading.marked}
+          <svg class="swoosh" viewBox="0 0 300 14" preserveAspectRatio="none" fill="none" aria-hidden="true">
+            <path d="M3 9C60 3 150 2 297 6" stroke="currentColor" stroke-width="6" stroke-linecap="round"></path>
+          </svg>
+        </span>
+      </h2>
+      <p class="lead">{finalCtaContent.lead}</p>
+      <div class="actions">
+        <a class="cta" href={whatsappUrl(siteConfig.whatsapp)} data-event="whatsapp_click" data-location="cta_final" target="_blank" rel="noopener">
+          <WhatsappIcon class="cta-icon" />
+          {ctaLabels.whatsapp}
+        </a>
+        <a
+          class="quiet"
+          href={telUrl(siteConfig.phone)}
+          data-event="call_click"
+          data-location="cta_final"
+          aria-label={headerContent.callAriaLabel(phoneDisplay)}
+        >
+          <Phone class="quiet-icon" aria-hidden="true" />
+          {ctaLabels.call}
+        </a>
+      </div>
     </div>
-    <p class="phone">{phoneDisplay}</p>
 
     {
-      siteConfig.demoForm.kind === "enabled" && (
-        <>
+      withForm && (
+        <div class="form-side">
           <p class="separator">{finalCtaContent.separator}</p>
           <DemoForm />
-        </>
+        </div>
       )
     }
+    </div>
   </div>
 </section>
 
 <style>
-  .actions {
+  /* The last page: on the same plain paper as the questions, one white sheet taped down like the notebook page of the
+     problem section, this time carrying the invitation. */
+  .closing {
+    padding: var(--space-16) var(--page-gutter-mobile);
+    background: var(--paper);
+    color: var(--kraft-ink);
+  }
+
+  .sheet {
+    position: relative;
+    max-width: var(--landing-max-width);
+    margin-inline: auto;
+    padding: var(--space-16) var(--space-4) var(--space-12);
+    rotate: -0.6deg;
+    background: var(--card);
+    box-shadow: var(--shadow-paper);
+  }
+
+  .tape {
+    position: absolute;
+    inset-block-start: calc(-1 * var(--space-3));
+    inset-inline-start: 50%;
+    width: min(30%, var(--space-24) * 2);
+    height: var(--space-6);
+    translate: -50% 0;
+    rotate: 2.5deg;
+    background: var(--tape-solid);
+    box-shadow: var(--shadow-paper);
+  }
+
+  .layout {
     display: grid;
+    gap: var(--space-12);
+  }
+
+  .say {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-6);
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: var(--hero-title-size-phone);
+    line-height: 1.08;
+    font-weight: 800;
+    letter-spacing: var(--tracking-display);
+    text-wrap: balance;
+  }
+
+  .marked {
+    position: relative;
+    display: inline-block;
+  }
+
+  .swoosh {
+    position: absolute;
+    inset-block-end: -8%;
+    inset-inline: -2%;
+    width: 104%;
+    height: 12%;
+    max-width: none;
+    color: var(--primary);
+  }
+
+  .lead {
+    color: var(--kraft-ink-soft);
+    font-size: var(--hero-lead-size);
+    font-weight: 500;
+    text-wrap: balance;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-6);
+  }
+
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     gap: var(--space-3);
-    max-width: var(--form-max-width);
-    margin: var(--space-8) auto 0;
+    min-height: var(--space-16);
+    padding: var(--space-3) var(--space-4);
+    white-space: nowrap;
+    border-radius: var(--radius-overlay);
+    background: var(--whatsapp);
+    box-shadow: var(--shadow-paper);
+    color: var(--card);
+    font-family: var(--font-display);
+    font-size: var(--text-section-title-size);
+    line-height: 1.2;
+    font-weight: 700;
+    text-decoration: none;
+    transition:
+      background-color var(--motion-feedback) var(--motion-easing),
+      translate var(--motion-feedback) var(--motion-easing);
   }
 
-  .icon {
-    width: var(--icon-inline-size);
-    height: var(--icon-inline-size);
-    stroke-width: var(--icon-stroke);
+  .cta:hover {
+    background: var(--whatsapp-hover);
+    color: var(--card);
+    translate: 0 calc(-1 * var(--motion-lift));
   }
 
-  .phone,
+  .cta :global(.cta-icon) {
+    flex: none;
+    width: var(--icon-navigation-size);
+    height: var(--icon-navigation-size);
+  }
+
+  .quiet {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--touch-target-min-size);
+    color: var(--kraft-ink);
+    font-weight: 600;
+  }
+
+  .quiet:hover {
+    color: var(--kraft-ink);
+    text-decoration-thickness: var(--focus-width);
+  }
+
+  .quiet :global(.quiet-icon) {
+    flex: none;
+    width: var(--icon-action-size);
+    height: var(--icon-action-size);
+  }
+
+  .closing :focus-visible {
+    outline-color: var(--kraft-ink);
+  }
+
+  .form-side {
+    display: grid;
+    gap: var(--space-6);
+  }
+
   .separator {
-    margin-top: var(--space-4);
-    color: var(--muted-foreground);
+    color: var(--kraft-ink-soft);
+    font-family: var(--font-display);
+    font-weight: 700;
+  }
+
+  /* Alone, the invitation stands centred; with the demo form it takes the left column. */
+  .layout:not(.with-form) .say {
+    justify-items: center;
     text-align: center;
   }
 
-  .separator {
-    margin-block: var(--space-8);
+  .layout:not(.with-form) .actions {
+    justify-content: center;
   }
 
-  @media (min-width: 48em) {
-    .actions {
-      grid-template-columns: repeat(2, 1fr);
+  @media (min-width: 64em) {
+    .closing {
+      padding: var(--space-16) var(--page-gutter-desktop) var(--space-24);
+    }
+
+    .sheet {
+      padding: var(--space-24) var(--space-16);
+    }
+
+    h2 {
+      font-size: var(--hero-title-size);
+    }
+
+    .layout.with-form {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: center;
+      gap: var(--space-16);
+    }
+
+    .layout:not(.with-form) h2 {
+      max-width: var(--hero-max-width);
+    }
+  }
+
+  /* The only motion in the section: the WhatsApp button nudges every few seconds, like a chat that wants a reply. */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes closing-nudge {
+      0%,
+      12%,
+      100% {
+        scale: 1;
+      }
+
+      5% {
+        scale: 1.07;
+      }
+    }
+
+    @keyframes closing-ring {
+      0%,
+      14%,
+      100% {
+        rotate: 0deg;
+      }
+
+      3% {
+        rotate: -18deg;
+      }
+
+      6% {
+        rotate: 15deg;
+      }
+
+      9% {
+        rotate: -10deg;
+      }
+
+      12% {
+        rotate: 6deg;
+      }
+    }
+
+    .cta {
+      animation: closing-nudge var(--motion-nudge-cycle) ease-in-out var(--motion-scene) infinite;
+    }
+
+    .cta :global(.cta-icon) {
+      animation: closing-ring var(--motion-nudge-cycle) ease-in-out var(--motion-scene) infinite;
     }
   }
 </style>

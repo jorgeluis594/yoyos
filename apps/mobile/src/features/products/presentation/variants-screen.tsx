@@ -175,7 +175,7 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
     <FlatList data={rows} keyExtractor={(row) => row.ref} renderItem={renderRow} extraData={[expanded, typed, busy, selection, editor.errors, editor.dirty, productDirty]}
       ListHeaderComponent={header} ListFooterComponent={footer} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" />
     </KeyboardAvoidingView>
-    {selection.length > 0 && expanded === null ? <View style={[styles.bar, { backgroundColor: theme.backgroundElement, borderTopColor: theme.border }]}>
+    {selection.length > 0 ? <View style={[styles.bar, { backgroundColor: theme.backgroundElement, borderTopColor: theme.border }]}>
       <View style={styles.barTitle}>
         <ThemedText type="smallBold">{t("selectedCount", { count: selection.length })}</ThemedText>
         {selected.some((row) => row.id === null) ? <Button variant="ghost" onPress={removeSelected}>{t("removeSelected")}</Button> : null}

@@ -125,7 +125,8 @@ export function VariantDetail({ product, variant, productHref, outcome, pending,
             <h2 id="variant-inventory-heading" className="text-base font-semibold sm:col-span-2">{t("variantDetail.inventory")}</h2>
             <Field>
               <FieldLabel htmlFor="variant-stock">{t("variantDetail.stock")}</FieldLabel>
-              <Input id="variant-stock" value={variant.stock} readOnly aria-readonly="true" className="bg-muted text-muted-foreground" />
+              <Input id="variant-stock" value={variant.stock} readOnly aria-readonly="true" aria-describedby="variant-stock-help" className="bg-muted text-muted-foreground" />
+              <p id="variant-stock-help" className="text-sm text-muted-foreground">{t("variantDetail.stockHelp")} <Link to={productHref} className="underline underline-offset-4">{t("variantDetail.stockHelpLink")}</Link></p>
             </Field>
             {field("sku", t("variantDetail.sku"), { maxLength: 100 })}
           </section>

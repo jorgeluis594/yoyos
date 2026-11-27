@@ -227,6 +227,19 @@ describe("saved order route", () => {
     expect(sessionStorage.getItem("order-view-saved")).toBeNull();
   });
 
+  test("the detail badge reads «Pago parcial · falta S/ 35.00»", async () => {
+    current = loaderData({ order: { ...order1042(), total: pen(55), paidAmount: pen(20), balanceDue: pen(35), paymentStatus: "pending" } });
+    await mount();
+    const badge = container.querySelector('[role=group][aria-label^="Estado del pago"]');
+    expect(badge?.textContent?.replace(/\u00a0/g, " ")).toBe("Pago parcial · falta S/ 35.00");
+  });
+
+  test("a paid order reads «Pagado» in the badge", async () => {
+    current = loaderData({ order: { ...order1042(), paidAmount: pen(298), balanceDue: pen(0), paymentStatus: "paid" } });
+    await mount();
+    expect(container.querySelector('[role=group][aria-label^="Estado del pago"]')?.textContent).toBe("Pagado");
+  });
+
   test("lets the seller leave without asking when there are no unsaved changes", async () => {
     await mount();
     await act(async () => { await router.navigate("/es-PE/orders"); });

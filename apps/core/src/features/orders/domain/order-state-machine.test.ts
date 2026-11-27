@@ -22,6 +22,9 @@ const order = (): OrderAggregate => ({
 const payment = (n: number, amount: number): ConfirmedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
   status: "confirmed", amount: money(amount), method: "digital_wallet", deductStockIfPartial: false,
   data: { confirmedAt: paymentAt, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
+/** The order of `order()` repriced to `amount` (single line), with the given payments. */
+const worth = (amount: number, payments: OrderAggregate["payments"] = []): OrderAggregate => ({ ...order(), itemsTotal: money(amount), total: money(amount), payments,
+  items: [{ ...order().items[0]!, unitPrice: money(amount), subtotal: money(amount) }] });
 const pricing = { quotationId: id(20), rateId: id(21), optionId: id(22), settingsVersion: 1 } as DeliveryPricing;
 const catalogAgency = { id: id(9), name: "Branch", address: "Av. Test 123", location: { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" } } as unknown as Extract<DeliverySnapshot, { method: "agency" }>["agency"];
 const limaDistrict = { country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima" } as unknown as PeruDeliveryDistrict;
@@ -93,11 +96,10 @@ describe("order payment and lifecycle", () => {
     expect(orderStateMachine.getPaymentSummary(paid.data)).toMatchObject({ success: true, data: {
       status: "paid", paidAmount: money(10), balanceDue: money(0), overpaidAmount: money(0) } });
     expect(orderStateMachine.getLifecycle(paid.data)).toEqual({ success: true, data: { status: "active", completedAt: null } });
-    const excess = orderStateMachine.registerPayment(paid.data, payment(6, 0.25));
-    expect(excess).toMatchObject({ success: true });
-    if (!excess.success) return;
-    expect(orderStateMachine.getPaymentSummary(excess.data)).toMatchObject({ success: true, data: {
-      status: "paid", paidAmount: money(10.25), balanceDue: money(0), overpaidAmount: money(0.25) } });
+    // The excess only arises when an edit lowers the total below what was already received.
+    const lowered = worth(9.75, paid.data.payments);
+    expect(orderStateMachine.getPaymentSummary(lowered)).toMatchObject({ success: true, data: {
+      status: "paid", paidAmount: money(10), balanceDue: money(0), overpaidAmount: money(0.25) } });
     expect(initial.payments).toEqual([]);
   });
 
@@ -112,19 +114,66 @@ describe("order payment and lifecycle", () => {
       .toMatchObject({ success: false, error: { code: "CURRENCY_MISMATCH" } });
   });
 
-  test("preserves an existing completion date when another payment is recorded", () => {
-    const completed = { ...order(), payments: [payment(5, 10)], stockDeducted: true, stockDeductedAt: createdAt,
-      deliveryStatus: "delivered" as const, deliveredAt: createdAt, completedAt: createdAt };
-    expect(orderStateMachine.registerPayment(completed, payment(6, 1))).toMatchObject({ success: true,
-      data: { completedAt: createdAt, payments: [{ id: id(5) }, { id: id(6) }] } });
+  test("completes a delivered order with the payment that fills its balance", () => {
+    const delivered = { ...order(), payments: [payment(5, 4)], stockDeducted: true, stockDeductedAt: createdAt,
+      deliveryStatus: "delivered" as const, deliveredAt: createdAt };
+    expect(orderStateMachine.registerPayment(delivered, payment(6, 6))).toMatchObject({ success: true,
+      data: { completedAt: paymentAt, payments: [{ id: id(5) }, { id: id(6) }] } });
   });
 
   test("rejects accumulated payments outside the supported range", () => {
-    const enormous = { ...order(), itemsTotal: money(9_999_999_999_999.99), total: money(9_999_999_999_999.99) };
-    const first = orderStateMachine.registerPayment(enormous, payment(5, 9_999_999_999_999.99));
-    expect(first.success).toBe(true);
-    if (!first.success) return;
-    expect(orderStateMachine.registerPayment(first.data, payment(6, 0.01))).toMatchObject({ success: false, error: { code: "INVALID_PAYMENT" } });
+    const enormous = worth(9_999_999_999_999.99, [payment(5, 9_999_999_999_999.99)]);
+    expect(orderStateMachine.registerPayment(enormous, payment(6, 0.01))).toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE" } });
+  });
+
+  describe("pending balance rule", () => {
+    const reportedPayment = (n: number): ReportedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId, status: "reported",
+      currency: "PEN", amount: null, method: null, data: { receiptImageId: id(90) as ReportedPayment["data"]["receiptImageId"], reportedAt: paymentAt } });
+    const rejectedPayment = (n: number): RejectedPayment => ({ ...reportedPayment(n), status: "rejected",
+      data: { report: reportedPayment(n).data, rejectedBy: "seller" as UserId, rejectedAt: paymentAt, reason: "No coincide" as RejectionReason } });
+    const withPayments = (...payments: OrderAggregate["payments"]): OrderAggregate => ({ ...order(), payments });
+
+    test("rejects a payment above the pending balance with the balance in the error", () => {
+      const result = orderStateMachine.registerPayment(worth(60, [payment(5, 20)]), payment(6, 999));
+      expect(result).toEqual({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", message: "Payment exceeds the pending balance", balanceDue: money(40) } });
+      expect(orderStateMachine.registerPayment(order(), payment(5, 10.01))).toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(10) } });
+    });
+
+    test("accepts a payment equal to the pending balance", () => {
+      const partial = withPayments(payment(5, 4));
+      expect(orderStateMachine.registerPayment(partial, payment(6, 6))).toMatchObject({ success: true });
+      const cents = worth(0.3, [payment(5, 0.1)]);
+      expect(orderStateMachine.registerPayment(cents, payment(6, 0.2))).toMatchObject({ success: true });
+    });
+
+    test("ignores reported, rejected and voided payments when computing the balance", () => {
+      const covered = orderStateMachine.registerPayment(order(), payment(7, 10));
+      if (!covered.success) throw new Error("Expected payment");
+      const voided = orderStateMachine.voidConfirmedPayment(covered.data, id(7) as PaymentId, "seller" as UserId, paymentAt);
+      if (!voided.success) throw new Error("Expected void");
+      const mixed = { ...voided.data, payments: [...voided.data.payments, reportedPayment(8), rejectedPayment(9)] };
+      expect(orderStateMachine.getPaymentSummary(mixed)).toMatchObject({ success: true, data: { balanceDue: money(10) } });
+      expect(orderStateMachine.registerPayment(mixed, payment(10, 10))).toMatchObject({ success: true });
+      expect(orderStateMachine.registerPayment(mixed, payment(10, 10.01))).toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(10) } });
+    });
+
+    test("approving a report is held to the same balance", () => {
+      const initial = withPayments(payment(5, 4), reportedPayment(6));
+      expect(orderStateMachine.registerPayment(initial, { ...payment(6, 7), data: { ...payment(6, 7).data, evidence: { kind: "buyer_report", report: reportedPayment(6).data } } }))
+        .toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(6) } });
+    });
+
+    test("returns the order unchanged for a replay of a payment that already filled the balance", () => {
+      const paid = orderStateMachine.registerPayment(order(), payment(5, 10));
+      if (!paid.success) throw new Error("Expected payment");
+      expect(orderStateMachine.registerPayment(paid.data, payment(5, 10))).toEqual({ success: true, data: paid.data });
+    });
+
+    test("rejects any payment on an order that is already paid", () => {
+      const paid = orderStateMachine.registerPayment(order(), payment(5, 10));
+      if (!paid.success) throw new Error("Expected payment");
+      expect(orderStateMachine.registerPayment(paid.data, payment(6, 0.01))).toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(0) } });
+    });
   });
 });
 

@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { createInstance } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
 import { createRoutesStub } from "react-router";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import resources from "@core/app/locales";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { PaymentRow } from "@core/src/features/orders/presentation/order-view-state";
@@ -226,4 +226,165 @@ test("shows the summary line and Pago por revisar on a saved order with a pendin
   await mount(<OrderPaymentsPanel {...savedProps(savedOrder({ payments: [confirmed, reported] }))} />);
   expect(container.textContent).toContain("Pago parcial · falta S/ 268.00");
   expect(container.textContent).toContain("Pago por revisar");
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Amount limit, void confirmation and the paid-order report
+
+const plain = (text: string | null | undefined) => (text ?? "").replace(/\u00a0/g, " ");
+const dialogText = () => plain(document.body.querySelector("[role=dialog]")?.textContent);
+const dialogButton = (text: string) => [...document.body.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find(button => button.textContent === text);
+const dialogAmount = () => document.body.querySelector<HTMLInputElement>("[role=dialog] input[name=amount]")!;
+
+async function mountWithAction(element: React.ReactElement, action: () => unknown) {
+  const Stub = createRoutesStub([{ path: "*", Component: () => element, action }]);
+  container = document.body.appendChild(document.createElement("div"));
+  root = createRoot(container);
+  await act(async () => root!.render(<I18nextProvider i18n={i18n}><Stub initialEntries={["/"]} /></I18nextProvider>));
+}
+
+const buyer = { contactId: null, name: "Ana Pérez", phone: null };
+const order60 = (overrides: Record<string, unknown> = {}) => savedOrder({ number: 1001, total: money(60), paidAmount: money(0), balanceDue: money(60), payments: [], ...overrides });
+
+test("the amount above the balance shows the balance and disables saving", async () => {
+  await mount(<OrderPaymentsPanel {...savedProps(order60())} />);
+  act(() => buttonNamed("Agregar Yape")!.click());
+  type(dialogAmount(), "999");
+  expect(dialogText()).toContain("Supera el saldo pendiente de S/ 60.00");
+  expect(dialogButton("Confirmar pago")!.disabled).toBe(true);
+  type(dialogAmount(), "60");
+  expect(dialogText()).not.toContain("Supera el saldo pendiente");
+  expect(dialogButton("Confirmar pago")!.disabled).toBe(false);
+});
+
+test("an empty, non-numeric or zero amount shows its own reason and disables saving", async () => {
+  await mount(<OrderPaymentsPanel {...savedProps(order60())} />);
+  act(() => buttonNamed("Agregar Yape")!.click());
+  const reasons: Array<[string, string]> = [["", "Escribe el monto del pago."], ["abc", "Escribe un importe mayor a 0 con hasta 2 decimales."], ["12e", "Escribe un importe mayor a 0 con hasta 2 decimales."], ["-5", "Escribe un importe mayor a 0 con hasta 2 decimales."], ["0", "El monto debe ser mayor que cero."], ["12.345", "Escribe un importe mayor a 0 con hasta 2 decimales."]];
+  for (const [typed, reason] of reasons) {
+    type(dialogAmount(), typed);
+    expect(dialogText(), typed).toContain(reason);
+    expect(dialogButton("Confirmar pago")!.disabled, typed).toBe(true);
+  }
+});
+
+test("a new-sale payment above what is left to collect shows the amount left and disables saving", async () => {
+  const row = (paymentId: string, amount: string): PaymentRow => ({ paymentId, amount, method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false });
+  await mount(<NewSale total={55} initial={[row("a", "40"), row("b", "15")]} />);
+  expect(plain(container.textContent)).not.toContain("Este pago supera");
+  type(amountInputs()[1]!, "20");
+  expect(plain(container.textContent)).toContain("Este pago supera lo que falta cobrar de la venta: S/ 15.00.");
+  expect(amountInputs()[1]!.getAttribute("aria-invalid")).toBe("true");
+  expect(amountInputs()[0]!.getAttribute("aria-invalid")).toBe("false");
+  type(amountInputs()[1]!, "15");
+  expect(plain(container.textContent)).not.toContain("Este pago supera");
+});
+
+test("voiding a payment asks for confirmation naming the amount, order and buyer", async () => {
+  const action = vi.fn(() => ({ url: null, success: true, error: false }));
+  const twenty = { ...confirmed, id: "p-20", amount: money(20) };
+  await mountWithAction(<OrderPaymentsPanel {...savedProps(order60({ buyer, paidAmount: money(20), balanceDue: money(40), payments: [twenty] }))} />, action);
+  act(() => buttonNamed("Anular pago")!.click());
+  expect(action).not.toHaveBeenCalled();
+  expect(dialogText()).toContain("¿Anular el pago de S/ 20.00?");
+  expect(dialogText()).toContain("Pedido #1001 · Ana Pérez. El monto vuelve al saldo pendiente.");
+  await act(async () => dialogButton("Anular pago")!.click());
+  expect(action).toHaveBeenCalledTimes(1);
+});
+
+test("the void confirmation of an order without buyer names only the order", async () => {
+  await mount(<OrderPaymentsPanel {...savedProps(order60({ buyer: null, paidAmount: money(20), balanceDue: money(40), payments: [{ ...confirmed, amount: money(20) }] }))} />);
+  act(() => buttonNamed("Anular pago")!.click());
+  expect(dialogText()).toContain("Pedido #1001. El monto vuelve al saldo pendiente.");
+  expect(dialogText()).not.toContain("·  ·");
+  expect(dialogText()).not.toMatch(/Pedido #1001 ·/);
+});
+
+test("cancelling the void confirmation leaves the payment confirmed and returns focus to Anular pago", async () => {
+  const action = vi.fn(() => ({ url: null, success: true, error: false }));
+  await mountWithAction(<OrderPaymentsPanel {...savedProps(order60({ buyer, paidAmount: money(20), balanceDue: money(40), payments: [{ ...confirmed, amount: money(20) }] }))} />, action);
+  for (const close of ["Mantener pago", "Escape"]) {
+    const opener = buttonNamed("Anular pago")!;
+    opener.focus();
+    act(() => opener.click());
+    if (close === "Escape") await act(async () => { document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    else await act(async () => dialogButton(close)!.click());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+    expect(document.body.querySelector("[role=dialog]"), close).toBeNull();
+    expect(document.activeElement, close).toBe(buttonNamed("Anular pago"));
+  }
+  expect(action).not.toHaveBeenCalled();
+  expect(container.textContent).toContain("Confirmado");
+});
+
+test("confirming the void moves focus to the payment row", async () => {
+  const action = vi.fn(() => ({ url: null, success: true, error: false }));
+  await mountWithAction(<OrderPaymentsPanel {...savedProps(order60({ buyer, paidAmount: money(20), balanceDue: money(40), payments: [{ ...confirmed, id: "p-20", amount: money(20) }] }))} />, action);
+  act(() => buttonNamed("Anular pago")!.click());
+  await act(async () => dialogButton("Anular pago")!.click());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  expect(document.activeElement?.id).toBe("payment-row-p-20");
+});
+
+test("a report on a paid order cannot be approved, says to reject a repeated receipt, and can still be rejected", async () => {
+  await mount(<OrderPaymentsPanel {...savedProps(order60({ paidAmount: money(60), balanceDue: money(0), payments: [{ ...confirmed, amount: money(60) }, reported] }))} />);
+  // aria-disabled, not disabled: a keyboard user can reach the button and hear why.
+  expect(buttonNamed("Aprobar")!.getAttribute("aria-disabled")).toBe("true");
+  expect(buttonNamed("Aprobar")!.disabled).toBe(false);
+  act(() => buttonNamed("Aprobar")!.click());
+  expect(document.body.querySelector("[role=dialog]")).toBeNull();
+  expect(buttonNamed("Rechazar")!.disabled).toBe(false);
+  expect(plain(container.textContent)).toContain("Este pedido ya está pagado. Si el comprobante repite un pago que ya registraste, recházalo: el motivo que escribas lo verá el comprador.");
+  act(() => buttonNamed("Rechazar")!.click());
+  expect(dialogText()).toContain("Rechazar");
+});
+
+test("when core still refuses the amount the dialog shows the balance core sent", async () => {
+  const action = vi.fn(() => ({ url: null, success: false, error: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(25) }));
+  await mountWithAction(<OrderPaymentsPanel {...savedProps(order60())} />, action);
+  act(() => buttonNamed("Agregar Yape")!.click());
+  await act(async () => dialogButton("Confirmar pago")!.click());
+  await vi.waitFor(() => expect(dialogText()).toContain("Supera el saldo pendiente de S/ 25.00"));
+  expect(document.body.querySelector("[role=dialog] [role=alert]")).not.toBeNull();
+});
+
+test("a cleared prefilled amount on a new-sale row is not announced as an alert before a save attempt", async () => {
+  const row = (paymentId: string, amount: string): PaymentRow => ({ paymentId, amount, method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false });
+  await mount(<NewSale total={55} initial={[row("a", "55")]} />);
+  type(amountInputs()[0]!, "");
+  expect(container.querySelector("[role=alert]")).toBeNull();
+  type(amountInputs()[0]!, "abc");
+  expect(plain(container.querySelector("[role=alert]")?.textContent)).toBe("Escribe un importe mayor a 0 con hasta 2 decimales.");
+});
+
+test("opening the void confirmation clears the previous «Pago actualizado.»", async () => {
+  const twenty = { ...confirmed, id: "p-20", amount: money(20) };
+  await mount(<OrderPaymentsPanel {...savedProps(order60({ paidAmount: money(20), balanceDue: money(40), payments: [twenty] }), { voidResult: { success: true, error: false } })} />);
+  expect(container.textContent).toContain("Pago actualizado.");
+  act(() => buttonNamed("Anular pago")!.click());
+  expect(container.textContent).not.toContain("Pago actualizado.");
+});
+
+test("the refusal of an amount above the balance is said once when the field already explains it", async () => {
+  const action = vi.fn(() => ({ url: null, success: false, error: "PAYMENT_EXCEEDS_BALANCE", balanceDue: money(25) }));
+  const Harness = () => { const [order, setOrder] = useState(order60()); return <>
+    <button type="button" data-testid="reload" onClick={() => setOrder(order60({ paidAmount: money(35), balanceDue: money(25) }))} />
+    <OrderPaymentsPanel {...savedProps(order)} /></>; };
+  await mountWithAction(<Harness />, action);
+  act(() => buttonNamed("Agregar Yape")!.click());
+  type(dialogAmount(), "60");
+  await act(async () => dialogButton("Confirmar pago")!.click());
+  await vi.waitFor(() => expect(action).toHaveBeenCalled());
+  await act(async () => container.querySelector<HTMLButtonElement>("[data-testid=reload]")!.click());
+  const text = dialogText();
+  expect(text.match(/Supera el saldo pendiente de S\/ 25\.00/g)).toHaveLength(1);
+});
+
+test("a comma decimal is typed as a dot and accepted", async () => {
+  await mount(<OrderPaymentsPanel {...savedProps(order60())} />);
+  act(() => buttonNamed("Agregar Yape")!.click());
+  type(dialogAmount(), "60,00");
+  expect(dialogAmount().value).toBe("60.00");
+  expect(dialogText()).not.toContain("Escribe un importe");
+  expect(dialogButton("Confirmar pago")!.disabled).toBe(false);
 });

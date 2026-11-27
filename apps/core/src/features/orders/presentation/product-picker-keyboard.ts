@@ -6,9 +6,12 @@ export type PickerKeyOutcome = Readonly<{ highlight: PickerHighlight; add: Reado
 
 export const isPickerKey = (key: string): key is PickerKey => ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter"].includes(key);
 
-export function pickerKey(key: PickerKey, highlight: PickerHighlight, rows: readonly PickerRow[]): PickerKeyOutcome {
+/** `resultsCurrent` is false while the rows still answer an older search: Enter must not act on them without a highlight. */
+export function pickerKey(key: PickerKey, highlight: PickerHighlight, rows: readonly PickerRow[], resultsCurrent = true): PickerKeyOutcome {
   const keep = (preventDefault: boolean): PickerKeyOutcome => ({ highlight, add: null, preventDefault });
-  if (key === "Enter" && (!highlight || rows.length === 0)) return keep(true);
+  if (key === "Enter" && rows.length === 0) return keep(true);
+  // Enter with nothing highlighted acts on the only result, as if the arrow had highlighted it first; with several it does nothing.
+  if (key === "Enter" && !highlight) return rows.length === 1 && resultsCurrent ? pickerKey(key, { product: 0, chip: null }, rows) : keep(true);
   if (rows.length === 0) return keep(false);
   if (!highlight) {
     if (key === "ArrowDown") return { highlight: { product: 0, chip: null }, add: null, preventDefault: true };

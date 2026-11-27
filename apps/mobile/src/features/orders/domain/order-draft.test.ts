@@ -1,4 +1,4 @@
-import { addDraftItem, changeDraftQuantity, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, prepareOrder, removeDraftItem } from "@mobile/features/orders/domain/order-draft";
+import { addDraftItem, changeDraftQuantity, draftPaidAmount, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, paymentsOverLeft, prepareOrder, removeDraftItem } from "@mobile/features/orders/domain/order-draft";
 import type { Currency } from "@shared/money";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -39,8 +39,8 @@ test("complete draft validates payment identity and amount while preserving sepa
   const draft = { ...first.data, payments: [payment], deliverImmediately: false };
   expect(prepareOrder(draft)).toMatchObject({ success: true, data: { request: { payments: [{ paymentId: id(5),
     amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }], deliverImmediately: false } } });
-  expect(prepareOrder({ ...draft, payments: [{ ...payment, amount: "10,50" }] }))
-    .toMatchObject({ success: true, data: { request: { payments: [{ amount: { amount: 10.5, currency: "PEN" } }] } } });
+  expect(prepareOrder({ ...draft, payments: [{ ...payment, amount: "9,50" }] }))
+    .toMatchObject({ success: true, data: { request: { payments: [{ amount: { amount: 9.5, currency: "PEN" } }] } } });
   expect(prepareOrder({ ...draft, payments: [{ ...payment, amount: "10,501" }] })).toMatchObject({ success: false });
   expect(prepareOrder({ ...draft, payments: [payment, payment] })).toMatchObject({ success: false });
   expect(prepareOrder({ ...draft, payments: [{ ...payment, amount: "-1" }] })).toMatchObject({ success: false });
@@ -134,4 +134,33 @@ describe("stock at creation", () => {
     expect(exceedsShownStock([{ ...item(1, 1, "PEN", 3), quantity: 4 }])).toBe(true);
     expect(exceedsShownStock([{ ...item(1, 1, "PEN", 0), quantity: 1 }])).toBe(true);
   });
+});
+
+test("a draft whose payments exceed the total is invalid", () => {
+  const first = addDraftItem(emptyOrderDraft(), item(1, 10), () => id(9));
+  if (!first.success) throw new Error("Invalid fixture");
+  const pay = (paymentId: string, amount: string) => ({ paymentId, amount, method: "bank_transfer" as const, deductStockIfPartial: false });
+  const draft = { ...first.data, deliverImmediately: false };
+  expect(prepareOrder({ ...draft, payments: [pay(id(5), "10")] })).toMatchObject({ success: true });
+  expect(prepareOrder({ ...draft, payments: [pay(id(5), "4.50"), pay(id(6), "5.50")] })).toMatchObject({ success: true });
+  expect(prepareOrder({ ...draft, payments: [pay(id(5), "10.01")] })).toMatchObject({ success: false });
+  expect(prepareOrder({ ...draft, payments: [pay(id(5), "4.50"), pay(id(6), "5.51")] })).toMatchObject({ success: false });
+  expect(prepareOrder({ ...draft, payments: [pay(id(5), "0.1"), pay(id(6), "0.2"), pay(id(7), "9.7")] })).toMatchObject({ success: true });
+});
+
+test("lists each payment above what the earlier ones leave, with the amount left", () => {
+  const pay = (paymentId: string, amount: string) => ({ paymentId, amount, method: "bank_transfer" as const, deductStockIfPartial: false });
+  const total = { amount: 55, currency: "PEN" } as const;
+  expect(paymentsOverLeft([pay(id(5), "40"), pay(id(6), "20")], total)).toEqual([{ paymentId: id(6), left: { amount: 15, currency: "PEN" } }]);
+  expect(paymentsOverLeft([pay(id(5), "40"), pay(id(6), "15")], total)).toEqual([]);
+  expect(paymentsOverLeft([pay(id(5), "abc"), pay(id(6), "55")], total)).toEqual([]);
+});
+
+test("the paid amount of a draft counts payments above the items total", () => {
+  const first = addDraftItem(emptyOrderDraft(), item(1, 10), () => id(9));
+  if (!first.success) throw new Error("Invalid fixture");
+  const draft = { ...first.data, deliverImmediately: false, payments: [{ paymentId: id(5), amount: "5", method: "bank_transfer" as const, deductStockIfPartial: false },
+    { paymentId: id(6), amount: "13", method: "bank_transfer" as const, deductStockIfPartial: false }] };
+  expect(prepareOrder(draft)).toMatchObject({ success: false });
+  expect(draftPaidAmount(draft)).toEqual({ amount: 18, currency: "PEN" });
 });

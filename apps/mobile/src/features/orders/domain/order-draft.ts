@@ -2,7 +2,8 @@ import { z } from "zod";
 import { walletProviderFitsMethod, walletProviderSchema, type WalletProvider } from "@shared/wallet-providers";
 import { getPeruDistrict } from "@shared/peru-geography";
 import { currencies } from "@shared/money";
-import { add, multiply, type Money } from "@shared/money";
+import { add, multiply, subtract, type Money } from "@shared/money";
+import { checkPaymentAmount } from "@shared/orders-payment";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { dispatchDateSchema, newOrderCustomerSchema, type NewOrderCustomer } from "@shared/contracts/orders";
@@ -58,7 +59,42 @@ const invalid = () => err<CartError>({ code: "INVALID_CART", message: "Invalid o
 
 export const emptyOrderDraft = (): OrderDraft => ({ kind: "empty", items: [] });
 
+/** Each payment, taken in order, that is more than the earlier ones leave to collect, with what was left (compared in cents). Core decides; this only keeps a sale core would refuse from being saved. */
+export function paymentsOverLeft(payments: readonly DraftPayment[], total: Money): readonly Readonly<{ paymentId: string; left: Money }>[] {
+  const over: { paymentId: string; left: Money }[] = [];
+  let left: Money = total;
+  for (const payment of payments) {
+    const checked = checkPaymentAmount(normalizeDecimalInput(payment.amount.trim()), left);
+    if (!checked.success) {
+      if (checked.error.problem === "exceeds_balance") over.push({ paymentId: payment.paymentId, left });
+      continue;
+    }
+    const next = subtract(checked.data)(left);
+    if (next.success) left = next.data;
+  }
+  return over;
+}
+
+/** What the valid payments of a draft add up to, even above the items total (shipping may not be chosen yet). */
+export function draftPaidAmount(draft: OrderDraft): Money | null {
+  const prepared = prepareUnchecked({ ...draft, ratedDelivery: undefined });
+  if (!prepared.success) return null;
+  let paid: Money = { amount: 0, currency: prepared.data.shownTotal.currency };
+  for (const payment of prepared.data.request.payments ?? []) {
+    const sum = add(payment.amount)(paid);
+    if (!sum.success) return null;
+    paid = sum.data;
+  }
+  return paid;
+}
+
+/** The submission of a draft, refusing one whose payments exceed what the sale leaves to collect. */
 export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmission; shownTotal: Money }, CartError> {
+  const prepared = prepareUnchecked(draft);
+  return prepared.success && draft.payments && paymentsOverLeft(draft.payments, prepared.data.shownTotal).length > 0 ? invalid() : prepared;
+}
+
+function prepareUnchecked(draft: OrderDraft): Result<{ request: OrderSubmission; shownTotal: Money }, CartError> {
   if (draft.kind === "empty" || new Set(draft.items.map((item) => item.variantId)).size !== draft.items.length) return invalid();
   let total: Money | null = null;
   for (const item of draft.items) {

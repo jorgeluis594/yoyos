@@ -11,7 +11,7 @@ import { catalogPaymentOptions } from "@core/src/features/orders/presentation/pa
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const i18n = createInstance();
-await i18n.use(initReactI18next).init({ lng: "es", resources });
+await i18n.use(initReactI18next).init({ lng: "es", resources, interpolation: { escapeValue: false } });
 let root: Root | undefined;
 let container: HTMLDivElement;
 afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove(); });
@@ -42,4 +42,41 @@ test("opens with the preset wallet and keeps the balance prefilled", async () =>
 test("opens with a preset bank transfer and no wallet provider", async () => {
   const body = await submitWith("bank_transfer");
   expect([body.get("method"), body.get("walletProvider")]).toEqual(["bank_transfer", null]);
+});
+
+const plain = (text: string | null | undefined) => (text ?? "").replace(/\u00a0/g, " ");
+const typeAmount = (value: string) => act(() => {
+  const input = container.querySelector<HTMLInputElement>("input[name=amount]")!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+});
+async function mountForm(kind: "approve" | "register", balance: number) {
+  container = document.body.appendChild(document.createElement("div"));
+  root = createRoot(container);
+  const reportOrder = { ...order, balanceDue: { amount: balance, currency: "PEN" as const }, total: { amount: 60, currency: "PEN" as const } };
+  await act(async () => root!.render(<I18nextProvider i18n={i18n}>
+    <PaymentDecisionForm kind={kind} paymentId="p-1" order={reportOrder} heading={false} fetcher={{ state: "idle", submit: vi.fn() } as never} onSubmit={() => undefined} onCancel={() => undefined} options={catalogPaymentOptions} /></I18nextProvider>));
+}
+const submitButton = () => container.querySelector<HTMLButtonElement>("button[type=submit]")!;
+
+test("approving a report above the balance shows the balance and disables approving", async () => {
+  await mountForm("approve", 60);
+  expect(submitButton().disabled).toBe(false);
+  typeAmount("999");
+  expect(plain(container.textContent)).toContain("Supera el saldo pendiente de S/ 60.00");
+  expect(submitButton().disabled).toBe(true);
+});
+
+test("a report on a paid order cannot be approved, says to reject a repeated receipt, and can still be rejected", async () => {
+  await mountForm("approve", 0);
+  expect(container.textContent).toContain("Este pedido ya está pagado. Si el comprobante repite un pago que ya registraste, recházalo: el motivo que escribas lo verá el comprador.");
+  expect(submitButton().disabled).toBe(true);
+  expect(container.querySelector("input[name=amount]")).toBeNull();
+  act(() => root!.unmount());
+  container.remove();
+  container = document.body.appendChild(document.createElement("div"));
+  root = createRoot(container);
+  await act(async () => root!.render(<I18nextProvider i18n={i18n}>
+    <PaymentDecisionForm kind="reject" paymentId="p-1" order={{ ...order, balanceDue: { amount: 0, currency: "PEN" as const } }} heading={false} fetcher={{ state: "idle", submit: vi.fn() } as never} onSubmit={() => undefined} onCancel={() => undefined} options={catalogPaymentOptions} /></I18nextProvider>));
+  expect(submitButton().disabled).toBe(false);
 });

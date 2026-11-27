@@ -82,6 +82,16 @@ describe("ProductPickerDialog", () => {
     expect(bodyText()).toContain("Desde S/ 45.00");
   });
 
+  test("Enter without a highlight adds nothing while the only result still answers an older search", async () => {
+    const onAdd = vi.fn();
+    await mount({ onAdd, search: search({ status: "loading", text: "Corona roja", products: [crown] }) });
+    await press("Enter");
+    expect(onAdd).not.toHaveBeenCalled();
+    await rerender({ onAdd, search: search({ status: "ready", text: "Corona", products: [crown] }) });
+    await press("Enter");
+    expect(onAdd).toHaveBeenCalledTimes(1);
+  });
+
   test("adds the highlighted chip with Enter and keeps the picker open", async () => {
     const onAdd = vi.fn(); const onClose = vi.fn();
     await mount({ onAdd, onClose });

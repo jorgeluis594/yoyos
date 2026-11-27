@@ -44,9 +44,11 @@ function OptionLabel({ name, query }: Readonly<{ name: string; query: string }>)
 }
 
 /** Search and choose in the same control: a single-choice WAI-ARIA combobox over named options (codes travel only in `onChange`). */
-export function LocationCombobox({ id, label, options, value, onChange, placeholder, emptyText, disabled = false, describedBy, children }: Readonly<{
+export function LocationCombobox({ id, label, options, value, onChange, placeholder, emptyText, disabled = false, invalid = false, describedBy, children }: Readonly<{
   id: string; label: string; options: readonly LocationOption[]; value: string | null; onChange: (code: string | null) => void;
   placeholder: string; emptyText: string; disabled?: boolean;
+  /** A refused save marks this level, like the other required fields. */
+  invalid?: boolean;
   describedBy?: string; children?: ReactNode;
 }>) {
   const [query, setQuery] = useState("");
@@ -62,7 +64,7 @@ export function LocationCombobox({ id, label, options, value, onChange, placehol
       itemToStringLabel={optionName} itemToStringValue={optionName} isItemEqualToValue={sameOption} filter={filterOption}
       onInputValueChange={(text, details) => setQuery(details.reason === "input-change" ? text : "")}
       onValueChange={(option: LocationOption | null) => onChange(option?.code ?? null)}>
-      <ComboboxInput id={id} placeholder={placeholder} aria-describedby={describedBy} data-slot="input" />
+      <ComboboxInput id={id} placeholder={placeholder} aria-describedby={describedBy} aria-invalid={invalid || undefined} data-slot="input" />
       <ComboboxContent>
         <ComboboxEmpty>{emptyText}</ComboboxEmpty>
         <ComboboxList aria-label={label}>{(option: LocationOption) =>

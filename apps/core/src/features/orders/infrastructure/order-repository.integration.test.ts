@@ -986,7 +986,7 @@ test("concurrent delivery assignment and stock deduction consume stock once", as
     await run(async () => {
       expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Store", address: "Address", instructions: null } } }, context)).toMatchObject({ success: true });
       expect(await orders.create({ id: orderId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
-      await prisma.payment.create({ data: { id: randomUUID(), orderId, amount: 0.1, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "seller", userId: f.sellerId }, evidence: { kind: "manual" } } } });
+      await prisma.payment.create({ data: { id: randomUUID(), orderId, amount: 0.05, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "seller", userId: f.sellerId }, evidence: { kind: "manual" } } } });
     });
     const store = parseRatedDeliverySelection({ method: "store", recipient: { name: "Recipient", phone: "00123", identity: { kind: "absent" } } });
     if (!store.success) throw new Error(store.error.message);
@@ -995,12 +995,13 @@ test("concurrent delivery assignment and stock deduction consume stock once", as
       arrived(); await hold; return result;
     }));
     await protectedOrder;
-    const extraPayment = run(() => orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context));
+    // The two halves add up to the total: the delayed payment, not the assignment, now deducts the stock.
+    const extraPayment = run(() => orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.05, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context));
     try { await waitForDeliveryLock(); } finally { release(); }
-    expect(await assign).toMatchObject({ success: true, data: { order: { delivery: { method: "store", pickupPoint: { address: "Address" } }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: true } } });
+    expect(await assign).toMatchObject({ success: true, data: { order: { delivery: { method: "store", pickupPoint: { address: "Address" } }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: false } } });
     expect(await extraPayment).toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
     await run(async () => {
-      expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { total: { amount: 0.1 }, payments: [{ amount: { amount: 0.1 } }, { amount: { amount: 0.1 } }], stockDeducted: true } });
+      expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { total: { amount: 0.1 }, payments: [{ amount: { amount: 0.05 } }, { amount: { amount: 0.05 } }], stockDeducted: true } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(2n);
     });
   } finally { release?.(); await f.cleanup(); }

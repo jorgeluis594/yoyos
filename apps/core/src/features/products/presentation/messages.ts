@@ -113,7 +113,8 @@ function issueText(issue: ValidationIssue, language: Language): string {
     case "DUPLICATE_COMBINATION": case "DUPLICATE_VARIANT": return t("productEditor.combinationRepeated");
     case "VARIANT_HAS_ORDERS": return t("productEditor.hasOrders");
     case "VARIANT_HAS_STOCK": return t("productEditor.hasStock");
-    case "INVALID_PRICE": case "INVALID_PRECISION": case "TOO_LONG": return message(issue, language);
+    case "INVALID_PRICE": return (issue.scope === "variant" || issue.scope === "newVariant") && issue.field === "salePrice" ? t("productEditor.priceInvalid") : message(issue, language);
+    case "INVALID_PRECISION": case "TOO_LONG": return message(issue, language);
     case "TOO_MANY_VARIANTS": return t("productEditor.tooManyVariants", { count: issue.maximum });
     case "TOO_MANY_PHOTOS": case "PHOTO_NOT_FOUND": case "DUPLICATE_PHOTO": return message(issue, language);
     case "OPTION_WITHOUT_VALUES": return t("productEditor.noValues");

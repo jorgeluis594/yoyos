@@ -14,7 +14,7 @@ const { isHome } = Astro.props;
 const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
 ---
 
-<header class="site-header">
+<header class:list={["site-header", { "on-kraft": isHome }]}>
   <div class="container bar">
     <a class="logo" href="/">
       <img src={logoLight.src} width={logoLight.width} height={logoLight.height} alt={headerContent.logoAlt} />
@@ -37,6 +37,7 @@ const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
           </ul>
         </nav>
         <div class="actions">
+          <div class="contact">
           <CtaLink href={whatsappUrl(siteConfig.whatsapp)} event="whatsapp_click" location="header" newTab>
             {ctaLabels.whatsapp}
           </CtaLink>
@@ -50,6 +51,7 @@ const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
             <Phone class="icon" aria-hidden="true" />
             {ctaLabels.call}
           </CtaLink>
+          </div>
           {siteConfig.appLoginUrl && (
             <CtaLink href={siteConfig.appLoginUrl} variant="quiet">{ctaLabels.login}</CtaLink>
           )}
@@ -99,6 +101,7 @@ const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
     font-weight: var(--text-label-weight);
     cursor: pointer;
     list-style: none;
+    margin-inline-start: auto;
   }
 
   summary::-webkit-details-marker {
@@ -197,5 +200,68 @@ const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
         align-items: center;
       }
     }
+
+    .actions .contact {
+      display: none;
+    }
+  }
+
+  .on-kraft {
+    border-block-end: 0;
+    background: var(--paper);
+    box-shadow: var(--shadow-paper);
+  }
+
+  .on-kraft .bar {
+    max-width: var(--hero-max-width);
+  }
+
+  @media (min-width: 64em) {
+    .on-kraft .logo img {
+      height: var(--space-12);
+    }
+
+    .on-kraft .panel {
+      padding-inline-start: var(--space-8);
+    }
+
+    .on-kraft nav ul {
+      gap: var(--space-8);
+    }
+
+    .on-kraft nav a {
+      font-size: var(--text-body-size);
+    }
+  }
+
+  .on-kraft nav a {
+    color: var(--kraft-ink);
+    font-weight: 600;
+  }
+
+  .on-kraft nav a:hover {
+    text-decoration: underline;
+    text-decoration-thickness: var(--focus-width);
+  }
+
+  .on-kraft .actions :global(.button.quiet) {
+    border-color: var(--kraft-ink);
+    border-radius: var(--radius-card);
+    background: transparent;
+    color: var(--kraft-ink);
+  }
+
+  .on-kraft .actions :global(.button.quiet:hover) {
+    background: var(--kraft-ink);
+    color: var(--paper);
+  }
+
+  .on-kraft :focus-visible {
+    outline-color: var(--kraft-ink);
+  }
+
+  .contact {
+    display: grid;
+    gap: var(--space-2);
   }
 </style>

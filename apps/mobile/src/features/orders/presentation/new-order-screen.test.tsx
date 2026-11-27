@@ -125,7 +125,7 @@ test("review preserves payment and shows one save action", async () => {
   expect(screen.getByText("Productos (referencial)")).toBeTruthy();
   expect(screen.getByLabelText("Pendiente")).toBeTruthy();
   advance(screen, "5");
-  expect(screen.getByLabelText("Pago parcial")).toBeTruthy();
+  expect(screen.getByLabelText(/^Pago parcial · falta S\/\s*5\.00$/)).toBeTruthy();
   expect(screen.getAllByRole("button", { name: "Guardar pedido" })).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
@@ -436,12 +436,14 @@ test("one save retains editable payments and delivery on rejection and prevents 
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  advance(screen, "5");
-  advance(screen, "13");
   fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Av. Lima 123");
   selectDistrict(screen);
   await screen.findByTestId("delivery-rate");
+  // The buyer's payment includes the shipping, and the rate is not chosen yet: the total is not final, so nothing is refused.
+  advance(screen, "5");
+  advance(screen, "13");
+  expect(screen.queryByText(/Este pago supera/)).toBeNull();
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
@@ -525,7 +527,8 @@ test("price conflict preserves creation fields and requires explicit selection o
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   let finishSettings: ((result: ReturnType<typeof ok<DeliverySettingsResponse>>) => void) | undefined;
   mockSettingsGet.mockImplementationOnce(() => new Promise(resolve => { finishSettings = resolve; }));
-  mockQuotation.mockResolvedValue(ok({ ...quotation, rates: [{ ...firstRate, id: mockId(35), price: { amount: 10, currency: "PEN" } }] }));
+  // Two rates: a single one would be selected without a click.
+  mockQuotation.mockResolvedValue(ok({ ...quotation, rates: [{ ...firstRate, id: mockId(35), price: { amount: 10, currency: "PEN" } }, { ...firstRate, id: mockId(36), price: { amount: 11, currency: "PEN" } }] }));
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await screen.findByText(/La tarifa cambió/);
   expect(screen.queryByTestId("delivery-rate")).toBeNull();
@@ -633,7 +636,7 @@ test("reselecting the same district generates new options and cannot revive an e
   expect(screen.queryByTestId("delivery-rate")).toBeNull();
   expect(screen.queryByText("Total")).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
-  await act(async () => { finish?.(ok({ ...quotation, rates: [{ ...firstRate, id: mockId(39) }] })); });
+  await act(async () => { finish?.(ok({ ...quotation, rates: [{ ...firstRate, id: mockId(39) }, { ...firstRate, id: mockId(40) }] })); });
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
@@ -760,4 +763,36 @@ test("a seller corrects a refused sale's missing references and payments; a repe
   await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" })); });
   expect(screen.getByText(/Se enviará sola/)).toBeTruthy();
   expect(mockCompleteOrder).not.toHaveBeenCalled();
+});
+
+test("a new-sale payment above what is left to collect shows the amount left and disables saving", async () => {
+  const { OrderPaymentCard } = jest.requireActual<typeof import("@mobile/features/orders/presentation/order-payment-card")>("@mobile/features/orders/presentation/order-payment-card");
+  const row = (n: number, amount: string) => ({ paymentId: mockId(n), amount, method: "bank_transfer" as const, deductStockIfPartial: false });
+  const screen = render(<OrderPaymentCard payments={[row(4, "40"), row(5, "20")]} total={55} totalConfirmed currency="PEN" busy={false}
+    format={amount => `S/ ${amount.toFixed(2)}`} onPaymentsChange={() => undefined} newId={() => mockId(6)} />);
+  expect(screen.getAllByText("Este pago supera lo que falta cobrar de la venta: S/ 15.00.")).toHaveLength(1);
+  expect(screen.queryByText(/Cobrado de más/)).toBeNull();
+});
+
+test("a sale refused for exceeding the total says the payments add up to more than the total", async () => {
+  mockCompleteOrder.mockResolvedValue(err({ code: "PAYMENT_EXCEEDS_BALANCE", message: "x", balanceDue: { amount: 5, currency: "PEN" } }));
+  const screen = await review();
+  payFull(screen);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  expect(await screen.findByText("Los pagos suman más que el total de la venta. Revisa los montos de los pagos.")).toBeTruthy();
+  expect(screen.queryByText(/No se pudo confirmar la venta/)).toBeNull();
+});
+
+test("a sale paid in full with shipping keeps the initial paid and estimated balance rows", async () => {
+  const screen = await review();
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
+  fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Av. Lima 123");
+  selectDistrict(screen);
+  await screen.findByTestId("delivery-rate");
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
+  advance(screen, "5");
+  advance(screen, "13");
+  expect(screen.getByText("Pagos ingresados")).toBeTruthy();
+  expect(screen.getByText("Saldo referencial")).toBeTruthy();
+  expect(screen.getAllByText(/S\/\s*18\.00/).length).toBeGreaterThan(0);
 });

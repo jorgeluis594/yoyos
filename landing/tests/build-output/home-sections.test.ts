@@ -6,50 +6,15 @@ const text = (node: HTMLElement | null | undefined): string => node?.text.replac
 
 const home = (variant: "minimal" | "full") => readPage(variant, "index.html");
 
-const heroAlt =
-  "Chat de WhatsApp con la foto de unas zapatillas que envió un cliente, junto al pedido #1004 que Yoyos armó con su total de S/ 179.00";
-
-const stepAlts = [
-  "Formulario Nuevo producto en Yoyos con nombre, descripción, SKU, precio de venta, foto y stock inicial",
-  "Configuración de entregas con recojo en tienda, entrega a domicilio y envío a agencia, y medios de cobro con Yape y su código QR",
-  "Pantalla de WhatsApp en la app de Yoyos con el código QR para escanear desde Dispositivos vinculados",
-  "Mensaje de WhatsApp con la foto de unas zapatillas y el pedido #1004 que Yoyos creó, con su total y el botón Registrar pago",
-  "Link del pedido para el cliente con sus datos, la forma de entrega, el pago con Yape y el comprobante por adjuntar",
-];
-
-const steps = [
-  ["Sube tus productos", "Agrega cada producto con su foto y su precio, desde la web o la app. La foto es la que Yoyos usa para reconocer el producto. Si quieres, imprime su etiqueta QR desde la app."],
-  ["Configura tus entregas y tus datos de pago", "Define tus zonas y precios de envío (a domicilio, por agencia Shalom u Olva o recojo en tienda) y agrega tus datos de Yape, Plin o transferencia."],
-  ["Vincula tu WhatsApp", "Abre la app de Yoyos en tu Android y escanea el QR con tu WhatsApp, desde Dispositivos vinculados, como en WhatsApp Web."],
-  ["Recibe pedidos", "Cuando tu cliente te manda la foto del producto, Yoyos arma el pedido. Tu cliente también puede comprar desde tu catálogo, que compartes en Instagram, TikTok o WhatsApp."],
-  ["Cobra y despacha", "Comparte el link del pedido con tu cliente: confirma sus datos, elige cómo recibirlo (a domicilio, en agencia Shalom u Olva o con recojo en tienda) y paga con Yape, Plin o transferencia subiendo su comprobante. Tú verificas el pago e imprimes el rótulo desde la app."],
-] as const;
-
-const features = [
-  ["Pedidos desde las fotos de WhatsApp.", "Cuando tu cliente te manda la foto del producto, Yoyos arma el pedido en ese chat."],
-  ["Búsqueda de productos por imagen o QR.", "¿Te mandaron una captura del live? Yoyos encuentra el producto en tu catálogo por su etiqueta QR o por la imagen."],
-  ["Catálogo para compartir.", "Un link con tus productos, buscador y carrito, listo para tu bio de Instagram o TikTok y tus estados de WhatsApp."],
-  ["Checkout con zonas y distritos.", "Defines tus zonas y precios de envío por departamento, provincia o distrito, y tu cliente ve el costo según dónde vive."],
-  ["Cobros con Yape, Plin o transferencia.", "Tu cliente ve tus datos de pago, sube su comprobante y tú lo verificas."],
-  ["Rótulos para tus envíos.", "Imprime los rótulos de tus envíos en lote desde la app. La guía la sigues sacando en la agencia."],
-] as const;
-
-const benefits = [
-  ["Menos tiempo copiando pedidos.", "Cuando tu cliente te manda la foto del producto, Yoyos arma el pedido."],
-  ["Menos errores en el envío.", "Tu cliente elige su departamento, provincia y distrito de una lista, y su agencia de destino. Nada de direcciones a medias."],
-  ["Cobros claros.", "Ves qué pedidos tienen pago reportado y cuáles ya verificaste."],
-  ["Tu marca en cada link.", "Catálogo y checkout con tu logo y tu color."],
-  ["En tu celular y en la compu.", "App para Android, iPhone próximamente, y versión web, con modo oscuro para tus lives de noche."],
-] as const;
-
 describe("hero", () => {
-  test("shows the eyebrow, H1, bajada, WhatsApp CTA, call link and microcopy literally", () => {
+  test("shows the H1, the lead, the three step labels, the price, the WhatsApp CTA and the call link literally", () => {
     const hero = home("full").querySelector("#inicio");
-    expect(text(hero?.querySelector(".pill-label"))).toBe("Hecho para vendedores de TikTok LIVE en Perú");
-    expect(text(hero?.querySelector("h1"))).toBe("Sistema de pedidos por WhatsApp para vendedores de TikTok LIVE");
+    expect(text(hero?.querySelector("h1"))).toBe("Del chat al paquete, sin copiar a mano.");
     expect(text(hero?.querySelector(".lead"))).toBe(
-      "Automatizamos las ventas por redes sociales: tus clientes te escriben por WhatsApp como siempre y, cuando te mandan la foto del producto, Yoyos arma el pedido para que dejes de copiar pedidos a mano. Tú vendes, nosotros operamos.",
+      "Para vendedores de TikTok LIVE: tu cliente te envía la foto por WhatsApp y Yoyos arma el pedido, con la entrega y el pago en un link.",
     );
+    expect(hero?.querySelectorAll("ol.flow > li").map(text)).toEqual(["Foto por WhatsApp", "Yoyos arma el pedido", "Link de entrega y pago"]);
+    expect(text(hero?.querySelector(".offer"))).toBe("S/ 50 al mes + IGV Sin comisión por venta.");
     const chat = hero?.querySelector('[data-event="whatsapp_click"]');
     expect(text(chat)).toBe("Escríbenos por WhatsApp");
     expect(chat?.getAttribute("data-location")).toBe("hero");
@@ -58,9 +23,7 @@ describe("hero", () => {
     expect(text(call)).toBe("¿Prefieres hablar? Llámanos");
     expect(call?.getAttribute("data-location")).toBe("hero");
     expect(call?.getAttribute("href")).toBe("tel:+51912345678");
-    expect(text(hero?.querySelector(".microcopy"))).toBe(
-      "Disponible para Android. iPhone próximamente. S/ 50 al mes + IGV, sin comisión por venta.",
-    );
+    expect(hero?.querySelectorAll("svg").every((icon) => icon.getAttribute("aria-hidden") === "true")).toBe(true);
   });
 
   test("shows «Agenda una demo» to #demo only when the demo form is enabled", () => {
@@ -74,15 +37,21 @@ describe("hero", () => {
     expect(demo?.getAttribute("data-location")).toBe("hero");
   });
 
-  test("renders the hero capture as an eager, high-priority AVIF and WebP picture named by the literal alt", () => {
+  test("renders the packed box as an eager, high-priority AVIF and WebP picture and names both photos by their literal alt", () => {
     const hero = home("minimal").querySelector("#inicio");
-    expect(hero?.querySelectorAll("picture source").map((source) => source.getAttribute("type"))).toEqual(["image/avif", "image/webp"]);
-    const img = hero?.querySelector("picture img");
-    expect(img?.getAttribute("alt")).toBe(heroAlt);
+    const [box, phone] = hero?.querySelectorAll("picture") ?? [];
+    expect(box?.querySelectorAll("source").map((source) => source.getAttribute("type"))).toEqual(["image/avif", "image/webp"]);
+    const img = box?.querySelector("img");
+    expect(img?.getAttribute("alt")).toBe(
+      "La zapatilla ya empacada en su caja, con el rótulo de Yoyos del pedido #1001: Zapatilla Negra Clásica, talla 42, S/ 179.00",
+    );
     expect(img?.getAttribute("fetchpriority")).toBe("high");
     expect(img?.getAttribute("loading")).toBe("eager");
     expect(img?.getAttribute("width")).toBeTruthy();
     expect(img?.getAttribute("height")).toBeTruthy();
+    expect(phone?.querySelector("img")?.getAttribute("alt")).toBe(
+      "Chat de WhatsApp donde un cliente envía la foto de una zapatilla negra y pregunta: «Hola, ¿tienen esta en talla 42?»",
+    );
     expect(hero?.querySelector('[role="img"]')).toBeNull();
   });
 
@@ -96,20 +65,6 @@ describe("hero", () => {
     const avif = home("minimal").querySelector('#inicio picture source[type="image/avif"]');
     expect(preload?.getAttribute("imagesrcset")).toBe(avif?.getAttribute("srcset"));
     expect(preload?.getAttribute("imagesizes")).toBe(avif?.getAttribute("sizes"));
-  });
-});
-
-describe("value strip", () => {
-  test("shows the three items and the closing sentence without a heading", () => {
-    const strip = home("minimal").querySelector('[data-section="value-strip"]');
-    expect(strip?.querySelectorAll("h2, h3")).toHaveLength(0);
-    expect(strip?.querySelectorAll("li").map((item) => [text(item.querySelector(".item-title")), text(item.querySelector(".item-text"))])).toEqual([
-      ["Te mandan la foto, Yoyos arma el pedido", "Tu cliente te manda la foto del producto por WhatsApp y Yoyos arma el pedido."],
-      ["Un link para cerrar la venta", "Compartes con tu cliente el link de su pedido: confirma sus datos, elige cómo recibirlo y paga desde su celular, sin crear cuenta."],
-      ["Despacho en orden", "Zonas de envío, agencias Shalom y Olva, recojo en tienda y rótulos para tus paquetes."],
-    ]);
-    expect(text(strip?.querySelector(".closing"))).toBe("Tú vendes, nosotros operamos.");
-    expect(strip?.querySelectorAll("svg").every((icon) => icon.getAttribute("aria-hidden") === "true")).toBe(true);
   });
 });
 
@@ -128,67 +83,38 @@ describe("problem", () => {
   });
 });
 
-describe("benefits", () => {
-  test("shows the H2, the bajada and the five cards", () => {
-    const section = home("minimal").querySelector("#beneficios");
-    expect(text(section?.querySelector("h2"))).toBe("Gestión de pedidos por WhatsApp sin copiar a mano");
-    expect(text(section?.querySelector(".lead"))).toBe("Vende en tu live y deja que Yoyos ordene lo demás.");
-    expect(section?.querySelectorAll("li").map((card) => [text(card.querySelector(".card-title")), text(card.querySelector(".card-text"))])).toEqual(
-      benefits.map(([title, body]) => [title, body]),
+describe("catalog", () => {
+  test("shows the H2, the lead, the five real themes by name and the checkout points on the tape", () => {
+    const section = home("minimal").querySelector("#catalogo");
+    expect(text(section?.querySelector("h2"))).toBe("Tu catálogo, con el estilo de tu marca");
+    expect(text(section?.querySelector(".head p"))).toBe(
+      "Un link con tus productos, buscador y carrito. Elige uno de cinco estilos y ponle tu logo.",
     );
-    expect(section?.querySelectorAll("h3")).toHaveLength(0);
-  });
-});
-
-describe("how it works", () => {
-  test("shows the H2 and five H3 steps in order with their text", () => {
-    const section = home("minimal").querySelector("#como-funciona");
-    expect(text(section?.querySelector("h2"))).toBe("Cómo funciona Yoyos en 5 pasos");
-    expect(section?.querySelectorAll("h3").map(text)).toEqual(steps.map(([title]) => title));
-    expect(section?.querySelectorAll("li").map((step) => text(step.querySelector(".card-text")))).toEqual(steps.map(([, body]) => body));
-  });
-
-  test("shows each step capture as a lazy picture with its literal alt and no provisional marker", () => {
-    const images = home("minimal").querySelectorAll("#como-funciona picture img");
-    expect(images.map((img) => img.getAttribute("alt"))).toEqual(stepAlts);
-    expect(images.every((img) => img.getAttribute("loading") === "lazy" && Boolean(img.getAttribute("width")) && Boolean(img.getAttribute("height")))).toBe(true);
-    expect(home("minimal").querySelector("#como-funciona")?.text).not.toContain("Imagen provisional");
-  });
-});
-
-describe("features", () => {
-  test("shows the H2 and six H3 cards in order with their text", () => {
-    const section = home("minimal").querySelector("#funciones");
-    expect(text(section?.querySelector("h2"))).toBe("Todo para vender por WhatsApp, Instagram y TikTok LIVE");
-    expect(section?.querySelectorAll("h3").map(text)).toEqual(features.map(([title]) => title));
-    expect(section?.querySelectorAll("li").map((card) => text(card.querySelector(".card-text")))).toEqual(features.map(([, body]) => body));
-  });
-
-  test("shows every feature capture as a lazy decorative picture because the content gives no alt", () => {
-    const section = home("minimal").querySelector("#funciones");
-    const images = section?.querySelectorAll("picture img") ?? [];
-    expect(images).toHaveLength(6);
-    for (const img of images) {
-      expect(img.getAttribute("alt")).toBe("");
-      expect(img.getAttribute("loading")).toBe("lazy");
-      expect(img.getAttribute("width")).toBeTruthy();
-    }
-    expect(section?.text).not.toContain("Imagen provisional");
+    expect(section?.querySelectorAll(".theme-name").map(text)).toEqual(["Clásico", "Boutique", "Antojo", "Suave", "Noche"]);
+    expect(section?.querySelectorAll("picture img").map((img) => img.getAttribute("alt"))).toEqual(
+      ["Clásico", "Boutique", "Antojo", "Suave", "Noche"].map(
+        (theme) => `Catálogo de la tienda demo Zapatillas Lima Store en el estilo ${theme}, con buscador y cuatro productos`,
+      ),
+    );
+    expect(section?.querySelectorAll("picture img").every((img) => img.getAttribute("loading") === "lazy")).toBe(true);
+    expect(section?.querySelectorAll(".checkout li").map(text)).toEqual([
+      "Tu cliente compra sin crear cuenta",
+      "Ve el envío según su distrito",
+      "Paga con Yape, Plin o transferencia",
+    ]);
   });
 });
 
 describe("home structure", () => {
-  const order = ["inicio", "problema", "beneficios", "como-funciona", "funciones"];
+  const order = ["inicio", "problema", "catalogo"];
 
   test("renders the anchors and H2 headings of the content structure in order", () => {
     const page = home("minimal");
     const sections = page.querySelectorAll("main > section").map((section) => section.getAttribute("id"));
     expect(sections.filter((id) => id && order.includes(id))).toEqual(order);
-    expect(page.querySelectorAll("main h2").map(text).slice(0, 4)).toEqual([
+    expect(page.querySelectorAll("main h2").map(text).slice(0, 2)).toEqual([
       "¿Terminó tu live y tu WhatsApp es un caos?",
-      "Gestión de pedidos por WhatsApp sin copiar a mano",
-      "Cómo funciona Yoyos en 5 pasos",
-      "Todo para vender por WhatsApp, Instagram y TikTok LIVE",
+      "Tu catálogo, con el estilo de tu marca",
     ]);
     expect(page.querySelectorAll("main h1")).toHaveLength(1);
   });
@@ -201,7 +127,7 @@ describe("home structure", () => {
 
   test("no screenshot is left as a provisional placeholder", () => {
     expect(home("minimal").querySelectorAll("main .screenshot.provisional")).toHaveLength(0);
-    expect(home("minimal").querySelectorAll("main .screenshot picture img")).toHaveLength(12);
+    expect(home("minimal").querySelectorAll("main .screenshot picture img")).toHaveLength(0);
     expect(home("minimal").text).not.toContain("Imagen provisional");
   });
 

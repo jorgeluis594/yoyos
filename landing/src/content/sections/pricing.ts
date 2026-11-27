@@ -1,10 +1,9 @@
 export const pricingContent = {
-  heading: "Un solo precio: S/ 50 al mes + IGV. Sin comisión por venta.",
+  heading: "Un solo precio: S/\u00a050 al mes\u00a0+\u00a0IGV. Sin comisión por venta.",
   planName: "Yoyos",
   price: "S/ 50",
   period: "/ mes + IGV",
   vatNote: "Los precios no incluyen IGV.",
-  subtext: "Suscripción mensual. Sin comisión por tus ventas y sin pagos únicos.",
   includesLabel: "Incluye",
   includes: [
     "Pedidos desde las fotos de WhatsApp",
@@ -16,5 +15,5 @@ export const pricingContent = {
     "Rótulos para tus envíos, impresos en lote desde la app",
     "App para Android (iPhone próximamente) y versión web",
   ],
-  microcopy: "En la demo te ayudamos a dejar Yoyos listo con tus productos.",
+  stamp: "Sin comisión",
 } as const;

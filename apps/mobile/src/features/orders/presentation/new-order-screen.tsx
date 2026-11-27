@@ -13,8 +13,8 @@ import { deliveryStatusLabel, orderLanguage } from "@mobile/features/orders/pres
 import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-print-review";
 import { DeliveryBadge, DeliveryRow, OptionSheet, deliveryRowSymbols, useShippingSummary } from "@mobile/features/orders/presentation/order-delivery-parts";
 import type { Result } from "@shared/result";
-import { add, subtract, type Money, type MoneyError } from "@shared/money";
-import { andThen, ok } from "@shared/functional";
+import { add, subtract, type Money } from "@shared/money";
+import { ok } from "@shared/functional";
 import { useEffect, useRef, useState } from "react";
 import { SymbolView } from "expo-symbols";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
@@ -33,7 +33,7 @@ import { Button } from "@mobile/components/ui/button";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
-import { addDraftItem, changeDraftQuantity, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, prepareOrder, removeDraftItem, type RatedDeliveryAssignment,
+import { addDraftItem, changeDraftQuantity, draftPaidAmount, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, prepareOrder, removeDraftItem, type RatedDeliveryAssignment,
   type OrderDraft } from "@mobile/features/orders/domain/order-draft";
 import type { ConfirmOrderOutcome, ConfirmOrderError } from "@mobile/features/orders/application/order-operations";
 import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-guard";
@@ -47,7 +47,7 @@ const errorKeys: Record<string, string> = {
   TOTAL_CHANGED: 'orderDeliveryPriceChanged', RATE_UNAVAILABLE: 'orderDeliveryRateUnavailable', INVALID_DELIVERY_RATE: 'orderDeliveryRateUnavailable', INVALID_DISTRICT: 'invalidHomeDestination',
   INSUFFICIENT_STOCK: 'insufficientStock', VARIANT_NOT_FOUND: 'variantNotFound',
   CURRENCY_MISMATCH: 'currencyMismatch',
-  INVALID_ORDER: 'invalidOrder', INVALID_PAYMENT: 'invalidOrder', PAYMENT_REQUIRED: 'immediateRequirements',
+  INVALID_ORDER: 'invalidOrder', PAYMENT_EXCEEDS_BALANCE: 'newSalePaymentsOverTotal', INVALID_PAYMENT: 'invalidOrder', PAYMENT_REQUIRED: 'immediateRequirements',
   DELIVERY_UNAVAILABLE: 'orderDeliveryUnavailable', DELIVERY_METHOD_DISABLED: 'orderDeliveryDisabled', PENDING_STORAGE_UNAVAILABLE: 'pendingStorageUnavailable',
   INVALID_PENDING_DATA: 'invalidPendingData', PENDING_CONFIRMATION: 'pendingConfirmation',
 };
@@ -128,11 +128,7 @@ function CompanyOrderScreen() {
     setInitialDelivery(current => current ? { ...current, rateId: "", agencyId: "", price: null } : null);
     setQuoteAttempt(value => value + 1);
   };
-  const paymentDraft = prepareOrder({ ...draft, ratedDelivery: undefined });
-  const paidAmount = paymentDraft.success ? (paymentDraft.data.request.payments ?? []).reduce(
-    (sum, payment) => andThen(sum, current => add(payment.amount)(current)),
-    ok({ amount: 0, currency: paymentDraft.data.shownTotal.currency }) as Result<Money, MoneyError>,
-  ) : null;
+  const paidAmount = draftPaidAmount(draft);
   const currency = productTotal.success ? productTotal.data.shownTotal.currency : "";
   const orderTotal = reviewedTotal?.success ? reviewedTotal.data : productTotal.success ? productTotal.data.shownTotal : null;
   const language = orderLanguage(state.status === "ready" ? state.company.country : "PE", i18n.language);
@@ -144,9 +140,9 @@ function CompanyOrderScreen() {
   const paymentNeedsStock = stockShort && !draft.deliverImmediately
     && paymentsDeductStock(draft.payments ?? [], initialDelivery ? (reviewedTotal?.success ? reviewedTotal.data : null) : orderTotal);
   const stockBlocked = stockShort && !!draft.deliverImmediately;
-  const balance = paidAmount?.success && reviewedTotal?.success ? subtract(paidAmount.data)(reviewedTotal.data) : null;
+  const balance = paidAmount && reviewedTotal?.success ? subtract(paidAmount)(reviewedTotal.data) : null;
   // Delivering on save needs at least one payment, partial or full.
-  const unpaidDelivery = !!draft.deliverImmediately && !!paidAmount?.success && paidAmount.data.amount === 0;
+  const unpaidDelivery = !!draft.deliverImmediately && paidAmount?.amount === 0;
   const saveBlocked = !prepared.success || !deliveryReady || offline || !!unavailableVariants.length || unpaidDelivery || stockBlocked;
   // Labels and shipping do not apply to store pickup; with home delivery or agency they wait for complete, rated shipping data.
   const dispatchApplies = initialDelivery?.method !== "store";
@@ -430,7 +426,7 @@ function CompanyOrderScreen() {
             {productTotal.success ? <View style={styles.amountRow}><ThemedText>{t('estimatedProductsLabel')}</ThemedText><ThemedText style={styles.amount}>{money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale)}</ThemedText></View> : null}
             {reviewedPrice && reviewedTotal?.success ? <><View style={styles.amountRow}><ThemedText>{t('delivery')}</ThemedText><ThemedText style={styles.amount}>{money(reviewedPrice.amount, reviewedPrice.currency, locale)}</ThemedText></View>
               <View style={styles.amountRow}><ThemedText>{t('totalLabel')}</ThemedText><ThemedText style={styles.amount}>{money(reviewedTotal.data.amount, reviewedTotal.data.currency, locale)}</ThemedText></View></> : null}
-            {paidAmount?.success ? <View style={styles.amountRow}><ThemedText>{t('initialPaid')}</ThemedText><ThemedText style={styles.amount}>{money(paidAmount.data.amount, paidAmount.data.currency, locale)}</ThemedText></View> : null}
+            {paidAmount ? <View style={styles.amountRow}><ThemedText>{t('initialPaid')}</ThemedText><ThemedText style={styles.amount}>{money(paidAmount.amount, paidAmount.currency, locale)}</ThemedText></View> : null}
             {balance?.success ? <View style={styles.amountRow}><ThemedText>{t('estimatedBalance')}</ThemedText><ThemedText style={styles.amount}>{money(Math.max(0, balance.data.amount), balance.data.currency, locale)}</ThemedText></View> : null}
             <ThemedText themeColor="textSecondary">{t('creationPriceHint')}</ThemedText>
             <Button disabled={saveBlocked || !!sending} loading={sending === "save"} onPress={() => void complete()}>{t(reviewingOrder ? 'saveReviewedOrder' : 'saveOrder')}</Button>

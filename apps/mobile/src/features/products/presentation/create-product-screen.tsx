@@ -126,7 +126,7 @@ export default function CreateProductScreen() {
       return;
     }
     setDirty(false);
-    router.replace({ pathname: "/products/[productId]", params: { productId: result.data } });
+    router.replace({ pathname: "/products/[productId]", params: { productId: result.data, created: "1" } });
   };
 
   return <ThemedView style={styles.page}><SafeAreaView edges={formEdges} style={styles.safe}>

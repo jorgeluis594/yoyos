@@ -56,7 +56,8 @@ export function OrderLinkCard({ state, link, pendingSave = false, review = null 
   return <Card role="region" aria-labelledby="order-link-title" className="min-w-0 max-xl:order-4">
     <CardHeader><CardTitle id="order-link-title">{t("orderLink.title")}</CardTitle></CardHeader>
     <CardContent className="flex flex-col gap-3">
-      {state && <p className="text-sm text-muted-foreground">{t(`orderLink.${state}`)}</p>}
+      {/* Without a store link there is nothing for the buyer to confirm yet: «Pendiente de confirmación» would hide what is missing. */}
+      {state && (cancelled || link.kind !== "subdomain_required") && <p className="text-sm text-muted-foreground">{t(`orderLink.${state}`)}</p>}
       {!cancelled && link.kind === "ready" && review?.gated && <GatedLink review={review} />}
       {!cancelled && link.kind === "ready" && !review?.gated && <>
         <div className="flex items-center gap-2">

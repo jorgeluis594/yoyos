@@ -18,6 +18,17 @@ const args = (url: string) => ({ request: new Request(url), context }) as Loader
 
 afterEach(() => vi.restoreAllMocks());
 
+function listHtml(i18n: ReturnType<typeof createInstance>, item: object) {
+  const router = createMemoryRouter([{ id: "orders", path: "/", element: createElement(OrderList), loader: () => null }], {
+    hydrationData: { loaderData: { orders: { list: { items: [item], page: 1, pageSize: 20, total: 1 },
+      filters: { customer: "all", page: 1 }, contacts: [], customerSearch: "", base: "/es-PE/orders" } } },
+  });
+  try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
+  finally { router.dispose(); }
+}
+/** The visible state lines of the first row: one per `li` of the status list. */
+const stateTexts = (html: string) => [...html.matchAll(/<li class="inline-flex[^>]*>(.*?)<\/li>/g)].map((match) => match[1].replace(/<[^>]*>/g, ""));
+
 test("filters sales by Lima calendar days, including the start and excluding the next midnight", async () => {
   const list = vi.spyOn(orders, "listAggregates").mockResolvedValue({ success: true, data: { items: [], page: 1, pageSize: 20, total: 0 } });
 
@@ -37,19 +48,19 @@ test("filters sales by Lima calendar days, including the start and excluding the
 });
 
 test.each([
-  ["active", "pending", "pending", /^Estado del pago: Pago pendiente: S\/\s10\.00 · Estado de la entrega: Entrega pendiente$/],
-  ["active", "paid", "pending", "Estado del pago: Pagada · Estado de la entrega: Entrega pendiente"],
-  ["active", "paid", "shipped", "Estado del pago: Pagada · Estado de la entrega: Enviada"],
-  ["active", "pending", "delivered", /^Estado del pago: Pago pendiente: S\/\s10\.00 · Estado de la entrega: Entregada$/],
-  ["cancelled", "pending", "pending", "Estado del pedido: Pedido cancelado"],
-  ["cancelled", "paid", "shipped", "Estado del pedido: Pedido cancelado"],
-  ["completed", "paid", "delivered", "Estado de la venta: Venta completada"],
-  ["completed", "paid", "delivered", "Estado de la venta: Venta completada", "es", "2020-01-01T12:00:00.000Z"],
-  ["active", "pending", "pending", /^Status do pagamento: Pagamento pendente: .*10.* · Status da entrega: Entrega pendente$/, "pt"],
-  ["active", "paid", "shipped", "Status do pagamento: Paga · Status da entrega: Enviada", "pt"],
-  ["cancelled", "pending", "pending", "Status do pedido: Pedido cancelado", "pt"],
-  ["completed", "paid", "delivered", "Status da venda: Venda concluída", "pt"],
-] as const)("renders %s orders with %s payment and %s delivery", async (status, paymentStatus, deliveryStatus, expected, language = "es", createdAt: string = "2026-09-28T12:00:00.000Z") => {
+  ["active", "pending", "pending", ["Pago pendiente", "Entrega pendiente"]],
+  ["active", "paid", "pending", ["Pagado", "Entrega pendiente"]],
+  ["active", "paid", "shipped", ["Pagado", "Enviada"]],
+  ["active", "pending", "delivered", ["Pago pendiente", "Entregada"]],
+  ["cancelled", "pending", "pending", ["Pedido cancelado"]],
+  ["cancelled", "paid", "shipped", ["Pedido cancelado"]],
+  ["completed", "paid", "delivered", ["Venta completada"]],
+  ["completed", "paid", "delivered", ["Venta completada"], "es", "2020-01-01T12:00:00.000Z"],
+  ["active", "pending", "pending", ["Pagamento pendente", "Entrega pendente"], "pt"],
+  ["active", "paid", "shipped", ["Pago", "Enviada"], "pt"],
+  ["cancelled", "pending", "pending", ["Pedido cancelado"], "pt"],
+  ["completed", "paid", "delivered", ["Venda concluída"], "pt"],
+] as const)("the list shows payment and delivery as text and the balance of a partial payment: %s orders with %s payment and %s delivery", async (status, paymentStatus, deliveryStatus, expected, language = "es", createdAt: string = "2026-09-28T12:00:00.000Z") => {
   const i18n = createInstance();
   await i18n.init({ lng: language, resources, interpolation: { escapeValue: false } });
   const item = { id: "sale", number: 1001, buyer: null, createdAt,
@@ -57,28 +68,25 @@ test.each([
     status, paymentStatus, deliveryStatus, total: { amount: 10, currency: "PEN" },
     checkoutEnabledAt: null, deliveredAt: status === "completed" ? createdAt : null,
     completedAt: status === "completed" ? createdAt : null };
-  const router = createMemoryRouter([{ id: "orders", path: "/", element: createElement(OrderList), loader: () => null }], {
-    hydrationData: { loaderData: { orders: { list: { items: [item], page: 1, pageSize: 20, total: 1 },
-      filters: { customer: "all", page: 1 }, contacts: [], customerSearch: "", base: "/es-PE/orders" } } },
-  });
-  try {
-    const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
-    const cell = (column: string) => html.match(new RegExp(`<td[^>]*data-column="${column}"[^>]*>(.*?)</td>`))?.[1].replace(/<[^>]*>/g, "");
-    expect(cell("createdAt")).toBeDefined();
-    expect(cell("createdAt")).not.toMatch(/Pago|Pagamento|Entrega|Cancelado|Completado|Concluído/);
-    expect(cell("itemCount")).toBe("5");
-    const name = html.match(/<summary[^>]*aria-label="([^"]*)"/)?.[1];
-    if (typeof expected === "string") expect(name).toBe(expected); else expect(name).toMatch(expected);
-    expect(html).not.toMatch(/Despachad|Entrega: /);
-    expect(cell("paymentStatus")).toBeUndefined();
-    expect(cell("deliveryStatus")).toBeUndefined();
-    expect(html.match(/<summary/g)).toHaveLength(1);
-    expect(html.includes("lucide-credit-card")).toBe(status === "active");
-  } finally {
-    router.dispose();
-  }
+  const html = listHtml(i18n, item);
+  const cell = (column: string) => html.match(new RegExp(`<td[^>]*data-column="${column}"[^>]*>(.*?)</td>`))?.[1].replace(/<[^>]*>/g, "");
+  expect(cell("createdAt")).toBeDefined();
+  expect(cell("createdAt")).not.toMatch(/Pago|Pagamento|Entrega|Cancelado|Completado|Concluído/);
+  expect(cell("itemCount")).toBe("5");
+  expect(stateTexts(html)).toEqual(expected);
+  expect(html).not.toMatch(/<summary|Despachad|Entrega: /);
+  expect(cell("paymentStatus")).toBeUndefined();
+  expect(cell("deliveryStatus")).toBeUndefined();
+  expect(html.includes("lucide-credit-card")).toBe(status === "active");
 });
 
+test("the list shows «Pago parcial · falta S/ 35.00» for S/ 20 paid of S/ 55 and «Entrega pendiente» as text", async () => {
+  const i18n = createInstance();
+  await i18n.init({ lng: "es", resources, interpolation: { escapeValue: false } });
+  const html = listHtml(i18n, { id: "sale", number: 1001, buyer: null, createdAt: "2026-09-28T12:00:00.000Z", itemCount: 1, balanceDue: { amount: 35, currency: "PEN" },
+    status: "active", paymentStatus: "pending", deliveryStatus: "pending", total: { amount: 55, currency: "PEN" }, checkoutEnabledAt: null, deliveredAt: null, completedAt: null });
+  expect(stateTexts(html).map((text) => text.replace(/\u00a0/g, " "))).toEqual(["Pago parcial · falta S/ 35.00", "Entrega pendiente"]);
+});
 
 test.each([["Ana", "unpaid"], ["+51999", "undelivered"], ["#1001", "all"]] as const)("forwards order search %s and %s view with date and customer filters", async (search, view) => {
   const list = vi.spyOn(orders, "listAggregates").mockResolvedValue({ success: true, data: { items: [], page: 2, pageSize: 20, total: 0 } });

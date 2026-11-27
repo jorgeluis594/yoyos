@@ -80,14 +80,6 @@
         },
         {
           "@type": "Question",
-          "name": "¿Cuánto cuesta?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "S/ 50 al mes + IGV. Es una suscripción mensual: no cobramos comisión por tus ventas ni hay pagos únicos. Escríbenos por WhatsApp y te mostramos cómo funciona con tus productos."
-          }
-        },
-        {
-          "@type": "Question",
           "name": "Hay herramientas gratis que hacen algo parecido.",
           "acceptedAnswer": {
             "@type": "Answer",
@@ -112,26 +104,10 @@
         },
         {
           "@type": "Question",
-          "name": "¿Sirve con Yape y Plin?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Sí. Puedes cobrar con Yape, Plin o transferencia bancaria. Tu cliente ve tus datos de pago en el link del pedido y sube su comprobante, y tú lo verificas."
-          }
-        },
-        {
-          "@type": "Question",
           "name": "¿Necesito una impresora especial para los rótulos?",
           "acceptedAnswer": {
             "@type": "Answer",
             "text": "Yoyos imprime en impresoras de etiquetas y estamos sumando más modelos. En la demo te decimos cuál te conviene."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "¿Funciona en iPhone?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Yoyos está disponible para Android y en la web, y la app para iPhone viene en camino."
           }
         },
         {

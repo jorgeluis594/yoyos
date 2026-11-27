@@ -22,6 +22,7 @@ import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettings, toDeliverySettingsResponse } from "@core/src/features/delivery-settings";
 import { parseRatedDeliverySelection, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { orders } from "@core/src/features/orders/composition";
+import { checkoutLinkOf } from "@core/src/features/orders/application/checkout-url";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
 import { toOrderReviewJson } from "@core/src/features/orders/presentation/order-review-json";
 import { orderDetailLoaderSchema, orderAggregateSchema, registerPaymentSchema } from "@shared/contracts/orders";
@@ -100,10 +101,15 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
 /** The link is built here from the company's current subdomain, so the page needs no request of its own to show it. A cancelled order has none. */
 async function orderLink(order: OrderAggregate, companyId: CompanyId, appearancePath: string): Promise<OrderLink> {
   if (order.cancelled || !order.checkoutEnabledAt) return { kind: "unavailable" };
-  const url = await orders.checkoutUrl(companyId, order.id);
-  if (url.success) return { kind: "ready", url: url.data };
-  if (url.error.code === "SUBDOMAIN_REQUIRED") return { kind: "subdomain_required", appearancePath };
-  log.error({ event: "order_checkout_link_unavailable", companyId, orderNumber: order.number, errorCode: url.error.code }, "Unable to build the order link");
+  const url = await orders.checkoutUrl(companyId, order.id).catch((cause: unknown) => {
+    log.error({ event: "order_checkout_link_unavailable", companyId, orderNumber: order.number, errorCode: "INTERNAL_ERROR", err: cause }, "Unable to build the order link");
+    return null;
+  });
+  // Which order shows which link lives in `checkoutLinkOf`, shared with GET /aggregate; «unknown» is this card's «unavailable».
+  const state = checkoutLinkOf(order, url);
+  if (state.kind === "ready") return state;
+  if (state.kind === "subdomain_required") return { kind: "subdomain_required", appearancePath };
+  if (url !== null && !url.success) log.error({ event: "order_checkout_link_unavailable", companyId, orderNumber: order.number, errorCode: url.error.code }, "Unable to build the order link");
   return { kind: "unavailable" };
 }
 
@@ -288,7 +294,7 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
       if (!parsed.success) return { url: null, success: false, error: "INVALID_INPUT" };
       const result = await orders.registerPayment({ ...parsed.data, orderId: id.data as OrderId,
         paymentId: parsed.data.paymentId as PaymentId }, seller);
-      if (!result.success) return { url: null, success: false, error: paymentErrorCode(result.error.code) };
+      if (!result.success) return { url: null, success: false, error: paymentErrorCode(result.error.code), ...(result.error.code === "PAYMENT_EXCEEDS_BALANCE" ? { balanceDue: result.error.balanceDue } : {}) };
       return { url: null, success: true, error: false, recorded: true, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order, result.data.stockDue)) };
     } catch (cause) {
       log.error({ event: "order_payment_request_failed", operation, orderId: id.data, userId: access.user.id, errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle payment decision");
@@ -396,7 +402,7 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
   const cancellation = rawAction && "operation" in rawAction && rawAction.operation === "cancellation" && rawAction.orderId === order.id ? rawAction : undefined;
   const actionData = rawAction && "operation" in rawAction && (rawAction.operation === "cancel" || rawAction.operation === "cancellation" || rawAction.operation === "save_changes") ? undefined : rawAction;
   const fulfillment = actionData && "operation" in actionData && (actionData.operation === "ship" || actionData.operation === "deliver") ? actionData : undefined;
-  const voidResult = useMemo<PaymentDecisionResult | undefined>(() => actionData && !("operation" in actionData) ? { success: actionData.success, error: actionData.error === false ? false : String(actionData.error) } : undefined, [actionData]);
+  const voidResult = useMemo<PaymentDecisionResult | undefined>(() => actionData && !("operation" in actionData) ? { success: actionData.success, error: actionData.error === false ? false : String(actionData.error), ...("balanceDue" in actionData ? { balanceDue: actionData.balanceDue } : {}) } : undefined, [actionData]);
   const cancellationState: CancellationUiState = navigation.state !== "idle" && navigation.formData?.get("operation") === "cancel"
     ? { kind: "submitting", orderId: order.id }
     : navigation.state !== "idle" && navigation.formData?.get("operation") === "check-cancellation" ? { kind: "verifying", orderId: order.id }

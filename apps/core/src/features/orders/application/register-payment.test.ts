@@ -15,10 +15,10 @@ const context = { companyId, userId: "seller" as UserId };
 const input = { orderId, paymentId: id(3) as PaymentId, amount: { amount: 10, currency: "PEN" as const },
   method: "digital_wallet" as const, deductStockIfPartial: false };
 
-function pendingOrder() {
+function pendingOrder(price = 10) {
   const built = buildPendingOrder({ number: 1001 as OrderNumber, id: orderId, companyId, sellerId: context.userId, customer: { kind: "general_public" },
     createdAt: new Date("2026-09-29T12:00:00Z"), items: [{ id: id(4) as OrderItemId, variantId: id(5) as VariantId,
-      productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 10, currency: "PEN" } }] });
+      productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: price, currency: "PEN" } }] });
   if (!built.success) throw new Error("Invalid test order");
   return built.data;
 }
@@ -89,4 +89,24 @@ test("a repeated approval publishes nothing and returns the current order", asyn
   expect(await registerPayment(input, context, replay.deps)).toMatchObject({ success: true, data: { order: { payments: [{ id: input.paymentId }] }, stockDue: { kind: "deducting" } } });
   expect(replay.events).toEqual([]);
   expect(replay.saved).toEqual([]);
+});
+
+test("rejects S/ 999 on a S/ 60 order and saves nothing", async () => {
+  const f = fixture({ kind: "not_due" }, pendingOrder(60));
+  expect(await registerPayment({ ...input, amount: { amount: 999, currency: "PEN" } }, context, f.deps)).toEqual({ success: false,
+    error: { code: "PAYMENT_EXCEEDS_BALANCE", message: "Payment exceeds the pending balance", balanceDue: { amount: 60, currency: "PEN" } } });
+  expect(f.saved).toEqual([]);
+  expect(f.events).toEqual([]);
+});
+
+test("rejects approving a buyer report for more than the balance and keeps the report", async () => {
+  const reported = { id: input.paymentId, orderId, status: "reported", currency: "PEN",
+    amount: null, method: null, data: { receiptImageId: id(6), reportedAt: new Date("2026-09-29T13:00:00Z") } } as unknown as Payment;
+  const f = fixture({ kind: "not_due" }, { ...pendingOrder(), payments: [reported] });
+  const updated: unknown[] = [];
+  const result = await registerPayment({ ...input, source: "buyer_report", amount: { amount: 999, currency: "PEN" } }, context,
+    { ...f.deps, updatePayment: async (payment) => { updated.push(payment); return ok(null); } });
+  expect(result).toMatchObject({ success: false, error: { code: "PAYMENT_EXCEEDS_BALANCE", balanceDue: { amount: 10, currency: "PEN" } } });
+  expect(updated).toEqual([]);
+  expect(f.saved).toEqual([]);
 });

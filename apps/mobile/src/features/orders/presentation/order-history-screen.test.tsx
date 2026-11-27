@@ -68,7 +68,7 @@ test("history moves between pages and opens the selected detail", async () => {
   const summary = (number: number) => ({ number: 1000 + number, id: `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`,
     buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-28T12:00:00.000Z", deliveredAt: null, completedAt: null,
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false,
-    total: { amount: number, currency: "PEN" } });
+    total: { amount: number, currency: "PEN" }, balanceDue: { amount: number, currency: "PEN" } });
   mockLoadOrders.mockImplementation(async ({ page }: { page: number }) => ok({
     items: page === 1 ? Array.from({ length: 20 }, (_, index) => summary(index + 1)) : [summary(21)],
     page, pageSize: 20, total: 21,
@@ -114,7 +114,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   const stale: ListResult = outcome === "error" ? err({ code: "NETWORK_ERROR", message: "Offline" }) : ok({
     items: [{ number: 1001, id: "old", sellerId: "seller", source: "manual", buyer: { contactId: "contact", name: "Venta anterior", phone: "999999999" }, toReview: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
       createdAt: "2026-09-28T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
-      deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" } }], page: 1, pageSize: 20, total: 80,
+      deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" }, balanceDue: { amount: 10, currency: "PEN" } }], page: 1, pageSize: 20, total: 80,
   });
   await act(async () => { requests[0](stale); });
   expect(screen.getByText("Cargando pedidos")).toBeTruthy();
@@ -124,7 +124,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   await act(async () => { requests[2](ok({
     items: [{ number: 1002, id: "latest", sellerId: "seller", source: "manual", buyer: null, toReview: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T12:00:00.000Z",
       deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false,
-      total: { amount: 20, currency: "PEN" } }],
+      total: { amount: 20, currency: "PEN" }, balanceDue: { amount: 20, currency: "PEN" } }],
     page: 1, pageSize: 20, total: 1,
   })); });
   await act(async () => { requests[1](stale); });
@@ -149,7 +149,7 @@ test("history distinguishes checkout states and preserves numbers beyond 9999", 
   ];
   mockLoadOrders.mockResolvedValue(ok({ page: 1, pageSize: 20, total: 7, items: states.map((state) => ({
     ...state, id: String(state.number), buyer: null, createdAt: date, completedAt: null,
-    paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" },
+    paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" }, balanceDue: { amount: 10, currency: "PEN" },
   })) }));
   const screen = render(<OrderHistoryScreen />);
   await screen.findByText(/#10000 ·/);
@@ -185,7 +185,7 @@ test("search and task filters query all orders and remain selected after clearin
 
 const dispatchOrder = (number: number) => ({ number: 1000 + number, id: `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`, buyer: null, source: "manual",
   checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: number === 1 ? "2026-10-20" : null, courier: number <= 2 ? { id: "00000000-0000-4000-8000-0000000000c1", name: "Olva" } : null, shippedAt: null, createdAt: "2026-09-28T12:00:00.000Z",
-  deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: number, currency: "PEN" } });
+  deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: number, currency: "PEN" }, balanceDue: { amount: number, currency: "PEN" } });
 const pagedOrders = () => mockLoadOrders.mockImplementation(async ({ page }: { page: number }) => ok({
   items: page === 1 ? Array.from({ length: 20 }, (_, index) => dispatchOrder(index + 1)) : [dispatchOrder(21)], page, pageSize: 20, total: 21 }));
 
@@ -276,7 +276,7 @@ describe("WhatsApp orders", () => {
   const summary = (id: string, buyer: { contactId: null; name: string | null; phone: string | null } | null, source: "manual" | "whatsapp") => ({
     id, number: 1001, source, buyer, sellerId: "seller", createdAt: date, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, checkoutEnabledAt: null,
     checkoutConfirmedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false,
-    total: { amount: 10, currency: "PEN" } });
+    total: { amount: 10, currency: "PEN" }, balanceDue: { amount: 10, currency: "PEN" } });
   const load = (...items: ReturnType<typeof summary>[]) => mockLoadOrders.mockResolvedValue(ok({ page: 1, pageSize: 20, total: items.length, items }));
 
   test("shows the WhatsApp icon with the accessible label \"WhatsApp\" for chat orders", async () => {
@@ -324,7 +324,7 @@ test("the history list shows «Por revisar»", async () => {
   ];
   mockLoadOrders.mockResolvedValue(ok({ page: 1, pageSize: 20, total: 4, items: states.map((state) => ({
     ...state, id: String(state.number), buyer: null, createdAt: date, completedAt: null, checkoutEnabledAt: date, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
-    paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" },
+    paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" }, balanceDue: { amount: 10, currency: "PEN" },
   })) }));
   const screen = render(<OrderHistoryScreen />);
   await screen.findByText(/#2001 ·/);
@@ -333,4 +333,26 @@ test("the history list shows «Por revisar»", async () => {
   await i18n.changeLanguage("pt-BR");
   try { screen.rerender(<OrderHistoryScreen />); expect(await screen.findByText("Para revisar")).toBeTruthy(); }
   finally { await i18n.changeLanguage("es"); }
+});
+
+const rowOf = (paymentStatus: "pending" | "paid", total: number, balance: number) => ({ ...dispatchOrder(1), scheduledDispatchDate: null, courier: null, paymentStatus, total: { amount: total, currency: "PEN" },
+  balanceDue: { amount: balance, currency: "PEN" } });
+
+test("a partially paid order reads «Pago parcial · falta S/ 60.00» in the list", async () => {
+  mockLoadOrders.mockResolvedValue(ok({ items: [rowOf("pending", 90, 60)], page: 1, pageSize: 20, total: 1 }));
+  const screen = render(<OrderHistoryScreen />);
+  expect(await screen.findByText(/^Pago parcial · falta S\/\s*60\.00$/)).toBeTruthy();
+  expect(screen.queryByText("Pago pendiente")).toBeNull();
+});
+
+test("an order with no payment reads «Pago pendiente» in the list", async () => {
+  mockLoadOrders.mockResolvedValue(ok({ items: [rowOf("pending", 90, 90)], page: 1, pageSize: 20, total: 1 }));
+  const screen = render(<OrderHistoryScreen />);
+  expect(await screen.findByText("Pago pendiente")).toBeTruthy();
+});
+
+test("a paid order reads «Pagado» in the list", async () => {
+  mockLoadOrders.mockResolvedValue(ok({ items: [rowOf("paid", 90, 0)], page: 1, pageSize: 20, total: 1 }));
+  const screen = render(<OrderHistoryScreen />);
+  expect(await screen.findByText("Pagado")).toBeTruthy();
 });

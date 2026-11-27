@@ -11,10 +11,10 @@ import type { PaymentFormat } from "@core/src/features/orders/presentation/payme
 
 type Order = OrderAggregateResponse;
 
-/** The status labels of the header: «Venta completada» or «Pedido cancelado» alone, or the payment and the delivery. The balance stays out; the sales list shows it. */
+/** The status labels of the header: «Venta completada» or «Pedido cancelado» alone, or the payment (with the balance when partial) and the delivery, worded as in the list and the card. */
 function HeaderLabels({ order }: Readonly<{ order: Order }>) {
   const { t, i18n } = useTranslation();
-  const labels = orderStatusLabels({ ...order, balanceDue: { amount: 0, currency: order.total.currency } }, t, i18n.language);
+  const labels = orderStatusLabels(order, t, i18n.language);
   return <ul className="flex flex-wrap items-center gap-2">{labels.map((label) => <li key={label.kind}>
     <span role="group" aria-label={label.name} className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium"><OrderStatusIcon label={label} />{label.text}</span>
   </li>)}</ul>;
